@@ -1,0 +1,36 @@
+name: proport_app
+description: "A mobile career development and portfolio builder application."
+publish_to: 'none'
+
+version: 1.0.0+1
+
+environment:
+  sdk: ^3.11.5
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+  cupertino_icons: ^1.0.8
+  image_picker: ^1.2.2
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+
+  flutter_lints: ^6.0.0
+  flutter_launcher_icons: ^0.14.4
+
+flutter:
+  uses-material-design: true
+
+  assets:
+    - assets/images/proport_logo.png
+
+flutter_launcher_icons:
+  android: true
+  ios: false
+  image_path: "assets/images/proport_logo.png"
+  adaptive_icon_background: "#0E1C26"
+  adaptive_icon_foreground: "assets/images/proport_logo.png"
+  min_sdk_android: 21
