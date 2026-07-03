@@ -1,7 +1,11 @@
+// LOCATION: lib/screens/auth/login_screen.dart
+
 import 'package:flutter/material.dart';
+import 'package:google_fonts/google_fonts.dart';
 import '../../constants/app_colors.dart';
 import '../main_screen.dart';
 import 'signup_screen.dart';
+import 'widgets/auth_text_field.dart';
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
@@ -10,236 +14,292 @@ class LoginScreen extends StatefulWidget {
   State<LoginScreen> createState() => _LoginScreenState();
 }
 
-class _LoginScreenState extends State<LoginScreen> {
-  final emailController = TextEditingController();
-  final passwordController = TextEditingController();
+class _LoginScreenState extends State<LoginScreen>
+    with SingleTickerProviderStateMixin {
+  final _emailCtrl    = TextEditingController();
+  final _passwordCtrl = TextEditingController();
+  bool  _isLoading    = false;
 
-  bool isPasswordHidden = true;
+  // Wireframe colours
+  static const Color _bg         = Color(0xFFDBE9EE);
+  static const Color _cardColor  = Color(0xFF1B6D8C);
+  static const Color _btnColor   = Color(0xFF5BB8D4);
+  static const Color _titleBold  = Color(0xFF166088);
+  static const Color _titleLight = Color(0xFF4A6FA5);
+
+  late final AnimationController _fadeCtrl;
+  late final Animation<double>   _fadeAnim;
+
+  @override
+  void initState() {
+    super.initState();
+    _fadeCtrl = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 380),
+    );
+    _fadeAnim = CurvedAnimation(
+      parent: _fadeCtrl,
+      curve: Curves.easeOut,
+    );
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _fadeCtrl.forward();
+    });
+  }
 
   @override
   void dispose() {
-    emailController.dispose();
-    passwordController.dispose();
+    _emailCtrl.dispose();
+    _passwordCtrl.dispose();
+    _fadeCtrl.dispose();
     super.dispose();
   }
 
-  void loginUser() {
-    final email = emailController.text.trim();
-    final password = passwordController.text.trim();
-
-    if (email.isEmpty || password.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Please enter your email and password.'),
-        ),
-      );
+  // DEVELOPMENT ONLY — mock auth; replace with real service in Capstone 2
+  Future<void> _loginUser() async {
+    if (_emailCtrl.text.trim().isEmpty) {
+      _showError('Please enter your email.');
       return;
     }
-
+    if (_passwordCtrl.text.trim().isEmpty) {
+      _showError('Please enter your password.');
+      return;
+    }
+    setState(() => _isLoading = true);
+    await Future.delayed(const Duration(milliseconds: 600));
+    if (!mounted) return;
+    setState(() => _isLoading = false);
     Navigator.pushReplacement(
       context,
-      MaterialPageRoute(builder: (_) => const MainScreen()),
+      PageRouteBuilder(
+        transitionDuration: const Duration(milliseconds: 400),
+        pageBuilder:        (_, __, ___) => const MainScreen(),
+        transitionsBuilder: (_, anim, __, child) =>
+            FadeTransition(opacity: anim, child: child),
+      ),
     );
+  }
+
+  void _showError(String msg) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context)
+      ..clearSnackBars()
+      ..showSnackBar(SnackBar(
+        content: Text(msg,
+            style: GoogleFonts.poppins(fontSize: 12, color: Colors.white)),
+        backgroundColor: _cardColor,
+        behavior:        SnackBarBehavior.floating,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
+        margin:   const EdgeInsets.fromLTRB(16, 0, 16, 16),
+        duration: const Duration(seconds: 3),
+      ));
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: AppColors.background,
+      backgroundColor: _bg,
       body: SafeArea(
-        child: SingleChildScrollView(
-          padding: const EdgeInsets.symmetric(horizontal: 28, vertical: 32),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              const SizedBox(height: 36),
-
-              Center(
-                child: Image.asset(
-                  'assets/images/proport_logo.png',
-                  width: 105,
-                  height: 105,
-                  fit: BoxFit.contain,
-                ),
+        child: FadeTransition(
+          opacity: _fadeAnim,
+          // SingleChildScrollView so the keyboard never causes overflow on
+          // tiny devices; ConstrainedBox + Center handles vertical centering
+          // when content is shorter than the available height.
+          child: SingleChildScrollView(
+            physics: const ClampingScrollPhysics(),
+            child: ConstrainedBox(
+              constraints: BoxConstraints(
+                minHeight: MediaQuery.of(context).size.height -
+                    MediaQuery.of(context).padding.top -
+                    MediaQuery.of(context).padding.bottom,
               ),
-
-              const SizedBox(height: 28),
-
-              const Center(
-                child: Text(
-                  'Log In',
-                  style: TextStyle(
-                    color: AppColors.textPrimary,
-                    fontSize: 34,
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-              ),
-
-              const SizedBox(height: 8),
-
-              const Center(
-                child: Text(
-                  'Welcome back to ProPort',
-                  style: TextStyle(
-                    color: AppColors.textSecondary,
-                    fontSize: 15,
-                  ),
-                ),
-              ),
-
-              const SizedBox(height: 42),
-
-              const Text(
-                'Email',
-                style: TextStyle(
-                  color: AppColors.textPrimary,
-                  fontSize: 14,
-                  fontWeight: FontWeight.w600,
-                ),
-              ),
-
-              const SizedBox(height: 8),
-
-              TextField(
-                controller: emailController,
-                keyboardType: TextInputType.emailAddress,
-                style: const TextStyle(color: AppColors.black),
-                decoration: InputDecoration(
-                  hintText: 'Enter your email',
-                  hintStyle: const TextStyle(color: Colors.grey),
-                  prefixIcon: const Icon(
-                    Icons.email_outlined,
-                    color: Colors.grey,
-                  ),
-                  filled: true,
-                  fillColor: AppColors.white,
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(14),
-                    borderSide: BorderSide.none,
-                  ),
-                ),
-              ),
-
-              const SizedBox(height: 20),
-
-              const Text(
-                'Password',
-                style: TextStyle(
-                  color: AppColors.textPrimary,
-                  fontSize: 14,
-                  fontWeight: FontWeight.w600,
-                ),
-              ),
-
-              const SizedBox(height: 8),
-
-              TextField(
-                controller: passwordController,
-                obscureText: isPasswordHidden,
-                style: const TextStyle(color: AppColors.black),
-                decoration: InputDecoration(
-                  hintText: 'Enter your password',
-                  hintStyle: const TextStyle(color: Colors.grey),
-                  prefixIcon: const Icon(
-                    Icons.lock_outline,
-                    color: Colors.grey,
-                  ),
-                  suffixIcon: IconButton(
-                    onPressed: () {
-                      setState(() {
-                        isPasswordHidden = !isPasswordHidden;
-                      });
-                    },
-                    icon: Icon(
-                      isPasswordHidden
-                          ? Icons.visibility_off_outlined
-                          : Icons.visibility_outlined,
-                      color: Colors.grey,
-                    ),
-                  ),
-                  filled: true,
-                  fillColor: AppColors.white,
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(14),
-                    borderSide: BorderSide.none,
-                  ),
-                ),
-              ),
-
-              const SizedBox(height: 12),
-
-              Align(
-                alignment: Alignment.centerRight,
-                child: TextButton(
-                  onPressed: () {},
-                  child: const Text(
-                    'Forgot Password?',
-                    style: TextStyle(
-                      color: AppColors.textSecondary,
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
-                ),
-              ),
-
-              const SizedBox(height: 22),
-
-              SizedBox(
-                width: double.infinity,
-                height: 54,
-                child: ElevatedButton(
-                  onPressed: loginUser,
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: AppColors.input,
-                    foregroundColor: AppColors.white,
-                    elevation: 0,
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(14),
-                    ),
-                  ),
-                  child: const Text(
-                    'Log In',
-                    style: TextStyle(
-                      fontSize: 16,
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                ),
-              ),
-
-              const SizedBox(height: 26),
-
-              Row(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  const Text(
-                    "Don't have an account?",
-                    style: TextStyle(
-                      color: AppColors.textSecondary,
-                    ),
-                  ),
-                  TextButton(
-                    onPressed: () {
-                      Navigator.push(
-                        context,
-                        MaterialPageRoute(
-                          builder: (_) => const SignupScreen(),
+              child: IntrinsicHeight(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.center,
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    // ── Title ─────────────────────────────────────
+                    RichText(
+                      text: TextSpan(children: [
+                        TextSpan(
+                          text: 'Log ',
+                          style: GoogleFonts.poppins(
+                            fontSize: 28,
+                            fontWeight: FontWeight.w700,
+                            color: _titleBold,
+                          ),
                         ),
-                      );
-                    },
-                    child: const Text(
-                      'Sign Up',
-                      style: TextStyle(
-                        color: AppColors.white,
-                        fontWeight: FontWeight.bold,
-                      ),
+                        TextSpan(
+                          text: 'In',
+                          style: GoogleFonts.poppins(
+                            fontSize: 28,
+                            fontWeight: FontWeight.w400,
+                            color: _titleLight,
+                          ),
+                        ),
+                      ]),
+                    ),
+
+                    const SizedBox(height: 18),
+
+                    // ── Card — 20px side margins ───────────────────
+                    Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 20),
+                      child: _buildCard(),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildCard() {
+    return Container(
+      width: double.infinity,
+      decoration: BoxDecoration(
+        color:        _cardColor,
+        borderRadius: BorderRadius.circular(8),
+        // No shadow — wireframe card is flat
+      ),
+      padding: const EdgeInsets.fromLTRB(14, 14, 14, 14),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          // Email label + field
+          _fieldLabel('Email'),
+          const SizedBox(height: 4),
+          AuthTextField(
+            controller:    _emailCtrl,
+            keyboardType:  TextInputType.emailAddress,
+            textInputAction: TextInputAction.next,
+            autofillHints: const [AutofillHints.email],
+          ),
+
+          const SizedBox(height: 10),
+
+          // Password label + field
+          _fieldLabel('Password'),
+          const SizedBox(height: 4),
+          AuthTextField(
+            controller:    _passwordCtrl,
+            obscureText:   true,
+            textInputAction: TextInputAction.done,
+            onSubmitted:   (_) => _loginUser(),
+            autofillHints: const [AutofillHints.password],
+          ),
+
+          const SizedBox(height: 12),
+
+          // Login button
+          _actionButton(
+            label:     'Login',
+            isLoading: _isLoading,
+            onTap:     _loginUser,
+          ),
+
+          const SizedBox(height: 8),
+
+          // Forgot password
+          Center(
+            child: GestureDetector(
+              onTap: () {}, // TODO: forgot password
+              child: Text(
+                'Forgot password?',
+                style: GoogleFonts.poppins(
+                  fontSize: 11,
+                  fontWeight: FontWeight.w400,
+                  color: Colors.white,
+                ),
+              ),
+            ),
+          ),
+
+          const SizedBox(height: 8),
+
+          // Don't have an account? Sign Up
+          Center(
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  "Don't have an account? ",
+                  style: GoogleFonts.poppins(
+                    fontSize: 11,
+                    fontWeight: FontWeight.w400,
+                    color: Colors.white,
+                  ),
+                ),
+                GestureDetector(
+                  onTap: () => Navigator.push(
+                    context,
+                    PageRouteBuilder(
+                      transitionDuration: const Duration(milliseconds: 300),
+                      pageBuilder:        (_, __, ___) => const SignupScreen(),
+                      transitionsBuilder: (_, anim, __, child) =>
+                          FadeTransition(opacity: anim, child: child),
                     ),
                   ),
-                ],
-              ),
-            ],
+                  child: Text(
+                    'Sign Up',
+                    style: GoogleFonts.poppins(
+                      fontSize: 11,
+                      fontWeight: FontWeight.w700,
+                      color: Colors.white,
+                    ),
+                  ),
+                ),
+              ],
+            ),
           ),
+        ],
+      ),
+    );
+  }
+
+  Widget _fieldLabel(String text) => Text(
+        text,
+        style: GoogleFonts.poppins(
+          fontSize: 12,
+          fontWeight: FontWeight.w400,
+          color: Colors.white,
+        ),
+      );
+
+  Widget _actionButton({
+    required String label,
+    required bool isLoading,
+    required VoidCallback onTap,
+  }) {
+    return GestureDetector(
+      onTap: isLoading ? null : onTap,
+      child: Container(
+        width:  double.infinity,
+        height: 36,
+        decoration: BoxDecoration(
+          color:        _btnColor,
+          borderRadius: BorderRadius.circular(4),
+        ),
+        child: Center(
+          child: isLoading
+              ? const SizedBox(
+                  width: 16, height: 16,
+                  child: CircularProgressIndicator(
+                    strokeWidth: 2,
+                    valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                  ),
+                )
+              : Text(
+                  label,
+                  style: GoogleFonts.poppins(
+                    fontSize: 14,
+                    fontWeight: FontWeight.w600,
+                    color:     Colors.white,
+                  ),
+                ),
         ),
       ),
     );

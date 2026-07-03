@@ -1,5 +1,7 @@
-import 'dart:async';
+// LOCATION: lib/screens/auth/splash_screen.dart
+
 import 'package:flutter/material.dart';
+import 'package:google_fonts/google_fonts.dart';
 import '../../constants/app_colors.dart';
 import 'login_screen.dart';
 
@@ -12,110 +14,58 @@ class SplashScreen extends StatefulWidget {
 
 class _SplashScreenState extends State<SplashScreen>
     with SingleTickerProviderStateMixin {
-  late AnimationController _controller;
-  late Animation<double> _fadeAnimation;
-  late Animation<double> _scaleAnimation;
-  late Animation<double> _progressAnimation;
-
-  bool _logoPrecached = false;
+  late final AnimationController _ctrl;
+  late final Animation<double> _logoScale;
+  late final Animation<double> _logoFade;
+  late final Animation<double> _textFade;
+  late final Animation<double> _lineFade;
 
   @override
   void initState() {
     super.initState();
-
-    _controller = AnimationController(
+    _ctrl = AnimationController(
       vsync: this,
-      duration: const Duration(milliseconds: 2200),
+      duration: const Duration(milliseconds: 1200),
     );
 
-    _fadeAnimation = Tween<double>(begin: 0, end: 1).animate(
+    _logoScale = Tween<double>(begin: 0.72, end: 1.0).animate(
       CurvedAnimation(
-        parent: _controller,
-        curve: const Interval(
-          0.0,
-          0.45,
-          curve: Curves.easeIn,
-        ),
+        parent: _ctrl,
+        curve: const Interval(0.0, 0.50, curve: Curves.easeOutBack),
+      ),
+    );
+    _logoFade = Tween<double>(begin: 0.0, end: 1.0).animate(
+      CurvedAnimation(
+        parent: _ctrl,
+        curve: const Interval(0.0, 0.40, curve: Curves.easeOut),
+      ),
+    );
+    _textFade = Tween<double>(begin: 0.0, end: 1.0).animate(
+      CurvedAnimation(
+        parent: _ctrl,
+        curve: const Interval(0.35, 0.65, curve: Curves.easeOut),
+      ),
+    );
+    _lineFade = Tween<double>(begin: 0.0, end: 1.0).animate(
+      CurvedAnimation(
+        parent: _ctrl,
+        curve: const Interval(0.55, 0.90, curve: Curves.easeOut),
       ),
     );
 
-    _scaleAnimation = Tween<double>(begin: 0.88, end: 1).animate(
-      CurvedAnimation(
-        parent: _controller,
-        curve: Curves.easeOutCubic,
-      ),
-    );
+    _ctrl.forward();
 
-    _progressAnimation = Tween<double>(begin: 0, end: 1).animate(
-      CurvedAnimation(
-        parent: _controller,
-        curve: const Interval(
-          0.25,
-          1.0,
-          curve: Curves.easeInOutCubic,
-        ),
-      ),
-    );
-  }
-
-  @override
-  void didChangeDependencies() {
-    super.didChangeDependencies();
-
-    if (!_logoPrecached) {
-      precacheImage(
-        const AssetImage('assets/images/proport_logo.png'),
-        context,
-      );
-
-      _logoPrecached = true;
-      _startSplashAnimation();
-    }
-  }
-
-  void _startSplashAnimation() {
-    _controller.forward();
-
-    Timer(const Duration(milliseconds: 2600), () {
+    Future.delayed(const Duration(milliseconds: 2000), () {
       if (!mounted) return;
-
       Navigator.pushReplacement(
         context,
         PageRouteBuilder(
-          transitionDuration: const Duration(milliseconds: 740),
-          reverseTransitionDuration: const Duration(milliseconds: 500),
-          pageBuilder: (context, animation, secondaryAnimation) {
-            return const LoginScreen();
-          },
-          transitionsBuilder: (context, animation, secondaryAnimation, child) {
-            final slideAnimation = Tween<Offset>(
-              begin: const Offset(0, 0.18),
-              end: Offset.zero,
-            ).animate(
-              CurvedAnimation(
-                parent: animation,
-                curve: Curves.easeInOutCubic,
-              ),
-            );
-
-            final fadeAnimation = Tween<double>(
-              begin: 0,
-              end: 1,
-            ).animate(
-              CurvedAnimation(
-                parent: animation,
-                curve: Curves.easeInOut,
-              ),
-            );
-
-            return FadeTransition(
-              opacity: fadeAnimation,
-              child: SlideTransition(
-                position: slideAnimation,
-                child: child,
-              ),
-            );
-          },
+          transitionDuration: const Duration(milliseconds: 450),
+          pageBuilder: (_, __, ___) => const LoginScreen(),
+          transitionsBuilder: (_, anim, __, child) => FadeTransition(
+            opacity: CurvedAnimation(parent: anim, curve: Curves.easeOut),
+            child: child,
+          ),
         ),
       );
     });
@@ -123,87 +73,75 @@ class _SplashScreenState extends State<SplashScreen>
 
   @override
   void dispose() {
-    _controller.dispose();
+    _ctrl.dispose();
     super.dispose();
-  }
-
-  Widget _buildLoadingBar() {
-    return Column(
-      children: [
-        Container(
-          width: 185,
-          height: 8,
-          decoration: BoxDecoration(
-            color: AppColors.surface,
-            borderRadius: BorderRadius.circular(30),
-            border: Border.all(
-              color: AppColors.border,
-              width: 1,
-            ),
-          ),
-          child: ClipRRect(
-            borderRadius: BorderRadius.circular(30),
-            child: AnimatedBuilder(
-              animation: _progressAnimation,
-              builder: (context, child) {
-                return Align(
-                  alignment: Alignment.centerLeft,
-                  child: FractionallySizedBox(
-                    widthFactor: _progressAnimation.value,
-                    child: Container(
-                      decoration: BoxDecoration(
-                        color: AppColors.white,
-                        borderRadius: BorderRadius.circular(30),
-                      ),
-                    ),
-                  ),
-                );
-              },
-            ),
-          ),
-        ),
-        const SizedBox(height: 10),
-        
-      ],
-    );
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: AppColors.background,
+      backgroundColor: const Color(0xFFDBE9EE),
       body: Center(
-        child: FadeTransition(
-          opacity: _fadeAnimation,
-          child: ScaleTransition(
-            scale: _scaleAnimation,
-            child: RepaintBoundary(
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Image.asset(
-                    'assets/images/proport_logo.png',
-                    width: 140,
-                    height: 140,
-                    fit: BoxFit.contain,
-                  ),
-                  const SizedBox(height: 24),
-                  const Text(
-                    'ProPort',
-                    style: TextStyle(
-                      color: AppColors.textPrimary,
-                      fontSize: 32,
-                      fontWeight: FontWeight.bold,
-                      letterSpacing: 0.5,
-                    ),
-                  ),
-                  const SizedBox(height: 8),
-                  const SizedBox(height: 32),
-                  _buildLoadingBar(),
-                ],
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            // ── Logo — large, ~50% of narrower screens ────────────
+            ScaleTransition(
+              scale: _logoScale,
+              child: FadeTransition(
+                opacity: _logoFade,
+                child: Image.asset(
+                  'assets/images/proport_logo.png',
+                  width:  160,
+                  height: 160,
+                  fit: BoxFit.contain,
+                ),
               ),
             ),
-          ),
+
+            const SizedBox(height: 10),
+
+            // ── "GradPort" wordmark ────────────────────────────────
+            FadeTransition(
+              opacity: _textFade,
+              child: RichText(
+                text: TextSpan(children: [
+                  TextSpan(
+                    text: 'Grad',
+                    style: GoogleFonts.poppins(
+                      fontSize: 22,
+                      fontWeight: FontWeight.w700,
+                      color: AppColors.primary,
+                    ),
+                  ),
+                  TextSpan(
+                    text: 'Port',
+                    style: GoogleFonts.poppins(
+                      fontSize: 22,
+                      fontWeight: FontWeight.w400,
+                      color: AppColors.neutral,
+                    ),
+                  ),
+                ]),
+              ),
+            ),
+
+            const SizedBox(height: 10),
+
+            // ── Short teal divider line — matches wireframe ────────
+            // No spinner. No tagline.
+            FadeTransition(
+              opacity: _lineFade,
+              child: Container(
+                width:  80,
+                height: 2.5,
+                decoration: BoxDecoration(
+                  color:        AppColors.primary,
+                  borderRadius: BorderRadius.circular(2),
+                ),
+              ),
+            ),
+          ],
         ),
       ),
     );

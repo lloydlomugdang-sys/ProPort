@@ -1,154 +1,206 @@
+// LOCATION: lib/screens/home/home_screen.dart
+// CHANGE: Generate Portfolio button now navigates to PortfolioInfoScreen.
+
 import 'package:flutter/material.dart';
+import 'package:google_fonts/google_fonts.dart';
 import '../../constants/app_colors.dart';
+import '../../constants/app_text_styles.dart';
+import '../../widgets/grad_app_bar.dart';
+import '../../widgets/section_header.dart';
+import '../../widgets/tracker_row.dart';
+import '../../widgets/file_count_row.dart';
+import '../../widgets/stat_card.dart';
+import '../../widgets/primary_button.dart';
+import '../portfolio/portfolio_info_screen.dart';
 
-class HomeScreen extends StatelessWidget {
-  final VoidCallback? onOpenPortfolio;
-  final VoidCallback? onOpenCareer;
-  final VoidCallback? onOpenFiles;
+class HomeScreen extends StatefulWidget {
+  const HomeScreen({super.key});
 
-  const HomeScreen({
-    super.key,
-    this.onOpenPortfolio,
-    this.onOpenCareer,
-    this.onOpenFiles,
-  });
+  @override
+  State<HomeScreen> createState() => _HomeScreenState();
+}
 
-  Widget _statCard({
-    required IconData icon,
-    required String value,
-    required String label,
-  }) {
-    return Expanded(
-      child: Container(
-        padding: const EdgeInsets.symmetric(vertical: 18, horizontal: 10),
-        decoration: BoxDecoration(
-          color: AppColors.card,
-          borderRadius: BorderRadius.circular(18),
-          border: Border.all(color: AppColors.border),
-        ),
-        child: Column(
-          children: [
-            Icon(icon, color: AppColors.white, size: 24),
-            const SizedBox(height: 10),
-            Text(
-              value,
-              style: const TextStyle(
-                color: AppColors.white,
-                fontSize: 26,
-                fontWeight: FontWeight.bold,
-              ),
-            ),
-            const SizedBox(height: 4),
-            Text(
-              label,
-              textAlign: TextAlign.center,
-              style: const TextStyle(
-                color: AppColors.textSecondary,
-                fontSize: 13,
-              ),
-            ),
-          ],
-        ),
-      ),
+class _HomeScreenState extends State<HomeScreen>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _entranceCtrl;
+  late final Animation<double> _fadeAnim;
+  late final Animation<Offset> _slideAnim;
+
+  final String _userName   = 'John Dela Cruz';
+  final String _degree     = 'BS Information Technology';
+  final String _year       = '3rd year';
+  final int    _totalFiles = 43;
+
+  final List<_TrackerItem> _trackerItems = [
+    _TrackerItem('Curriculum Vitae',  TrackerStatus.none),
+    _TrackerItem('Scholastic Record', TrackerStatus.complete),
+    _TrackerItem('College Report',    TrackerStatus.incomplete),
+  ];
+
+  final List<_FileCountItem> _uploadedFiles = [
+    _FileCountItem('Creative Titles',     0),
+    _FileCountItem('Certificates',       11),
+    _FileCountItem('Accomplishments',    30),
+    _FileCountItem('Other Achievements',  2),
+  ];
+
+  @override
+  void initState() {
+    super.initState();
+    _entranceCtrl = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 480),
     );
+    _fadeAnim = CurvedAnimation(
+      parent: _entranceCtrl,
+      curve: const Interval(0.0, 0.7, curve: Curves.easeOut),
+    );
+    _slideAnim = Tween<Offset>(
+      begin: const Offset(0, 0.06),
+      end: Offset.zero,
+    ).animate(CurvedAnimation(
+      parent: _entranceCtrl,
+      curve: const Interval(0.0, 1.0, curve: Curves.easeOutCubic),
+    ));
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _entranceCtrl.forward();
+    });
   }
 
-  Widget _quickActionCard({
-    required IconData icon,
-    required String title,
-    required VoidCallback onTap,
-  }) {
-    return Expanded(
-      child: InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(18),
-        child: Container(
-          height: 105,
-          decoration: BoxDecoration(
-            color: AppColors.surface,
-            borderRadius: BorderRadius.circular(18),
-            border: Border.all(color: AppColors.border),
-          ),
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Icon(icon, color: AppColors.white, size: 28),
-              const SizedBox(height: 12),
-              Text(
-                title,
-                textAlign: TextAlign.center,
-                style: const TextStyle(
-                  color: AppColors.white,
-                  fontSize: 14,
-                  fontWeight: FontWeight.bold,
+  @override
+  void dispose() {
+    _entranceCtrl.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: AppColors.background,
+      appBar: const GradAppBar(title: 'Dashboard'),
+      // FIX: FadeTransition and SlideTransition were wrapping the
+      // SingleChildScrollView, which caused the scroll view to inherit a
+      // bounded height from the transition widget. On small screens this
+      // meant the scroll view's internal content (663px+) could not scroll
+      // freely, producing a 17px RenderFlex overflow.
+      // Solution: move both transitions INSIDE the scroll view so the
+      // scroll view itself always fills the full body height unconstrained.
+      body: SingleChildScrollView(
+        physics: const BouncingScrollPhysics(),
+        padding: EdgeInsets.fromLTRB(
+  20,
+  20,
+  20,
+  60 + MediaQuery.of(context).padding.bottom,
+),
+        child: FadeTransition(
+          opacity: _fadeAnim,
+          child: SlideTransition(
+            position: _slideAnim,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                _buildUserCard(),
+                const SizedBox(height: 20),
+                StatCard(
+                  label: 'Total Files',
+                  value: _totalFiles.toString(),
+                  icon: Icons.folder_copy_rounded,
                 ),
-              ),
-            ],
+                const SizedBox(height: 24),
+                const SectionHeader(title: 'Portfolio Tracker'),
+                const SizedBox(height: 10),
+                _buildPortfolioTracker(),
+                const SizedBox(height: 24),
+                const SectionHeader(title: 'Uploaded Files'),
+                const SizedBox(height: 10),
+                _buildUploadedFiles(),
+                const SizedBox(height: 28),
+                // ── Generate Portfolio → navigates to PortfolioInfoScreen ──
+                PrimaryButton(
+                  label: 'Generate Portfolio',
+                  icon: Icons.auto_awesome_rounded,
+                  onPressed: _onGeneratePortfolio,
+                  height: 54,
+                ),
+              ],
+            ),
           ),
         ),
       ),
     );
   }
 
-  Widget _taskCard({
-    required bool isDone,
-    required String title,
-    required String subtitle,
-    required String date,
-  }) {
+  // ── Navigate to the Generate Portfolio workflow ───────────────────────────
+  void _onGeneratePortfolio() {
+    Navigator.push(
+      context,
+      PageRouteBuilder(
+        transitionDuration: const Duration(milliseconds: 380),
+        pageBuilder: (_, __, ___) => const PortfolioInfoScreen(),
+        transitionsBuilder: (_, anim, __, child) => FadeTransition(
+          opacity: CurvedAnimation(parent: anim, curve: Curves.easeOut),
+          child: SlideTransition(
+            position: Tween<Offset>(
+              begin: const Offset(0, 0.05),
+              end: Offset.zero,
+            ).animate(CurvedAnimation(
+                parent: anim, curve: Curves.easeOutCubic)),
+            child: child,
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildUserCard() {
     return Container(
-      margin: const EdgeInsets.only(bottom: 12),
-      padding: const EdgeInsets.all(14),
+      padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: AppColors.card,
-        borderRadius: BorderRadius.circular(18),
-        border: Border.all(color: AppColors.border),
+        color: AppColors.cardBackground,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: AppColors.cardBorder),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.04),
+            blurRadius: 8,
+            offset: const Offset(0, 2),
+          ),
+        ],
       ),
       child: Row(
         children: [
           Container(
-            width: 42,
-            height: 42,
+            width: 56,
+            height: 56,
             decoration: BoxDecoration(
-              color: isDone ? AppColors.success : AppColors.input,
-              borderRadius: BorderRadius.circular(14),
+              color: AppColors.primary.withValues(alpha: 0.12),
+              shape: BoxShape.circle,
+              border: Border.all(
+                color: AppColors.primary.withValues(alpha: 0.25),
+                width: 2,
+              ),
             ),
-            child: Icon(
-              isDone ? Icons.check : Icons.schedule,
-              color: AppColors.white,
-              size: 22,
-            ),
+            child: const Icon(Icons.person_rounded,
+                color: AppColors.primary, size: 30),
           ),
           const SizedBox(width: 14),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
+                Text(_userName, style: AppTextStyles.h3),
+                const SizedBox(height: 2),
+                Text(_degree, style: AppTextStyles.bodySmall),
+                const SizedBox(height: 1),
                 Text(
-                  title,
-                  style: const TextStyle(
-                    color: AppColors.white,
-                    fontSize: 16,
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-                const SizedBox(height: 3),
-                Text(
-                  subtitle,
-                  style: const TextStyle(
-                    color: AppColors.textSecondary,
-                    fontSize: 13,
+                  _year,
+                  style: AppTextStyles.labelSmall.copyWith(
+                    color: AppColors.primary,
+                    fontWeight: FontWeight.w600,
                   ),
                 ),
               ],
-            ),
-          ),
-          Text(
-            date,
-            style: const TextStyle(
-              color: AppColors.textMuted,
-              fontSize: 12,
-              fontWeight: FontWeight.w600,
             ),
           ),
         ],
@@ -156,332 +208,98 @@ class HomeScreen extends StatelessWidget {
     );
   }
 
-  Widget _projectPreviewCard({
-    required String title,
-    required String tools,
-  }) {
-    return Expanded(
-      child: Container(
-        padding: const EdgeInsets.all(12),
-        decoration: BoxDecoration(
-          color: AppColors.card,
-          borderRadius: BorderRadius.circular(18),
-          border: Border.all(color: AppColors.border),
-        ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Container(
-              height: 110,
-              decoration: BoxDecoration(
-                color: const Color(0xFFB8CDD1),
-                borderRadius: BorderRadius.circular(14),
-              ),
-            ),
-            const SizedBox(height: 12),
-            Text(
-              title,
-              style: const TextStyle(
-                color: AppColors.white,
-                fontSize: 14,
-                fontWeight: FontWeight.bold,
-              ),
-            ),
-            const SizedBox(height: 4),
-            Text(
-              tools,
-              style: const TextStyle(
-                color: AppColors.textSecondary,
-                fontSize: 12,
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  @override
-  Widget build(BuildContext context) {
+  Widget _buildPortfolioTracker() {
     return Container(
-      color: AppColors.background,
-      child: SafeArea(
-        child: SingleChildScrollView(
-          padding: const EdgeInsets.fromLTRB(22, 22, 22, 110),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              // HEADER
-              Row(
-                crossAxisAlignment: CrossAxisAlignment.center,
-                children: [
-                  Container(
-                    width: 62,
-                    height: 62,
-                    decoration: BoxDecoration(
-                      color: AppColors.card,
-                      borderRadius: BorderRadius.circular(20),
-                      border: Border.all(color: AppColors.border),
-                    ),
-                    child: const Icon(
-                      Icons.person,
-                      color: AppColors.white,
-                      size: 34,
-                    ),
-                  ),
-                  const SizedBox(width: 14),
-                  const Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          'Hello, User',
-                          style: TextStyle(
-                            color: AppColors.white,
-                            fontSize: 22,
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
-                        SizedBox(height: 4),
-                        Text(
-                          'Build your career-ready portfolio.',
-                          style: TextStyle(
-                            color: AppColors.textSecondary,
-                            fontSize: 14,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ],
-              ),
-
-              const SizedBox(height: 24),
-
-              // CAREER READINESS
-              Container(
-                width: double.infinity,
-                padding: const EdgeInsets.all(20),
-                decoration: BoxDecoration(
-                  color: AppColors.surface,
-                  borderRadius: BorderRadius.circular(24),
-                  border: Border.all(color: AppColors.border),
-                ),
-                child: const Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      children: [
-                        Expanded(
-                          child: Text(
-                            'Career Readiness',
-                            style: TextStyle(
-                              color: AppColors.white,
-                              fontSize: 18,
-                              fontWeight: FontWeight.bold,
-                            ),
-                          ),
-                        ),
-                        Text(
-                          '100%',
-                          style: TextStyle(
-                            color: AppColors.white,
-                            fontSize: 18,
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
-                      ],
-                    ),
-                    SizedBox(height: 12),
-                    Text(
-                      'Your portfolio profile is almost ready for career opportunities.',
-                      style: TextStyle(
-                        color: AppColors.textSecondary,
-                        fontSize: 14,
-                        height: 1.4,
-                      ),
-                    ),
-                    SizedBox(height: 16),
-                    ClipRRect(
-                      borderRadius: BorderRadius.all(Radius.circular(30)),
-                      child: LinearProgressIndicator(
-                        value: 1.0,
-                        minHeight: 10,
-                        backgroundColor: AppColors.darkTeal,
-                        color: AppColors.white,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-
-              const SizedBox(height: 20),
-
-              // STATS
-              Row(
-                children: [
-                  _statCard(
-                    icon: Icons.star_outline,
-                    value: '10',
-                    label: 'Skills',
-                  ),
-                  const SizedBox(width: 10),
-                  _statCard(
-                    icon: Icons.badge_outlined,
-                    value: '5',
-                    label: 'Certificates',
-                  ),
-                  const SizedBox(width: 10),
-                  _statCard(
-                    icon: Icons.emoji_events_outlined,
-                    value: '3',
-                    label: 'Achievements',
-                  ),
-                ],
-              ),
-
-              const SizedBox(height: 28),
-
-              // QUICK ACTIONS
-              const Text(
-                'Quick Actions',
-                style: TextStyle(
-                  color: AppColors.white,
-                  fontSize: 18,
-                  fontWeight: FontWeight.bold,
-                ),
-              ),
-
-              const SizedBox(height: 14),
-
-              Row(
-                children: [
-                  _quickActionCard(
-                    icon: Icons.add_box_outlined,
-                    title: 'Add Project',
-                    onTap: () {
-                      onOpenPortfolio?.call();
-                    },
-                  ),
-                  const SizedBox(width: 10),
-                  _quickActionCard(
-                    icon: Icons.task_alt_outlined,
-                    title: 'Add Task',
-                    onTap: () {
-                      onOpenCareer?.call();
-                    },
-                  ),
-                  const SizedBox(width: 10),
-                  _quickActionCard(
-                    icon: Icons.upload_file_outlined,
-                    title: 'Upload File',
-                    onTap: () {
-                      onOpenFiles?.call();
-                    },
-                  ),
-                ],
-              ),
-
-              const SizedBox(height: 28),
-
-              // TASKS
-              Row(
-                children: [
-                  const Expanded(
-                    child: Text(
-                      'Tasks',
-                      style: TextStyle(
-                        color: AppColors.white,
-                        fontSize: 18,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                  ),
-                  TextButton(
-                    onPressed: () {
-                      onOpenCareer?.call();
-                    },
-                    child: const Text(
-                      'View all',
-                      style: TextStyle(
-                        color: AppColors.textSecondary,
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-
-              const SizedBox(height: 10),
-
-              _taskCard(
-                isDone: true,
-                title: 'Update portfolio profile',
-                subtitle: 'Profile Setup',
-                date: 'May 5',
-              ),
-              _taskCard(
-                isDone: false,
-                title: 'Upload resume document',
-                subtitle: 'Documents',
-                date: 'May 10',
-              ),
-              _taskCard(
-                isDone: false,
-                title: 'Add capstone project',
-                subtitle: 'Portfolio',
-                date: 'May 15',
-              ),
-
-              const SizedBox(height: 24),
-
-              // PORTFOLIO PREVIEW
-              Row(
-                children: [
-                  const Expanded(
-                    child: Text(
-                      'Portfolio Preview',
-                      style: TextStyle(
-                        color: AppColors.white,
-                        fontSize: 18,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                  ),
-                  TextButton(
-                    onPressed: () {
-                      onOpenPortfolio?.call();
-                    },
-                    child: const Text(
-                      'View all',
-                      style: TextStyle(
-                        color: AppColors.textSecondary,
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-
-              const SizedBox(height: 14),
-
-              Row(
-                children: [
-                  _projectPreviewCard(
-                    title: 'Career Portfolio App',
-                    tools: 'Flutter • UI Design',
-                  ),
-                  const SizedBox(width: 12),
-                  _projectPreviewCard(
-                    title: 'Resume Builder',
-                    tools: 'Figma • Mobile UI',
-                  ),
-                ],
-              ),
-            ],
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+      decoration: BoxDecoration(
+        color: AppColors.cardBackground,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: AppColors.cardBorder),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.03),
+            blurRadius: 6,
+            offset: const Offset(0, 2),
           ),
-        ),
+        ],
+      ),
+      child: Column(
+        children: _trackerItems.asMap().entries.map((entry) {
+          final idx  = entry.key;
+          final item = entry.value;
+          return Column(
+            children: [
+              TrackerRow(
+                label: item.label,
+                status: item.status,
+                onTap: () => _showSnack('Opened: ${item.label}'),
+              ),
+              if (idx < _trackerItems.length - 1)
+                const Divider(height: 1, color: AppColors.divider),
+            ],
+          );
+        }).toList(),
       ),
     );
   }
+
+  Widget _buildUploadedFiles() {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+      decoration: BoxDecoration(
+        color: AppColors.cardBackground,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: AppColors.cardBorder),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.03),
+            blurRadius: 6,
+            offset: const Offset(0, 2),
+          ),
+        ],
+      ),
+      child: Column(
+        children: _uploadedFiles.asMap().entries.map((entry) {
+          final idx  = entry.key;
+          final item = entry.value;
+          return Column(
+            children: [
+              FileCountRow(
+                label: item.label,
+                count: item.count,
+                onTap: () => _showSnack('Opened: ${item.label}'),
+              ),
+              if (idx < _uploadedFiles.length - 1)
+                const Divider(height: 1, color: AppColors.divider),
+            ],
+          );
+        }).toList(),
+      ),
+    );
+  }
+
+  void _showSnack(String msg) {
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+      content: Text(msg,
+          style: GoogleFonts.poppins(fontSize: 13, color: Colors.white)),
+      backgroundColor: AppColors.primary,
+      behavior: SnackBarBehavior.floating,
+      shape:
+          RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+      margin: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+      duration: const Duration(seconds: 1),
+    ));
+  }
+}
+
+class _TrackerItem {
+  const _TrackerItem(this.label, this.status);
+  final String label;
+  final TrackerStatus status;
+}
+
+class _FileCountItem {
+  const _FileCountItem(this.label, this.count);
+  final String label;
+  final int count;
 }
