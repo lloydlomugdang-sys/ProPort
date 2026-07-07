@@ -19,33 +19,47 @@ class SearchBarField extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      height: 46,
+      height: 42,
       decoration: BoxDecoration(
-        color: AppColors.inputFill,
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: AppColors.inputBorder),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.04),
-            blurRadius: 4,
-            offset: const Offset(0, 2),
-          ),
-        ],
+        color: const Color(0xFFE6EEF3),
+        borderRadius: BorderRadius.circular(10),
       ),
       child: TextField(
         controller: controller,
         onChanged: onChanged,
         style: GoogleFonts.poppins(
-            fontSize: 14, color: AppColors.textPrimary),
+          fontSize: 13,
+          color: AppColors.textPrimary,
+        ),
+        textAlignVertical: TextAlignVertical.center,
         decoration: InputDecoration(
-          hintText: hintText,
-          hintStyle: GoogleFonts.poppins(
-              fontSize: 14, color: AppColors.textMuted),
-          prefixIcon: const Icon(Icons.search_rounded,
-              color: AppColors.textMuted, size: 20),
           border: InputBorder.none,
-          contentPadding: const EdgeInsets.symmetric(
-              horizontal: 12, vertical: 13),
+          enabledBorder: InputBorder.none,
+          focusedBorder: InputBorder.none,
+
+          hintText: hintText,
+
+          hintStyle: GoogleFonts.poppins(
+            fontSize: 13,
+            color: AppColors.textMuted,
+          ),
+
+          prefixIcon: const Icon(
+            Icons.search,
+            size: 19,
+            color: Color(0xFF3A4A5A),
+          ),
+
+          prefixIconConstraints: const BoxConstraints(
+            minWidth: 42,
+            minHeight: 42,
+          ),
+
+          contentPadding: const EdgeInsets.only(
+            top: 9,
+            bottom: 9,
+            right: 12,
+          ),
         ),
       ),
     );

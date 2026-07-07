@@ -41,7 +41,7 @@ class _HelpCenterScreenState extends State<HelpCenterScreen> {
       category: 'Files',
       question: 'What file types are supported for upload?',
       answer:
-          'GradPort currently supports PDF, JPG, JPEG, and PNG files. Additional file formats such as DOCX and XLSX will be added in future updates.',
+          'GradPort currently supports PDF, JPG, JPEG, DOCX and PNG files. Additional file formats will be added in future updates.',
     ),
     _Faq(
       category: 'Files',
@@ -71,7 +71,7 @@ class _HelpCenterScreenState extends State<HelpCenterScreen> {
       category: 'OCR',
       question: 'What is OCR and how does it work in GradPort?',
       answer:
-          'OCR (Optical Character Recognition) lets GradPort automatically extract text from scanned documents and images. Tap the Add (+) button and select "Scan Document (OCR)" to use this feature. OCR is powered by Google ML Kit.',
+          'OCR (Optical Character Recognition) lets GradPort automatically extract text from scanned documents and images. OCR is powered by Google ML Kit.',
     ),
     _Faq(
       category: 'OCR',

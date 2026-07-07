@@ -22,7 +22,7 @@ class GradBottomNavBar extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      height: 72,
+      height: 72 + MediaQuery.of(context).padding.bottom,
       decoration: BoxDecoration(
         color: AppColors.navBackground,
         boxShadow: [
@@ -56,8 +56,9 @@ class GradBottomNavBar extends StatelessWidget {
               child: GestureDetector(
                 onTap: onAddTapped,
                 child: Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
+  mainAxisSize: MainAxisSize.min,
+  mainAxisAlignment: MainAxisAlignment.center,
+  children: [
                     Container(
                       width: 48,
                       height: 48,

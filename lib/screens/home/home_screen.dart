@@ -1,5 +1,4 @@
 // LOCATION: lib/screens/home/home_screen.dart
-// CHANGE: Generate Portfolio button now navigates to PortfolioInfoScreen.
 
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
@@ -87,12 +86,7 @@ class _HomeScreenState extends State<HomeScreen>
       // scroll view itself always fills the full body height unconstrained.
       body: SingleChildScrollView(
         physics: const BouncingScrollPhysics(),
-        padding: EdgeInsets.fromLTRB(
-  20,
-  20,
-  20,
-  60 + MediaQuery.of(context).padding.bottom,
-),
+        padding: const EdgeInsets.fromLTRB(22, 22, 22, 110),
         child: FadeTransition(
           opacity: _fadeAnim,
           child: SlideTransition(
@@ -119,7 +113,6 @@ class _HomeScreenState extends State<HomeScreen>
                 // ── Generate Portfolio → navigates to PortfolioInfoScreen ──
                 PrimaryButton(
                   label: 'Generate Portfolio',
-                  icon: Icons.auto_awesome_rounded,
                   onPressed: _onGeneratePortfolio,
                   height: 54,
                 ),

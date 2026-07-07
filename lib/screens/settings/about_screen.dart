@@ -211,7 +211,7 @@ class _AboutScreenState extends State<AboutScreen>
           ),
           const SizedBox(height: 8),
           Text(
-            'GradPort is a mobile career development and portfolio builder designed for college students. It helps students organise their academic documents, track career milestones, and generate professional portfolios — all from their smartphones.',
+            'GradPort is a mobile portfolio tracker designed for CICS students. It helps students organise their academic documents, track career milestones, and generate professional portfolios — all from their smartphones.',
             style: GoogleFonts.poppins(
               fontSize: 13,
               color: AppColors.textSecondary,
@@ -324,13 +324,7 @@ class _AboutScreenState extends State<AboutScreen>
             'Maintain your academic profile with name, program, year level, and school details.',
         color: Color(0xFF388E3C),
       ),
-      _Feature(
-        icon: Icons.smart_toy_rounded,
-        title: 'AI Feedback',
-        description:
-            'Receive AI-powered feedback on your documents via Gemini API integration.',
-        color: Color(0xFFF57C00),
-      ),
+     
       _Feature(
         icon: Icons.track_changes_rounded,
         title: 'Career Tracking',
@@ -430,7 +424,7 @@ class _AboutScreenState extends State<AboutScreen>
           ),
           const SizedBox(height: 12),
           Text(
-            'GradPort was developed as a capstone project by computer science students dedicated to making career portfolio building accessible for every college student.',
+            'GradPort was developed as a capstone project by BSIT students dedicated to making career portfolio tracker accessible for every CICS students.',
             style: GoogleFonts.poppins(
               fontSize: 13,
               color: AppColors.textSecondary,

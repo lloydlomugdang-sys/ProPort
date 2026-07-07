@@ -25,12 +25,15 @@ class ViewFilesScreen extends StatefulWidget {
 
 class _ViewFilesScreenState extends State<ViewFilesScreen> {
   final _searchCtrl = TextEditingController();
-  String _query      = '';
-  String _filter     = 'All';
-  bool   _showSearch = false;
+
+  String _query = '';
+  String _filter = 'All';
 
   static const List<String> _filterOptions = [
-    'All', 'Images', 'PDFs', 'Other',
+    'All',
+    'Images',
+    'PDFs',
+    'Other',
   ];
 
   final List<_FileItem> _files = [
@@ -74,21 +77,25 @@ class _ViewFilesScreenState extends State<ViewFilesScreen> {
 
   List<_FileItem> get _filteredFiles {
     var list = List<_FileItem>.from(_files);
+
     if (_filter != 'All') {
       list = list.where((f) {
         if (_filter == 'Images') return f.fileType == 'Image';
-        if (_filter == 'PDFs')   return f.fileType == 'PDF';
+        if (_filter == 'PDFs') return f.fileType == 'PDF';
         return f.fileType == 'Other';
       }).toList();
     }
+
     if (_query.isNotEmpty) {
       final q = _query.toLowerCase();
-      list = list
-          .where((f) =>
-              f.name.toLowerCase().contains(q) ||
-              f.fileType.toLowerCase().contains(q))
-          .toList();
+
+      list = list.where((f) {
+        return f.name.toLowerCase().contains(q) ||
+            f.fileName.toLowerCase().contains(q) ||
+            f.fileType.toLowerCase().contains(q);
+      }).toList();
     }
+
     return list;
   }
 
@@ -98,45 +105,35 @@ class _ViewFilesScreenState extends State<ViewFilesScreen> {
   }
 
   void _showSnack(String msg) {
-    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-      content: Text(msg,
-          style: GoogleFonts.poppins(fontSize: 13, color: Colors.white)),
-      backgroundColor: AppColors.primary,
-      behavior: SnackBarBehavior.floating,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-      margin: const EdgeInsets.fromLTRB(16, 0, 16, 16),
-      duration: const Duration(seconds: 2),
-    ));
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          msg,
+          style: GoogleFonts.poppins(
+            fontSize: 13,
+            color: Colors.white,
+          ),
+        ),
+        backgroundColor: AppColors.primary,
+        behavior: SnackBarBehavior.floating,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(10),
+        ),
+        margin: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+        duration: const Duration(seconds: 2),
+      ),
+    );
   }
 
   @override
   Widget build(BuildContext context) {
-    final title   = '${widget.categoryName} • ${widget.folderName}';
+    final title = '${widget.categoryName} • ${widget.folderName}';
     final visible = _filteredFiles;
 
     return Scaffold(
       backgroundColor: AppColors.background,
       appBar: GradBackAppBar(
         title: title,
-        actions: [
-          IconButton(
-            icon: Icon(
-              _showSearch
-                  ? Icons.search_off_rounded
-                  : Icons.search_rounded,
-              color: AppColors.headerText,
-            ),
-            onPressed: () {
-              setState(() {
-                _showSearch = !_showSearch;
-                if (!_showSearch) {
-                  _query = '';
-                  _searchCtrl.clear();
-                }
-              });
-            },
-          ),
-        ],
       ),
       body: Column(
         children: [
@@ -145,23 +142,28 @@ class _ViewFilesScreenState extends State<ViewFilesScreen> {
             padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
             child: Column(
               children: [
+                // Search Bar (Always Visible)
+                SearchBarField(
+                  controller: _searchCtrl,
+                  hintText: 'Search files...',
+                  onChanged: (v) => setState(() => _query = v),
+                ),
+
+                const SizedBox(height: 12),
+
+                // Filter Chips
                 FilterChipBar(
                   options: _filterOptions,
                   selected: _filter,
                   onSelected: (v) => setState(() => _filter = v),
                 ),
-                if (_showSearch) ...[
-                  const SizedBox(height: 10),
-                  SearchBarField(
-                    controller: _searchCtrl,
-                    hintText: 'Search files...',
-                    onChanged: (v) => setState(() => _query = v),
-                  ),
-                ],
               ],
             ),
           ),
-          const Divider(height: 1, color: AppColors.divider),
+          const Divider(
+            height: 1,
+            color: AppColors.divider,
+          ),
           Expanded(
             child: visible.isEmpty
                 ? const EmptyState(
@@ -177,11 +179,13 @@ class _ViewFilesScreenState extends State<ViewFilesScreen> {
                         const SizedBox(height: 10),
                     itemBuilder: (_, i) {
                       final file = visible[i];
+
                       return FileListItem(
                         fileName: file.fileName,
                         fileType: file.fileType,
                         year: file.year,
-                        onTap: () => _showSnack('Opened: ${file.name}'),
+                        onTap: () =>
+                            _showSnack('Opened: ${file.name}'),
                         onDelete: () => _deleteFile(file),
                       );
                     },
@@ -200,6 +204,7 @@ class _FileItem {
     required this.fileType,
     required this.year,
   });
+
   final String name;
   final String fileName;
   final String fileType;

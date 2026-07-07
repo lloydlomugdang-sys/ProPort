@@ -5,6 +5,7 @@ import 'package:google_fonts/google_fonts.dart';
 import '../../constants/app_colors.dart';
 import '../main_screen.dart';
 import 'signup_screen.dart';
+import 'forgot_password_screen.dart';
 import 'widgets/auth_text_field.dart';
 
 class LoginScreen extends StatefulWidget {
@@ -20,7 +21,6 @@ class _LoginScreenState extends State<LoginScreen>
   final _passwordCtrl = TextEditingController();
   bool  _isLoading    = false;
 
-  // Wireframe colours
   static const Color _bg         = Color(0xFFDBE9EE);
   static const Color _cardColor  = Color(0xFF1B6D8C);
   static const Color _btnColor   = Color(0xFF5BB8D4);
@@ -94,6 +94,20 @@ class _LoginScreenState extends State<LoginScreen>
       ));
   }
 
+  void _onForgotPassword() {
+    Navigator.push(
+      context,
+      PageRouteBuilder(
+        transitionDuration: const Duration(milliseconds: 320),
+        pageBuilder: (_, __, ___) => const ForgotPasswordScreen(),
+        transitionsBuilder: (_, anim, __, child) => FadeTransition(
+          opacity: CurvedAnimation(parent: anim, curve: Curves.easeOut),
+          child: child,
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -101,9 +115,6 @@ class _LoginScreenState extends State<LoginScreen>
       body: SafeArea(
         child: FadeTransition(
           opacity: _fadeAnim,
-          // SingleChildScrollView so the keyboard never causes overflow on
-          // tiny devices; ConstrainedBox + Center handles vertical centering
-          // when content is shorter than the available height.
           child: SingleChildScrollView(
             physics: const ClampingScrollPhysics(),
             child: ConstrainedBox(
@@ -141,7 +152,7 @@ class _LoginScreenState extends State<LoginScreen>
 
                     const SizedBox(height: 18),
 
-                    // ── Card — 20px side margins ───────────────────
+                    // ── Card ───────────────────────────────────────
                     Padding(
                       padding: const EdgeInsets.symmetric(horizontal: 20),
                       child: _buildCard(),
@@ -162,14 +173,13 @@ class _LoginScreenState extends State<LoginScreen>
       decoration: BoxDecoration(
         color:        _cardColor,
         borderRadius: BorderRadius.circular(8),
-        // No shadow — wireframe card is flat
       ),
       padding: const EdgeInsets.fromLTRB(14, 14, 14, 14),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         mainAxisSize: MainAxisSize.min,
         children: [
-          // Email label + field
+          // ── Email ──────────────────────────────────────────
           _fieldLabel('Email'),
           const SizedBox(height: 4),
           AuthTextField(
@@ -181,7 +191,7 @@ class _LoginScreenState extends State<LoginScreen>
 
           const SizedBox(height: 10),
 
-          // Password label + field
+          // ── Password ───────────────────────────────────────
           _fieldLabel('Password'),
           const SizedBox(height: 4),
           AuthTextField(
@@ -194,19 +204,15 @@ class _LoginScreenState extends State<LoginScreen>
 
           const SizedBox(height: 12),
 
-          // Login button
-          _actionButton(
-            label:     'Login',
-            isLoading: _isLoading,
-            onTap:     _loginUser,
-          ),
+          // ── Login button ───────────────────────────────────
+          _loginButton(),
 
           const SizedBox(height: 8),
 
-          // Forgot password
+          // ── Forgot password — now navigates to ForgotPasswordScreen ──
           Center(
             child: GestureDetector(
-              onTap: () {}, // TODO: forgot password
+              onTap: _onForgotPassword,
               child: Text(
                 'Forgot password?',
                 style: GoogleFonts.poppins(
@@ -220,7 +226,7 @@ class _LoginScreenState extends State<LoginScreen>
 
           const SizedBox(height: 8),
 
-          // Don't have an account? Sign Up
+          // ── Don't have an account? Sign Up ─────────────────
           Center(
             child: Row(
               mainAxisSize: MainAxisSize.min,
@@ -269,13 +275,9 @@ class _LoginScreenState extends State<LoginScreen>
         ),
       );
 
-  Widget _actionButton({
-    required String label,
-    required bool isLoading,
-    required VoidCallback onTap,
-  }) {
+  Widget _loginButton() {
     return GestureDetector(
-      onTap: isLoading ? null : onTap,
+      onTap: _isLoading ? null : _loginUser,
       child: Container(
         width:  double.infinity,
         height: 36,
@@ -284,16 +286,17 @@ class _LoginScreenState extends State<LoginScreen>
           borderRadius: BorderRadius.circular(4),
         ),
         child: Center(
-          child: isLoading
+          child: _isLoading
               ? const SizedBox(
                   width: 16, height: 16,
                   child: CircularProgressIndicator(
                     strokeWidth: 2,
-                    valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                    valueColor:
+                        AlwaysStoppedAnimation<Color>(Colors.white),
                   ),
                 )
               : Text(
-                  label,
+                  'Login',
                   style: GoogleFonts.poppins(
                     fontSize: 14,
                     fontWeight: FontWeight.w600,
