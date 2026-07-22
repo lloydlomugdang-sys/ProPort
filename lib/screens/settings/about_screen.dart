@@ -241,7 +241,7 @@ class _AboutScreenState extends State<AboutScreen>
                     ),
                     const SizedBox(height: 4),
                     Text(
-                      'To empower every college student with a digital portfolio that reflects their full academic journey.',
+                      'Our mission is to provide students with a secure and easy-to-use mobile application for organizing academic documents and generating academic portfolios.',
                       style: GoogleFonts.poppins(
                         fontSize: 13,
                         color: AppColors.textSecondary,
@@ -276,7 +276,7 @@ class _AboutScreenState extends State<AboutScreen>
                     ),
                     const SizedBox(height: 4),
                     Text(
-                      'To become the leading career portfolio platform for students across the Philippines and Southeast Asia.',
+                      'To become a trusted digital portfolio platform that helps CICS students manage their academic records and generate academic portfolios with ease.',
                       style: GoogleFonts.poppins(
                         fontSize: 13,
                         color: AppColors.textSecondary,

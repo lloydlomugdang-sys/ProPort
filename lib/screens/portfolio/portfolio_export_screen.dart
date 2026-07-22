@@ -2,16 +2,18 @@
 
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
+
 import '../../constants/app_colors.dart';
 import '../../constants/app_text_styles.dart';
 import '../../widgets/grad_app_bar.dart';
+
 import 'models/portfolio_models.dart';
+import 'portfolio_preview_screen.dart';
 import 'widgets/export_option_card.dart';
 import 'widgets/step_indicator.dart';
 
 /// Screen 3 of 3 — Export Portfolio.
-/// Lets the user choose PDF or DOCX, then shows a placeholder success dialog.
-/// Actual PDF/DOCX generation will be connected in a future phase.
+/// Lets the user choose PDF or DOCX, then opens the Portfolio Preview screen.
 class PortfolioExportScreen extends StatefulWidget {
   const PortfolioExportScreen({
     super.key,
@@ -39,21 +41,27 @@ class _PortfolioExportScreenState extends State<PortfolioExportScreen>
   @override
   void initState() {
     super.initState();
+
     _entranceCtrl = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 420),
     );
+
     _fadeAnim = CurvedAnimation(
       parent: _entranceCtrl,
       curve: const Interval(0.0, 0.7, curve: Curves.easeOut),
     );
+
     _slideAnim = Tween<Offset>(
       begin: const Offset(0.04, 0),
       end: Offset.zero,
-    ).animate(CurvedAnimation(
-      parent: _entranceCtrl,
-      curve: const Interval(0.0, 1.0, curve: Curves.easeOutCubic),
-    ));
+    ).animate(
+      CurvedAnimation(
+        parent: _entranceCtrl,
+        curve: const Interval(0.0, 1.0, curve: Curves.easeOutCubic),
+      ),
+    );
+
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) _entranceCtrl.forward();
     });
@@ -65,32 +73,37 @@ class _PortfolioExportScreenState extends State<PortfolioExportScreen>
     super.dispose();
   }
 
-  // ─── Export action ────────────────────────────────────────────────────────────
+  // ─────────────────────────────────────────────────────────────────────────────
+  // Export action
+  // ─────────────────────────────────────────────────────────────────────────────
   Future<void> _onExport() async {
     setState(() => _isExporting = true);
 
-    // Simulate a short processing delay for UX realism
     await Future.delayed(const Duration(milliseconds: 700));
+
     if (!mounted) return;
+
     setState(() => _isExporting = false);
 
-    // Show placeholder dialog — real export will be wired in the next phase
-    _showExportDialog();
+    _showPreviewDialog();
   }
 
-  void _showExportDialog() {
+  // ─────────────────────────────────────────────────────────────────────────────
+  // Preview dialog
+  // ─────────────────────────────────────────────────────────────────────────────
+  void _showPreviewDialog() {
     showDialog(
       context: context,
       barrierDismissible: false,
       builder: (_) => AlertDialog(
         backgroundColor: Colors.white,
         shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(20)),
+          borderRadius: BorderRadius.circular(20),
+        ),
         contentPadding: const EdgeInsets.fromLTRB(24, 24, 24, 20),
         content: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            // Success icon
             Container(
               width: 64,
               height: 64,
@@ -107,21 +120,18 @@ class _PortfolioExportScreenState extends State<PortfolioExportScreen>
             const SizedBox(height: 16),
 
             Text(
-              'Export Ready',
+              'Portfolio Ready',
               style: AppTextStyles.h3,
               textAlign: TextAlign.center,
             ),
             const SizedBox(height: 10),
 
             Text(
-              'Portfolio export feature will be connected in the next implementation phase.',
-              style: AppTextStyles.bodySmall.copyWith(
-                height: 1.6,
-                color: AppColors.textSecondary,
-              ),
+              'Your portfolio is ready for preview.',
+              style: AppTextStyles.bodyMedium,
               textAlign: TextAlign.center,
             ),
-            const SizedBox(height: 6),
+            const SizedBox(height: 8),
 
             Text(
               'Selected format: ${_selectedFormat.label}',
@@ -133,26 +143,31 @@ class _PortfolioExportScreenState extends State<PortfolioExportScreen>
             ),
             const SizedBox(height: 20),
 
-            // Close button
             SizedBox(
               width: double.infinity,
               child: TextButton(
                 onPressed: () {
-                  Navigator.pop(context); // close dialog
-                  // Navigate back to dashboard (pop all portfolio screens)
-                  Navigator.popUntil(
+                  Navigator.pop(context);
+
+                  Navigator.push(
                     context,
-                    (route) => route.isFirst,
+                    MaterialPageRoute(
+                      builder: (_) => PortfolioPreviewScreen(
+                        portfolioInfo: widget.portfolioInfo,
+                        summary: widget.summary,
+                      ),
+                    ),
                   );
                 },
                 style: TextButton.styleFrom(
                   backgroundColor: AppColors.primary,
                   shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(12)),
+                    borderRadius: BorderRadius.circular(12),
+                  ),
                   padding: const EdgeInsets.symmetric(vertical: 14),
                 ),
                 child: Text(
-                  'Back to Dashboard',
+                  'Preview Portfolio',
                   style: GoogleFonts.poppins(
                     fontSize: 14,
                     fontWeight: FontWeight.w600,
@@ -167,7 +182,9 @@ class _PortfolioExportScreenState extends State<PortfolioExportScreen>
     );
   }
 
-  // ─── Build ────────────────────────────────────────────────────────────────────
+  // ─────────────────────────────────────────────────────────────────────────────
+  // Build
+  // ─────────────────────────────────────────────────────────────────────────────
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -188,12 +205,9 @@ class _PortfolioExportScreenState extends State<PortfolioExportScreen>
                   padding: const EdgeInsets.fromLTRB(20, 20, 20, 24),
                   child: Column(
                     children: [
-                      // ── Export Portfolio selection card ────────────
                       _buildExportCard(),
-
                       const SizedBox(height: 28),
 
-                      // ── Export button ──────────────────────────────
                       _ExportButton(
                         isLoading: _isExporting,
                         onPressed: _onExport,
@@ -203,7 +217,6 @@ class _PortfolioExportScreenState extends State<PortfolioExportScreen>
                 ),
               ),
 
-              // ── Step indicator ─────────────────────────────────────
               _buildStepBar(),
             ],
           ),
@@ -212,7 +225,6 @@ class _PortfolioExportScreenState extends State<PortfolioExportScreen>
     );
   }
 
-  // ── Export format selection card ──────────────────────────────────────────
   Widget _buildExportCard() {
     return Container(
       width: double.infinity,
@@ -232,20 +244,15 @@ class _PortfolioExportScreenState extends State<PortfolioExportScreen>
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // Card header
           Text('Export Portfolio', style: AppTextStyles.h3),
           const SizedBox(height: 4),
+
           Text(
             'Choose the file format you want to export.',
             style: AppTextStyles.bodySmall,
           ),
           const SizedBox(height: 20),
 
-          // FIX: SizedBox(height: 140) was a fixed constraint. On small
-          // screens the ExportOptionCard content (icon + label + subtitle +
-          // internal padding) measures ~146px, overflowing by 7px.
-          // IntrinsicHeight lets each card size to its natural content height,
-          // making the layout work correctly on all screen sizes.
           Row(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
@@ -286,7 +293,9 @@ class _PortfolioExportScreenState extends State<PortfolioExportScreen>
   }
 }
 
-// ─── Export Portfolio button ──────────────────────────────────────────────────
+// ───────────────────────────────────────────────────────────────────────────────
+// Export button
+// ───────────────────────────────────────────────────────────────────────────────
 class _ExportButton extends StatefulWidget {
   const _ExportButton({
     required this.onPressed,
@@ -308,11 +317,13 @@ class _ExportButtonState extends State<_ExportButton>
   @override
   void initState() {
     super.initState();
+
     _ctrl = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 90),
       reverseDuration: const Duration(milliseconds: 180),
     );
+
     _scale = Tween<double>(begin: 1.0, end: 0.97).animate(
       CurvedAnimation(parent: _ctrl, curve: Curves.easeIn),
     );
