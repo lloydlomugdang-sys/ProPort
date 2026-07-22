@@ -22,10 +22,10 @@ class _SignupScreenState extends State<SignupScreen>
   bool  _isLoading     = false;
 
   static const Color _bg         = Color(0xFFDBE9EE);
-  static const Color _cardColor  = Color(0xFF1B6D8C);
-  static const Color _btnColor   = Color(0xFF5BB8D4);
-  static const Color _titleBold  = Color(0xFF166088);
-  static const Color _titleLight = Color(0xFF4A6FA5);
+  static const Color _cardColor  = Color(0xFF166088);
+  static const Color _btnColor   = Color(0xFF7ECDF7);
+  static const Color _btnText    = Color(0xFF166088);
+  static const Color _titleColor = Color(0xFF006677);
 
   late final AnimationController _fadeCtrl;
   late final Animation<double>   _fadeAnim;
@@ -58,23 +58,59 @@ class _SignupScreenState extends State<SignupScreen>
   }
 
   // DEVELOPMENT ONLY — mock sign-up; replace with real service in Capstone 2
+  bool _isValidEmail(String email) {
+    final regex = RegExp(r'^[\w-.]+@([\w-]+\.)+[\w-]{2,4}$');
+    return regex.hasMatch(email);
+  }
+
+  bool _isStrongPassword(String password) {
+    final hasUpper = RegExp(r'[A-Z]').hasMatch(password);
+    final hasLower = RegExp(r'[a-z]').hasMatch(password);
+    final hasDigit = RegExp(r'\d').hasMatch(password);
+    return hasUpper && hasLower && hasDigit;
+  }
+
   Future<void> _createAccount() async {
-    if (_firstNameCtrl.text.trim().isEmpty) {
+    final firstName = _firstNameCtrl.text.trim();
+    final lastName  = _lastNameCtrl.text.trim();
+    final email     = _emailCtrl.text.trim();
+    final password  = _passwordCtrl.text.trim();
+    final confirm   = _confirmCtrl.text.trim();
+
+    if (firstName.isEmpty) {
       _showError('Please enter your first name.'); return;
     }
-    if (_lastNameCtrl.text.trim().isEmpty) {
+    if (firstName.length < 2) {
+      _showError('First name must be at least 2 characters.'); return;
+    }
+    if (lastName.isEmpty) {
       _showError('Please enter your last name.'); return;
     }
-    if (_emailCtrl.text.trim().isEmpty) {
+    if (lastName.length < 2) {
+      _showError('Last name must be at least 2 characters.'); return;
+    }
+    if (email.isEmpty) {
       _showError('Please enter your email.'); return;
     }
-    if (_passwordCtrl.text.trim().isEmpty) {
-      _showError('Please enter a password.'); return;
+    if (!_isValidEmail(email)) {
+      _showError('Please enter a valid email address.'); return;
     }
-    if (_confirmCtrl.text.trim().isEmpty) {
+    if (password.isEmpty) {
+      _showError('Please enter your password.'); return;
+    }
+    if (password.length < 8) {
+      _showError('Password must be at least 8 characters.'); return;
+    }
+    if (!_isStrongPassword(password)) {
+      _showError(
+        'Password must contain an uppercase letter, a lowercase letter, and a number.',
+      );
+      return;
+    }
+    if (confirm.isEmpty) {
       _showError('Please confirm your password.'); return;
     }
-    if (_passwordCtrl.text.trim() != _confirmCtrl.text.trim()) {
+    if (password != confirm) {
       _showError('Passwords do not match.'); return;
     }
 
@@ -85,7 +121,7 @@ class _SignupScreenState extends State<SignupScreen>
 
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(
       content: Text(
-        'Account created successfully (Development Mode)',
+        'Account created successfully.',
         style: GoogleFonts.poppins(fontSize: 12, color: Colors.white),
       ),
       backgroundColor: AppColors.success,
@@ -145,7 +181,7 @@ class _SignupScreenState extends State<SignupScreen>
                           style: GoogleFonts.poppins(
                             fontSize: 28,
                             fontWeight: FontWeight.w700,
-                            color: _titleBold,
+                            color: _titleColor,
                           ),
                         ),
                         TextSpan(
@@ -153,7 +189,7 @@ class _SignupScreenState extends State<SignupScreen>
                           style: GoogleFonts.poppins(
                             fontSize: 28,
                             fontWeight: FontWeight.w400,
-                            color: _titleLight,
+                            color: _titleColor,
                           ),
                         ),
                       ]),
@@ -231,6 +267,7 @@ class _SignupScreenState extends State<SignupScreen>
           AuthTextField(
             controller:    _passwordCtrl,
             obscureText:   true,
+            showVisibilityToggle: true,
             textInputAction: TextInputAction.next,
             autofillHints: const [AutofillHints.newPassword],
           ),
@@ -243,6 +280,7 @@ class _SignupScreenState extends State<SignupScreen>
           AuthTextField(
             controller:    _confirmCtrl,
             obscureText:   true,
+            showVisibilityToggle: true,
             textInputAction: TextInputAction.done,
             onSubmitted:   (_) => _createAccount(),
             autofillHints: const [AutofillHints.newPassword],
@@ -314,7 +352,7 @@ class _SignupScreenState extends State<SignupScreen>
                   width: 16, height: 16,
                   child: CircularProgressIndicator(
                     strokeWidth: 2,
-                    valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                    valueColor: AlwaysStoppedAnimation<Color>(_btnText),
                   ),
                 )
               : Text(
@@ -322,7 +360,7 @@ class _SignupScreenState extends State<SignupScreen>
                   style: GoogleFonts.poppins(
                     fontSize: 14,
                     fontWeight: FontWeight.w600,
-                    color:     Colors.white,
+                    color:     _btnText,
                   ),
                 ),
         ),

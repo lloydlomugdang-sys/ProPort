@@ -22,10 +22,10 @@ class _LoginScreenState extends State<LoginScreen>
   bool  _isLoading    = false;
 
   static const Color _bg         = Color(0xFFDBE9EE);
-  static const Color _cardColor  = Color(0xFF1B6D8C);
-  static const Color _btnColor   = Color(0xFF5BB8D4);
-  static const Color _titleBold  = Color(0xFF166088);
-  static const Color _titleLight = Color(0xFF4A6FA5);
+  static const Color _cardColor  = Color(0xFF166088);
+  static const Color _btnColor   = Color(0xFF7ECDF7);
+  static const Color _btnText    = Color(0xFF166088);
+  static const Color _titleColor = Color(0xFF006677);
 
   late final AnimationController _fadeCtrl;
   late final Animation<double>   _fadeAnim;
@@ -55,13 +55,29 @@ class _LoginScreenState extends State<LoginScreen>
   }
 
   // DEVELOPMENT ONLY — mock auth; replace with real service in Capstone 2
+  bool _isValidEmail(String email) {
+    final regex = RegExp(r'^[\w-.]+@([\w-]+\.)+[\w-]{2,4}$');
+    return regex.hasMatch(email);
+  }
+
   Future<void> _loginUser() async {
-    if (_emailCtrl.text.trim().isEmpty) {
+    final email    = _emailCtrl.text.trim();
+    final password = _passwordCtrl.text.trim();
+
+    if (email.isEmpty) {
       _showError('Please enter your email.');
       return;
     }
-    if (_passwordCtrl.text.trim().isEmpty) {
+    if (!_isValidEmail(email)) {
+      _showError('Please enter a valid email address.');
+      return;
+    }
+    if (password.isEmpty) {
       _showError('Please enter your password.');
+      return;
+    }
+    if (password.length < 8) {
+      _showError('Password must be at least 8 characters.');
       return;
     }
     setState(() => _isLoading = true);
@@ -88,7 +104,7 @@ class _LoginScreenState extends State<LoginScreen>
             style: GoogleFonts.poppins(fontSize: 12, color: Colors.white)),
         backgroundColor: _cardColor,
         behavior:        SnackBarBehavior.floating,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
         margin:   const EdgeInsets.fromLTRB(16, 0, 16, 16),
         duration: const Duration(seconds: 3),
       ));
@@ -136,7 +152,7 @@ class _LoginScreenState extends State<LoginScreen>
                           style: GoogleFonts.poppins(
                             fontSize: 28,
                             fontWeight: FontWeight.w700,
-                            color: _titleBold,
+                            color: _titleColor,
                           ),
                         ),
                         TextSpan(
@@ -144,7 +160,7 @@ class _LoginScreenState extends State<LoginScreen>
                           style: GoogleFonts.poppins(
                             fontSize: 28,
                             fontWeight: FontWeight.w400,
-                            color: _titleLight,
+                            color: _titleColor,
                           ),
                         ),
                       ]),
@@ -172,7 +188,7 @@ class _LoginScreenState extends State<LoginScreen>
       width: double.infinity,
       decoration: BoxDecoration(
         color:        _cardColor,
-        borderRadius: BorderRadius.circular(8),
+        borderRadius: BorderRadius.circular(12),
       ),
       padding: const EdgeInsets.fromLTRB(14, 14, 14, 14),
       child: Column(
@@ -197,6 +213,7 @@ class _LoginScreenState extends State<LoginScreen>
           AuthTextField(
             controller:    _passwordCtrl,
             obscureText:   true,
+            showVisibilityToggle: true,
             textInputAction: TextInputAction.done,
             onSubmitted:   (_) => _loginUser(),
             autofillHints: const [AutofillHints.password],
@@ -283,7 +300,7 @@ class _LoginScreenState extends State<LoginScreen>
         height: 36,
         decoration: BoxDecoration(
           color:        _btnColor,
-          borderRadius: BorderRadius.circular(4),
+          borderRadius: BorderRadius.circular(12),
         ),
         child: Center(
           child: _isLoading
@@ -292,7 +309,7 @@ class _LoginScreenState extends State<LoginScreen>
                   child: CircularProgressIndicator(
                     strokeWidth: 2,
                     valueColor:
-                        AlwaysStoppedAnimation<Color>(Colors.white),
+                        AlwaysStoppedAnimation<Color>(_btnText),
                   ),
                 )
               : Text(
@@ -300,7 +317,7 @@ class _LoginScreenState extends State<LoginScreen>
                   style: GoogleFonts.poppins(
                     fontSize: 14,
                     fontWeight: FontWeight.w600,
-                    color:     Colors.white,
+                    color:     _btnText,
                   ),
                 ),
         ),

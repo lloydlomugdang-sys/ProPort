@@ -1,350 +1,247 @@
-// LOCATION: lib/screens/auth/forgot_password_screen.dart
-
 import 'package:flutter/material.dart';
-import 'package:google_fonts/google_fonts.dart';
-
-import '../../constants/app_colors.dart';
 import 'verification_code_screen.dart';
-import 'widgets/auth_text_field.dart';
 
 class ForgotPasswordScreen extends StatefulWidget {
   const ForgotPasswordScreen({super.key});
 
   @override
-  State<ForgotPasswordScreen> createState() =>
-      _ForgotPasswordScreenState();
+  State<ForgotPasswordScreen> createState() => _ForgotPasswordScreenState();
 }
 
-class _ForgotPasswordScreenState
-    extends State<ForgotPasswordScreen>
+class _ForgotPasswordScreenState extends State<ForgotPasswordScreen>
     with SingleTickerProviderStateMixin {
-  final _emailCtrl = TextEditingController();
-
+  final _formKey = GlobalKey<FormState>();
+  final _emailController = TextEditingController();
   bool _isLoading = false;
 
-  // Same colors as Login Screen
-  static const Color _bg = Color(0xFFDBE9EE);
-  static const Color _cardColor = Color(0xFF1B6D8C);
-  static const Color _btnColor = Color(0xFF5BB8D4);
-  static const Color _titleBold = Color(0xFF166088);
-  static const Color _titleLight = Color(0xFF4A6FA5);
-
-  late final AnimationController _fadeCtrl;
+  late final AnimationController _animController;
   late final Animation<double> _fadeAnim;
+  late final Animation<Offset> _slideAnim;
+
+  static const Color _bgColor = Color(0xFFCFE2ED);
+  static const Color _darkTeal = Color(0xFF1A4F72);
+  static const Color _accentColor = Color(0xFF1E7BAE);
+  static const Color _subtitleColor = Color(0xFF1E7BAE);
+  static const Color _fieldBorder = Color(0xFFB0CDD9);
 
   @override
   void initState() {
     super.initState();
-
-    _fadeCtrl = AnimationController(
+    _animController = AnimationController(
       vsync: this,
-      duration: const Duration(milliseconds: 350),
+      duration: const Duration(milliseconds: 500),
     );
-
     _fadeAnim = CurvedAnimation(
-      parent: _fadeCtrl,
+      parent: _animController,
       curve: Curves.easeOut,
     );
-
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted) {
-        _fadeCtrl.forward();
-      }
-    });
+    _slideAnim = Tween<Offset>(
+      begin: const Offset(0, 0.08),
+      end: Offset.zero,
+    ).animate(CurvedAnimation(parent: _animController, curve: Curves.easeOut));
+    _animController.forward();
   }
 
   @override
   void dispose() {
-    _emailCtrl.dispose();
-    _fadeCtrl.dispose();
+    _animController.dispose();
+    _emailController.dispose();
     super.dispose();
   }
 
-  bool _isValidEmail(String email) {
-    final regex = RegExp(
-      r'^[\w-.]+@([\w-]+\.)+[\w-]{2,4}$',
-    );
-
-    return regex.hasMatch(email);
-  }
-
-  Future<void> _sendCode() async {
-    final email = _emailCtrl.text.trim();
-
-    if (email.isEmpty) {
-      _showSnack('Please enter your email.');
-      return;
-    }
-
-    if (!_isValidEmail(email)) {
-      _showSnack('Please enter a valid email.');
-      return;
-    }
-
+  Future<void> _handleSend() async {
+    if (!_formKey.currentState!.validate()) return;
     setState(() => _isLoading = true);
-
-    await Future.delayed(
-      const Duration(milliseconds: 900),
-    );
-
+    await Future.delayed(const Duration(milliseconds: 800));
     if (!mounted) return;
-
     setState(() => _isLoading = false);
 
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(
-          'Verification code sent.',
-          style: GoogleFonts.poppins(
-            color: Colors.white,
-            fontSize: 12,
-          ),
-        ),
-        backgroundColor: _cardColor,
-        behavior: SnackBarBehavior.floating,
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(6),
-        ),
-      ),
-    );
-
-    await Future.delayed(
-      const Duration(milliseconds: 350),
-    );
-
-    if (!mounted) return;
-
-    Navigator.push(
-      context,
+    Navigator.of(context).push(
       PageRouteBuilder(
-        transitionDuration:
-            const Duration(milliseconds: 350),
-        pageBuilder: (_, __, ___) =>
-            VerificationCodeScreen(
-          email: email,
+        pageBuilder: (_, animation, __) => VerificationCodeScreen(
+          email: _emailController.text.trim(),
         ),
-        transitionsBuilder:
-            (_, animation, __, child) =>
-                FadeTransition(
-          opacity: animation,
-          child: child,
-        ),
+        transitionsBuilder: (_, animation, __, child) {
+          return FadeTransition(
+            opacity: animation,
+            child: SlideTransition(
+              position: Tween<Offset>(
+                begin: const Offset(1, 0),
+                end: Offset.zero,
+              ).animate(
+                CurvedAnimation(parent: animation, curve: Curves.easeOut),
+              ),
+              child: child,
+            ),
+          );
+        },
+        transitionDuration: const Duration(milliseconds: 350),
       ),
     );
-  }
-
-  void _showSnack(String message) {
-    ScaffoldMessenger.of(context)
-      ..clearSnackBars()
-      ..showSnackBar(
-        SnackBar(
-          content: Text(
-            message,
-            style: GoogleFonts.poppins(
-              color: Colors.white,
-              fontSize: 12,
-            ),
-          ),
-          backgroundColor: _cardColor,
-          behavior: SnackBarBehavior.floating,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(6),
-          ),
-        ),
-      );
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: _bg,
+      backgroundColor: _bgColor,
       body: SafeArea(
         child: FadeTransition(
           opacity: _fadeAnim,
-          child: SingleChildScrollView(
-            physics:
-                const ClampingScrollPhysics(),
-            child: ConstrainedBox(
-              constraints: BoxConstraints(
-                minHeight:
-                    MediaQuery.of(context)
-                            .size
-                            .height -
-                        MediaQuery.of(context)
-                            .padding
-                            .top -
-                        MediaQuery.of(context)
-                            .padding
-                            .bottom,
-              ),
-              child: IntrinsicHeight(
-                child: Column(
-                  children: [
-                    const SizedBox(height: 20),
-
-                    Align(
-                      alignment:
-                          Alignment.centerLeft,
-                      child: IconButton(
-                        icon: const Icon(
-                          Icons.arrow_back_ios_new,
-                          color: _titleBold,
-                          size: 22,
-                        ),
-                        onPressed: () =>
-                            Navigator.pop(context),
-                      ),
-                    ),
-
-                    const SizedBox(height: 8),
-
-                    RichText(
-                      text: TextSpan(
-                        children: [
-                          TextSpan(
-                            text: 'Forgot ',
-                            style:
-                                GoogleFonts.poppins(
-                              fontSize: 28,
-                              fontWeight:
-                                  FontWeight.w700,
-                              color: _titleBold,
-                            ),
-                          ),
-                          TextSpan(
-                            text: 'Password?',
-                            style:
-                                GoogleFonts.poppins(
-                              fontSize: 28,
-                              fontWeight:
-                                  FontWeight.w400,
-                              color: _titleLight,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-
-                    const SizedBox(height: 10),
-
-                    Text(
-                      'No worries, we got you.',
-                      style:
-                          GoogleFonts.poppins(
-                        fontSize: 13,
-                        color: Colors.black54,
-                      ),
-                    ),
-
-                    const SizedBox(height: 22),
-
-                    Padding(
-                      padding:
-                          const EdgeInsets.symmetric(
-                        horizontal: 20,
-                      ),
-                      child: Container(
-                        width: double.infinity,
-                        padding:
-                            const EdgeInsets.all(14),
-                        decoration: BoxDecoration(
-                          color: _cardColor,
-                          borderRadius:
-                              BorderRadius.circular(
-                                  8),
-                        ),
+          child: SlideTransition(
+            position: _slideAnim,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Padding(
+                  padding: const EdgeInsets.only(left: 8, top: 8),
+                  child: IconButton(
+                    icon: const Icon(Icons.arrow_back_ios_new,
+                        color: _darkTeal, size: 20),
+                    onPressed: () => Navigator.of(context).pop(),
+                  ),
+                ),
+                Expanded(
+                  child: Center(
+                    child: SingleChildScrollView(
+                      padding: const EdgeInsets.fromLTRB(28, 0, 28, 32),
+                      child: Form(
+                        key: _formKey,
                         child: Column(
-                          crossAxisAlignment:
-                              CrossAxisAlignment
-                                  .start,
+                          mainAxisSize: MainAxisSize.min,
+                          crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            Text(
-                              'Email Address',
-                              style:
-                                  GoogleFonts.poppins(
-                                color: Colors.white,
-                                fontSize: 12,
+                            RichText(
+                              text: const TextSpan(
+                                children: [
+                                  TextSpan(
+                                    text: 'Forgot ',
+                                    style: TextStyle(
+                                      color: Color(0xFF1A4F72),
+                                      fontWeight: FontWeight.w900,
+                                      fontSize: 28,
+                                    ),
+                                  ),
+                                  TextSpan(
+                                    text: 'Password?',
+                                    style: TextStyle(
+                                      color: Colors.black87,
+                                      fontWeight: FontWeight.w900,
+                                      fontSize: 28,
+                                    ),
+                                  ),
+                                ],
                               ),
                             ),
-
-                            const SizedBox(
-                                height: 5),
-
-                            AuthTextField(
-                              controller:
-                                  _emailCtrl,
-                              keyboardType:
-                                  TextInputType
-                                      .emailAddress,
-                              textInputAction:
-                                  TextInputAction
-                                      .done,
-                              autofillHints: const [
-                                AutofillHints.email,
-                              ],
+                            const SizedBox(height: 6),
+                            const Text(
+                              'No worries, we got you.',
+                              style: TextStyle(
+                                color: _subtitleColor,
+                                fontSize: 13.5,
+                                fontWeight: FontWeight.w500,
+                              ),
                             ),
-
-                            const SizedBox(
-                                height: 16),
-
-                            GestureDetector(
-                              onTap: _isLoading
-                                  ? null
-                                  : _sendCode,
-                              child: Container(
-                                width:
-                                    double.infinity,
-                                height: 36,
-                                decoration:
-                                    BoxDecoration(
-                                  color: _btnColor,
-                                  borderRadius:
-                                      BorderRadius
-                                          .circular(
-                                              4),
+                            const SizedBox(height: 36),
+                            const Text(
+                              'Email Address',
+                              style: TextStyle(
+                                color: _darkTeal,
+                                fontSize: 13.5,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                            const SizedBox(height: 8),
+                            TextFormField(
+                              controller: _emailController,
+                              keyboardType: TextInputType.emailAddress,
+                              style: const TextStyle(
+                                  color: Colors.black87, fontSize: 14),
+                              decoration: InputDecoration(
+                                hintText: 'Enter your email address',
+                                hintStyle: const TextStyle(
+                                  color: Color(0xFFAFC8D6),
+                                  fontSize: 13,
                                 ),
-                                child: Center(
-                                  child: _isLoading
-                                      ? const SizedBox(
-                                          width: 16,
-                                          height:
-                                              16,
-                                          child:
-                                              CircularProgressIndicator(
-                                            strokeWidth:
-                                                2,
-                                            valueColor:
-                                                AlwaysStoppedAnimation(
-                                              Colors
-                                                  .white,
-                                            ),
-                                          ),
-                                        )
-                                      : Text(
-                                          'Send',
-                                          style:
-                                              GoogleFonts.poppins(
-                                            color: Colors
-                                                .white,
-                                            fontWeight:
-                                                FontWeight
-                                                    .w600,
-                                            fontSize:
-                                                14,
-                                          ),
+                                filled: true,
+                                fillColor: Colors.white,
+                                contentPadding: const EdgeInsets.symmetric(
+                                    horizontal: 16, vertical: 14),
+                                border: OutlineInputBorder(
+                                  borderRadius: BorderRadius.circular(8),
+                                  borderSide: const BorderSide(
+                                      color: _fieldBorder, width: 1),
+                                ),
+                                enabledBorder: OutlineInputBorder(
+                                  borderRadius: BorderRadius.circular(8),
+                                  borderSide: const BorderSide(
+                                      color: _fieldBorder, width: 1),
+                                ),
+                                focusedBorder: OutlineInputBorder(
+                                  borderRadius: BorderRadius.circular(8),
+                                  borderSide: const BorderSide(
+                                      color: _accentColor, width: 1.5),
+                                ),
+                                errorBorder: OutlineInputBorder(
+                                  borderRadius: BorderRadius.circular(8),
+                                  borderSide: const BorderSide(
+                                      color: Colors.redAccent, width: 1.2),
+                                ),
+                                focusedErrorBorder: OutlineInputBorder(
+                                  borderRadius: BorderRadius.circular(8),
+                                  borderSide: const BorderSide(
+                                      color: Colors.redAccent, width: 1.5),
+                                ),
+                              ),
+                              validator: (v) {
+                                if (v == null || v.trim().isEmpty) {
+                                  return 'Enter your email';
+                                }
+                                if (!RegExp(r'^[^@]+@[^@]+\.[^@]+')
+                                    .hasMatch(v.trim())) {
+                                  return 'Enter a valid email';
+                                }
+                                return null;
+                              },
+                            ),
+                            const SizedBox(height: 28),
+                            SizedBox(
+                              width: double.infinity,
+                              height: 48,
+                              child: ElevatedButton(
+                                onPressed: _isLoading ? null : _handleSend,
+                                style: ElevatedButton.styleFrom(
+                                  backgroundColor: _accentColor,
+                                  foregroundColor: Colors.white,
+                                  elevation: 2,
+                                  shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(10),
+                                  ),
+                                ),
+                                child: _isLoading
+                                    ? const SizedBox(
+                                        height: 20,
+                                        width: 20,
+                                        child: CircularProgressIndicator(
+                                          strokeWidth: 2,
+                                          color: Colors.white,
                                         ),
-                                ),
+                                      )
+                                    : const Text(
+                                        'Send',
+                                        style: TextStyle(
+                                          fontWeight: FontWeight.w700,
+                                          fontSize: 15,
+                                        ),
+                                      ),
                               ),
                             ),
                           ],
                         ),
                       ),
                     ),
-
-                    const Spacer(),
-                  ],
+                  ),
                 ),
-              ),
+              ],
             ),
           ),
         ),

@@ -2,15 +2,22 @@
 
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
+import '../../../constants/app_colors.dart';
 
-/// Plain white text field matching the GradPort wireframe exactly.
+/// Plain text field matching the GradPort wireframe exactly.
+/// Fill color matches the screen background (per wireframe), not white.
 /// Height: ~34px via isDense + tight contentPadding.
-/// No icons, no border, no shadow — just a white rounded rectangle.
-class AuthTextField extends StatelessWidget {
+/// No border, no shadow — just a flat rounded rectangle.
+///
+/// Set [showVisibilityToggle] to true on a password field to add a small
+/// eye icon that toggles obscured/visible text without changing the
+/// field's height, padding, or overall layout.
+class AuthTextField extends StatefulWidget {
   const AuthTextField({
     super.key,
     required this.controller,
     this.obscureText = false,
+    this.showVisibilityToggle = false,
     this.keyboardType = TextInputType.text,
     this.textInputAction = TextInputAction.next,
     this.onSubmitted,
@@ -19,39 +26,66 @@ class AuthTextField extends StatelessWidget {
 
   final TextEditingController controller;
   final bool obscureText;
+  final bool showVisibilityToggle;
   final TextInputType keyboardType;
   final TextInputAction textInputAction;
   final ValueChanged<String>? onSubmitted;
   final Iterable<String>? autofillHints;
 
   @override
+  State<AuthTextField> createState() => _AuthTextFieldState();
+}
+
+class _AuthTextFieldState extends State<AuthTextField> {
+  late bool _obscured = widget.obscureText;
+
+  @override
   Widget build(BuildContext context) {
     return Container(
       height: 34,
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: AppColors.authFieldFill,
         borderRadius: BorderRadius.circular(4),
       ),
       child: TextField(
-        controller: controller,
-        obscureText: obscureText,
-        keyboardType: keyboardType,
-        textInputAction: textInputAction,
-        onSubmitted: onSubmitted,
-        autofillHints: autofillHints,
+        controller: widget.controller,
+        obscureText: widget.showVisibilityToggle
+            ? _obscured
+            : widget.obscureText,
+        keyboardType: widget.keyboardType,
+        textInputAction: widget.textInputAction,
+        onSubmitted: widget.onSubmitted,
+        autofillHints: widget.autofillHints,
         style: GoogleFonts.poppins(
           fontSize: 12,
           fontWeight: FontWeight.w400,
           color: const Color(0xFF1A2E35),
         ),
-        decoration: const InputDecoration(
+        decoration: InputDecoration(
           isDense: true,
           filled: true,
           fillColor: Colors.transparent,
-          contentPadding: EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+          contentPadding:
+              const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
           border: InputBorder.none,
           enabledBorder: InputBorder.none,
           focusedBorder: InputBorder.none,
+          suffixIconConstraints: const BoxConstraints(
+            minWidth: 30,
+            minHeight: 30,
+          ),
+          suffixIcon: widget.showVisibilityToggle
+              ? GestureDetector(
+                  onTap: () => setState(() => _obscured = !_obscured),
+                  child: Icon(
+                    _obscured
+                        ? Icons.visibility_off_outlined
+                        : Icons.visibility_outlined,
+                    size: 16,
+                    color: AppColors.authHint,
+                  ),
+                )
+              : null,
         ),
       ),
     );

@@ -71,11 +71,13 @@ class AppColors {
   static const Color authNeutral            = Color(0xFF4F6D7A);
   static const Color authSurface            = Color(0xFFC0D6DF);
   static const Color authBackground         = Color(0xFFDBE9EE);
-  static const Color authFieldFill          = Colors.white;
+  static const Color authFieldFill          = Color(0xFFDBE9EE);
   static const Color authFieldBorder        = Color(0xFFCFDFE6);
   static const Color authFieldBorderFocused = Color(0xFF166088);
   static const Color authHint               = Color(0xFF9DB5BF);
   static const Color authDivider            = Color(0xFFB8CED6);
+  static const Color authTitleText          = Color(0xFF006677);
+  static const Color authButtonText         = Color(0xFF166088);
   static const Color strengthWeak           = Color(0xFFE74C3C);
   static const Color strengthMedium         = Color(0xFFF39C12);
   static const Color strengthStrong         = Color(0xFF27AE60);
