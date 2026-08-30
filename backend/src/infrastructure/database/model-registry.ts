@@ -1,4 +1,5 @@
 import type { Connection, Model, Schema } from 'mongoose';
+import { COLLECTION_NAMES } from '../../database/collection-names.js';
 import {
   collegeReportSchema,
   documentCategorySchema,
@@ -26,19 +27,44 @@ export interface GradPortModels {
   readonly CollegeReport: Model<CollegeReport>;
 }
 
-function modelFor<T>(connection: Connection, name: string, schema: Schema<T>): Model<T> {
+function modelFor<T>(
+  connection: Connection,
+  name: string,
+  schema: Schema<T>,
+  collectionName: string,
+): Model<T> {
   const registered = connection.models[name] as Model<T> | undefined;
-  return registered ?? connection.model<T>(name, schema);
+  return registered ?? connection.model<T>(name, schema, collectionName);
 }
 
 export function registerModels(connection: Connection): GradPortModels {
   return {
-    User: modelFor(connection, 'User', userSchema),
-    Session: modelFor(connection, 'Session', sessionSchema),
-    OneTimeCode: modelFor(connection, 'OneTimeCode', oneTimeCodeSchema),
-    DocumentCategory: modelFor(connection, 'DocumentCategory', documentCategorySchema),
-    Document: modelFor(connection, 'Document', documentSchema),
-    ReportTemplate: modelFor(connection, 'ReportTemplate', reportTemplateSchema),
-    CollegeReport: modelFor(connection, 'CollegeReport', collegeReportSchema),
+    User: modelFor(connection, 'User', userSchema, COLLECTION_NAMES.users),
+    Session: modelFor(connection, 'Session', sessionSchema, COLLECTION_NAMES.sessions),
+    OneTimeCode: modelFor(
+      connection,
+      'OneTimeCode',
+      oneTimeCodeSchema,
+      COLLECTION_NAMES.oneTimeCodes,
+    ),
+    DocumentCategory: modelFor(
+      connection,
+      'DocumentCategory',
+      documentCategorySchema,
+      COLLECTION_NAMES.documentCategories,
+    ),
+    Document: modelFor(connection, 'Document', documentSchema, COLLECTION_NAMES.documents),
+    ReportTemplate: modelFor(
+      connection,
+      'ReportTemplate',
+      reportTemplateSchema,
+      COLLECTION_NAMES.reportTemplates,
+    ),
+    CollegeReport: modelFor(
+      connection,
+      'CollegeReport',
+      collegeReportSchema,
+      COLLECTION_NAMES.collegeReports,
+    ),
   };
 }

@@ -1,6 +1,8 @@
 import type {
   AppConfig,
+  DatabaseAccessMode,
   DatabaseDriver,
+  DatabaseEnvironment,
   EmailDriver,
   LogLevel,
   NodeEnvironment,
@@ -12,6 +14,8 @@ type Environment = Readonly<Record<string, string | undefined>>;
 const NODE_ENVIRONMENTS = ['development', 'test'] as const;
 const LOG_LEVELS = ['fatal', 'error', 'warn', 'info', 'debug', 'trace', 'silent'] as const;
 const DATABASE_DRIVERS = ['mock', 'mongodb'] as const;
+const DATABASE_ENVIRONMENTS = ['development', 'test'] as const;
+const DATABASE_ACCESS_MODES = ['runtime', 'maintenance'] as const;
 const STORAGE_DRIVERS = ['local'] as const;
 const EMAIL_DRIVERS = ['console'] as const;
 
@@ -63,6 +67,44 @@ function optionalNonEmpty(value: string | undefined): string | undefined {
   return trimmed ? trimmed : undefined;
 }
 
+function validateMongoTarget(
+  uri: string,
+  databaseEnvironment: DatabaseEnvironment,
+  databaseName: string,
+  issues: string[],
+): void {
+  let parsed: URL;
+  try {
+    parsed = new URL(uri);
+  } catch {
+    issues.push('MONGODB_URI is not a valid MongoDB connection URI');
+    return;
+  }
+
+  if (databaseEnvironment === 'development') {
+    if (databaseName !== 'gradport_dev') {
+      issues.push('MONGODB_DB_NAME must be gradport_dev for the development database');
+    }
+    if (parsed.protocol !== 'mongodb+srv:' || !parsed.hostname.endsWith('.mongodb.net')) {
+      issues.push('Development MongoDB must use an Atlas mongodb+srv URI');
+    }
+    if (parsed.username.length === 0 || parsed.password.length === 0) {
+      issues.push('Development MONGODB_URI must contain database-user credentials');
+    }
+    return;
+  }
+
+  if (!databaseName.startsWith('gradport_test_')) {
+    issues.push('Test MongoDB database names must start with gradport_test_');
+  }
+  if (
+    parsed.protocol !== 'mongodb:' ||
+    (parsed.hostname !== '127.0.0.1' && parsed.hostname !== 'localhost')
+  ) {
+    issues.push('Test MongoDB must use a loopback mongodb URI');
+  }
+}
+
 export function loadConfig(environment: Environment = process.env): AppConfig {
   const issues: string[] = [];
 
@@ -84,6 +126,18 @@ export function loadConfig(environment: Environment = process.env): AppConfig {
     DATABASE_DRIVERS,
     issues,
   );
+  const databaseEnvironment = parseEnum<DatabaseEnvironment>(
+    environment.DATABASE_ENVIRONMENT ?? (nodeEnv === 'test' ? 'test' : 'development'),
+    'DATABASE_ENVIRONMENT',
+    DATABASE_ENVIRONMENTS,
+    issues,
+  );
+  const databaseAccessMode = parseEnum<DatabaseAccessMode>(
+    environment.DATABASE_ACCESS_MODE ?? 'runtime',
+    'DATABASE_ACCESS_MODE',
+    DATABASE_ACCESS_MODES,
+    issues,
+  );
   const storageDriver = parseEnum<StorageDriver>(
     environment.STORAGE_DRIVER ?? 'local',
     'STORAGE_DRIVER',
@@ -103,7 +157,9 @@ export function loadConfig(environment: Environment = process.env): AppConfig {
   }
 
   const host = environment.HOST?.trim() || '127.0.0.1';
-  const mongodbDbName = environment.MONGODB_DB_NAME?.trim() || 'gradport';
+  const mongodbDbName =
+    environment.MONGODB_DB_NAME?.trim() ||
+    (databaseEnvironment === 'test' ? 'gradport_test_local' : 'gradport_dev');
   const localStoragePath = environment.LOCAL_STORAGE_PATH?.trim() || '.local-data/storage';
   const port = parseInteger(environment.PORT ?? '3000', 'PORT', 1, 65_535, issues);
   const readyCheckTimeoutMs = parseInteger(
@@ -113,9 +169,34 @@ export function loadConfig(environment: Environment = process.env): AppConfig {
     30_000,
     issues,
   );
+  const mongodbServerSelectionTimeoutMs = parseInteger(
+    environment.MONGODB_SERVER_SELECTION_TIMEOUT_MS ?? '10000',
+    'MONGODB_SERVER_SELECTION_TIMEOUT_MS',
+    100,
+    30_000,
+    issues,
+  );
+  const mongodbConnectTimeoutMs = parseInteger(
+    environment.MONGODB_CONNECT_TIMEOUT_MS ?? '10000',
+    'MONGODB_CONNECT_TIMEOUT_MS',
+    100,
+    30_000,
+    issues,
+  );
+  const mongodbMaxPoolSize = parseInteger(
+    environment.MONGODB_MAX_POOL_SIZE ?? '10',
+    'MONGODB_MAX_POOL_SIZE',
+    1,
+    100,
+    issues,
+  );
 
-  if (mongodbDbName.length > 64) {
-    issues.push('MONGODB_DB_NAME must be 64 characters or fewer');
+  if (mongodbDbName.length > 38) {
+    issues.push('MONGODB_DB_NAME must be 38 characters or fewer');
+  }
+
+  if (databaseDriver === 'mongodb' && mongodbUri !== undefined) {
+    validateMongoTarget(mongodbUri, databaseEnvironment, mongodbDbName, issues);
   }
 
   if (issues.length > 0) {
@@ -128,8 +209,13 @@ export function loadConfig(environment: Environment = process.env): AppConfig {
     port,
     logLevel,
     databaseDriver,
+    databaseEnvironment,
+    databaseAccessMode,
     ...(mongodbUri === undefined ? {} : { mongodbUri }),
     mongodbDbName,
+    mongodbServerSelectionTimeoutMs,
+    mongodbConnectTimeoutMs,
+    mongodbMaxPoolSize,
     storageDriver,
     localStoragePath,
     emailDriver,

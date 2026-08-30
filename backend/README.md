@@ -1,68 +1,139 @@
-# GradPort Backend — Phase 1
+# GradPort Backend — Phase 2A
 
-This directory is the isolated backend foundation for GradPort. Phase 1 provides Fastify startup, strict environment validation, request logging, health/readiness endpoints, local service adapters, Mongoose schemas, and seed definitions. It does not modify or integrate with the Flutter application.
+This directory contains GradPort's isolated Fastify and MongoDB backend foundation. Phase 2A activates persistence, versioned indexes, idempotent reference-data seeds, and repositories without adding authentication or application routes.
+
+Nothing in this phase integrates with Flutter, Android, uploads, OCR, document generation, cloud object storage, real email, or deployment.
 
 ## Requirements
 
-- Node.js 22.15 or newer (below Node 25)
+- Node.js 22.15 or newer and below Node 25
 - npm 10 or newer
+- Internet access for npm installation and the first disposable MongoDB test-binary download
 
-Docker is not required. The default configuration uses a non-persistent mock database, local object storage, and a console-only email adapter. No message is delivered over the network.
-
-## Local setup without Docker
+Docker is not required. Normal local development still defaults to a mock database, local storage, and console email.
 
 ```powershell
-cd backend
-npm install
-Copy-Item .env.example .env
+Set-Location backend
+npm ci
 npm run dev
 ```
 
-The server defaults to `http://127.0.0.1:3000`.
+The existing endpoints remain:
 
 ```text
 GET /health
 GET /ready
 ```
 
-`/ready` deliberately reports `mock`, `local`, and `console` so local adapters cannot be confused with production services. Runtime files are stored beneath `.local-data/`, which is ignored by Git.
+## MongoDB storage boundary
 
-Environment files are not loaded automatically in Phase 1. Set variables in the shell when overriding defaults, or run with the defaults shown in `.env.example`.
+MongoDB stores account records, session/code records, category and report definitions, college-report answers, and document metadata. A document record contains an owner, category/folder, file name, MIME type, file kind, extension, size, checksum, and private `objectKey` reference.
 
-## Optional native MongoDB connection
+MongoDB must never contain uploaded file bytes, `Buffer` payloads, Base64 data, data URLs, GridFS identifiers, GridFS buckets, file chunks, or embedded document content. The repository and schema layers reject these values. Actual files belong in private object storage during a later approved phase.
 
-No MongoDB server is required for Phase 1. If a local server becomes available, configure it explicitly:
+Normal repository results never contain `passwordHash`, `refreshTokenHash`, or `codeHash`, including create and update results. Purpose-specific credential access is deferred to the authentication phase.
+
+## Manual Atlas development setup
+
+No code or command in this repository creates Atlas resources. Complete these steps manually in the Atlas UI:
+
+1. Enable MFA and create a development-only project named `GradPort Development`.
+2. Create a Free cluster named `gradport-dev` in the closest available region. Do not load sample data.
+3. Add only the current public IP as a temporary `/32` network-access entry. Never use `0.0.0.0/0`.
+4. Create the custom roles and users below, scoped only to database `gradport_dev` and cluster `gradport-dev`.
+
+### `gradportDevRuntime` custom role
+
+Grant `find`, `insert`, `update`, and `remove` on:
+
+- `users`
+- `sessions`
+- `one_time_codes`
+- `documents`
+- `college_reports`
+
+Grant `find` only on:
+
+- `document_categories`
+- `report_templates`
+
+Create user `gradport_dev_app` with only this role. Restrict it to `gradport-dev`.
+
+### `gradportDevMaintainer` custom role
+
+Inherit `gradportDevRuntime`, then add:
+
+- `createCollection` and `listCollections` on `gradport_dev`
+- `createIndex` and `listIndexes` on the seven application collections
+- `find`, `insert`, `update`, and `remove` on `_gradport_migrations` and `_gradport_migration_lock`
+- `find`, `insert`, and `update` on `document_categories` and `report_templates`
+
+Do not grant `dropCollection`, `dropIndex`, `dbAdmin`, `atlasAdmin`, or any-database permissions.
+
+Create temporary user `gradport_dev_maintainer` with this role, restrict it to `gradport-dev`, and set it to expire within seven days.
+
+Official references:
+
+- [Atlas database users](https://www.mongodb.com/docs/atlas/security-add-mongodb-users/)
+- [Atlas custom roles](https://www.mongodb.com/docs/atlas/security-add-mongodb-roles/)
+- [Atlas IP access lists](https://www.mongodb.com/docs/atlas/security/ip-access-list/)
+
+## Local secret files
+
+Create these files manually. They are ignored by Git and must never be shared or committed:
 
 ```powershell
-$env:DATABASE_DRIVER='mongodb'
-$env:MONGODB_URI='mongodb://127.0.0.1:27017'
-$env:MONGODB_DB_NAME='gradport'
-npm run dev
+Copy-Item .env.example .env.development.local
+Copy-Item .env.maintenance.example .env.maintenance.local
+git check-ignore -v .env.development.local .env.maintenance.local
 ```
 
-The API will still start if the initial connection fails so `/health` remains available, but `/ready` returns `503` until MongoDB is reachable.
+Place the runtime user's URI in `.env.development.local` and the temporary maintainer URI in `.env.maintenance.local`. Use Atlas `mongodb+srv` connection strings, URL-encode special password characters, and keep `MONGODB_DB_NAME=gradport_dev`.
 
-## Seeds
+The files are loaded only by explicit Atlas/database npm commands. Never pass a URI on a command line, print it, or add it to tracked documentation.
 
-Seeds are idempotent, insert-only definitions for the current document categories/folders and the versioned college-engagement report template. They never run during application startup and refuse to run with the mock driver.
+## Migrations and seeds
+
+Mongoose automatic index creation remains disabled. `001_initial_indexes` creates the 17 named indexes declared by the seven schemas and records its checksum in `_gradport_migrations`. An expiring lock prevents concurrent migration execution.
+
+Migrations are forward-only. No rollback, index-drop, collection-drop, truncate, or database-reset command exists.
+
+Seeds insert the six category definitions and `college-engagement-v1` using stable upsert keys and `$setOnInsert`. They never delete or overwrite data, require current migrations, and fail if stored seed content has drifted.
+
+Every database command requires explicit confirmation:
 
 ```powershell
-$env:DATABASE_DRIVER='mongodb'
-$env:MONGODB_URI='mongodb://127.0.0.1:27017'
-npm run seed
+npm run db:ping -- --confirm-database=gradport_dev
+npm run db:migrate -- --confirm-database=gradport_dev
+npm run db:migrate:status -- --confirm-database=gradport_dev
+npm run db:seed -- --confirm-database=gradport_dev
+npm run db:verify -- --confirm-database=gradport_dev
 ```
 
-Do not run the seed command unless the target MongoDB database has been deliberately selected and approved.
+`db:ping` uses runtime credentials. Migration, seed, status, and verification commands use the temporary maintenance credentials. Output is intentionally limited to the database name, statuses, counts, and elapsed time.
 
-## Verification
+To check application readiness against Atlas:
+
+```powershell
+npm run dev:atlas
+Invoke-RestMethod http://127.0.0.1:3000/health
+Invoke-RestMethod http://127.0.0.1:3000/ready
+```
+
+Stop with `Ctrl+C` to close Fastify and MongoDB gracefully.
+
+## Local verification
 
 ```powershell
 npm run typecheck
 npm run lint
-npm test
+npm run test:unit
+npm run test:integration
 npm run build
 ```
 
-## Deferred architecture
+Integration tests start a disposable, loopback-only MongoDB 8.0.29 replica set. They refuse to start if an external `MONGODB_URI` is present and verify the generated database name before deleting it. The first run downloads and caches the MongoDB binary and can require substantial bandwidth and disk space.
 
-Authentication, document routes, Flutter integration, real email, private R2 storage, portfolio generation, managed-cloud deployment, and traditional non-ML OCR remain outside Phase 1. The future deployment target remains Node.js 24 LTS on Render Singapore with MongoDB Atlas, private Cloudflare R2, and Resend, subject to later approval gates.
+## Deferred work
+
+Authentication routes and hash lookup, Flutter integration, document upload, private R2 storage, real email, OCR, PDF/DOCX generation, cloud deployment, and production database support remain outside Phase 2A.

@@ -34,5 +34,8 @@ function createDatabase(config: AppConfig): DatabaseConnection {
   return new MongooseDatabaseConnection({
     uri: config.mongodbUri,
     databaseName: config.mongodbDbName,
+    serverSelectionTimeoutMs: config.mongodbServerSelectionTimeoutMs,
+    connectTimeoutMs: config.mongodbConnectTimeoutMs,
+    maxPoolSize: config.mongodbMaxPoolSize,
   });
 }

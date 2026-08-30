@@ -4,6 +4,7 @@ import { registerErrorHandling } from './common/errors/error-handler.js';
 import { createLoggerOptions } from './common/logging/logger-options.js';
 import type { AppConfig } from './config/env.types.js';
 import { createServices, type AppServices } from './infrastructure/create-services.js';
+import { toSafeDatabaseError } from './infrastructure/database/database-error.js';
 import { registerHealthRoutes } from './modules/health/health.routes.js';
 
 export interface BuildAppOptions {
@@ -36,7 +37,11 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
     try {
       await services.database.connect();
     } catch (error) {
-      app.log.error({ err: error }, 'Database connection failed; readiness will remain unavailable');
+      const safeError = toSafeDatabaseError(error);
+      app.log.error(
+        { code: safeError.code },
+        'Database connection failed; readiness will remain unavailable',
+      );
     }
   }
 

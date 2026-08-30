@@ -2,28 +2,38 @@
   "name": "gradport-backend",
   "version": "0.1.0",
   "private": true,
-  "description": "Isolated Phase 1 backend foundation for GradPort.",
+  "description": "Isolated MongoDB persistence foundation for GradPort.",
   "type": "module",
   "engines": {
     "node": ">=22.15.0 <25"
   },
   "scripts": {
     "dev": "tsx watch src/server.ts",
+    "dev:atlas": "node --env-file=.env.development.local --import tsx src/server.ts",
     "build": "tsc",
     "start": "node dist/src/server.js",
     "typecheck": "tsc --noEmit",
     "lint": "eslint .",
     "test": "vitest run",
-    "seed": "tsx src/database/seeds/run-seeds.ts"
+    "test:unit": "vitest run --exclude tests/integration/**",
+    "test:integration": "vitest run tests/integration/persistence.integration.test.ts",
+    "db:ping": "node --env-file=.env.development.local --import tsx src/database/diagnostics/ping-database.ts",
+    "db:migrate": "node --env-file=.env.maintenance.local --import tsx src/database/migrations/run-migrations.ts",
+    "db:migrate:status": "node --env-file=.env.maintenance.local --import tsx src/database/migrations/show-migration-status.ts",
+    "db:seed": "node --env-file=.env.maintenance.local --import tsx src/database/seeds/run-seeds.ts",
+    "db:verify": "node --env-file=.env.maintenance.local --import tsx src/database/diagnostics/verify-database.ts",
+    "seed": "node --env-file=.env.maintenance.local --import tsx src/database/seeds/run-seeds.ts"
   },
   "dependencies": {
     "fastify": "^5.6.2",
+    "mongodb": "~7.5.0",
     "mongoose": "^9.0.0"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
     "@types/node": "^22.15.0",
     "eslint": "^10.9.1",
+    "mongodb-memory-server": "^10.4.3",
     "pino-pretty": "^13.1.2",
     "tsx": "^4.20.6",
     "typescript": "^5.9.3",
