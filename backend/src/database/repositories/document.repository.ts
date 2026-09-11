@@ -1,5 +1,5 @@
 import type { Model, Types } from 'mongoose';
-import type { Document } from '../models/index.js';
+import type { Document, OcrEngineName } from '../models/index.js';
 import {
   asPersistedRecord,
   boundedLimit,
@@ -12,6 +12,19 @@ import {
 export type DocumentRecord = PersistedRecord<Document>;
 export type CreateDocumentInput = CreateRecord<Document>;
 export type UpdateDocumentInput = UpdateRecord<Document>;
+
+export interface DocumentCountSummary {
+  readonly totalCount: number;
+  readonly categoryCounts: Readonly<Record<string, number>>;
+  readonly folderCounts: Readonly<Record<string, number>>;
+}
+
+export interface OcrProcessingClaim {
+  readonly processingId: string;
+  readonly engine: OcrEngineName;
+  readonly now: Date;
+  readonly expiresAt: Date;
+}
 
 const FORBIDDEN_CONTENT_KEYS = new Set([
   'base64',
@@ -75,7 +88,7 @@ export class DocumentRepository {
     return found === null ? null : asPersistedRecord<Document>(found);
   }
 
-  async listForOwner(ownerId: Types.ObjectId, limit = 50): Promise<readonly DocumentRecord[]> {
+  async listForOwner(ownerId: Types.ObjectId, limit = 100): Promise<readonly DocumentRecord[]> {
     const found = await this.model
       .find({ ownerId })
       .sort({ createdAt: -1 })
@@ -83,6 +96,42 @@ export class DocumentRepository {
       .lean()
       .exec();
     return found.map((value) => asPersistedRecord<Document>(value));
+  }
+
+  async countForOwner(ownerId: Types.ObjectId): Promise<DocumentCountSummary> {
+    const rows = await this.model
+      .aggregate<{
+        readonly categoryKey: string;
+        readonly folderKey: string;
+        readonly count: number;
+      }>([
+        { $match: { ownerId } },
+        {
+          $group: {
+            _id: { categoryKey: '$categoryKey', folderKey: '$folderKey' },
+            count: { $sum: 1 },
+          },
+        },
+        {
+          $project: {
+            _id: 0,
+            categoryKey: '$_id.categoryKey',
+            folderKey: '$_id.folderKey',
+            count: 1,
+          },
+        },
+      ])
+      .exec();
+    const categoryCounts: Record<string, number> = {};
+    const folderCounts: Record<string, number> = {};
+    let totalCount = 0;
+    for (const row of rows) {
+      totalCount += row.count;
+      categoryCounts[row.categoryKey] = (categoryCounts[row.categoryKey] ?? 0) + row.count;
+      const folder = `${row.categoryKey}/${row.folderKey}`;
+      folderCounts[folder] = (folderCounts[folder] ?? 0) + row.count;
+    }
+    return { totalCount, categoryCounts, folderCounts };
   }
 
   async updateByIdForOwner(
@@ -95,6 +144,97 @@ export class DocumentRepository {
       .findOneAndUpdate(
         { _id: id, ownerId },
         { $set: patch },
+        { returnDocument: 'after', runValidators: true, strict: 'throw' },
+      )
+      .lean()
+      .exec();
+    return updated === null ? null : asPersistedRecord<Document>(updated);
+  }
+
+  async claimOcrForProcessing(
+    ownerId: Types.ObjectId,
+    id: Types.ObjectId,
+    claim: OcrProcessingClaim,
+  ): Promise<boolean> {
+    const result = await this.model.updateOne(
+      {
+        _id: id,
+        ownerId,
+        $or: [
+          { 'ocr.status': { $ne: 'processing' } },
+          { 'ocr.processingExpiresAt': { $lte: claim.now } },
+        ],
+      },
+      {
+        $set: {
+          'ocr.status': 'processing',
+          'ocr.engine': claim.engine,
+          'ocr.updatedAt': claim.now,
+          'ocr.processingId': claim.processingId,
+          'ocr.processingExpiresAt': claim.expiresAt,
+        },
+      },
+      { runValidators: true, strict: 'throw' },
+    );
+    return result.matchedCount === 1;
+  }
+
+  async completeOcr(
+    ownerId: Types.ObjectId,
+    id: Types.ObjectId,
+    processingId: string,
+    input: {
+      readonly rawText: string;
+      readonly engine: OcrEngineName;
+      readonly processedAt: Date;
+    },
+  ): Promise<DocumentRecord | null> {
+    const updated = await this.model
+      .findOneAndUpdate(
+        { _id: id, ownerId, 'ocr.status': 'processing', 'ocr.processingId': processingId },
+        {
+          $set: {
+            ocr: {
+              status: 'ready',
+              rawText: input.rawText,
+              reviewedText: input.rawText,
+              engine: input.engine,
+              processedAt: input.processedAt,
+              updatedAt: input.processedAt,
+            },
+          },
+        },
+        { returnDocument: 'after', runValidators: true, strict: 'throw' },
+      )
+      .lean()
+      .exec();
+    return updated === null ? null : asPersistedRecord<Document>(updated);
+  }
+
+  async failOcr(
+    ownerId: Types.ObjectId,
+    id: Types.ObjectId,
+    processingId: string,
+    engine: OcrEngineName,
+    failedAt: Date,
+  ): Promise<void> {
+    await this.model.updateOne(
+      { _id: id, ownerId, 'ocr.status': 'processing', 'ocr.processingId': processingId },
+      { $set: { ocr: { status: 'failed', engine, updatedAt: failedAt } } },
+      { runValidators: true, strict: 'throw' },
+    );
+  }
+
+  async updateReviewedOcrText(
+    ownerId: Types.ObjectId,
+    id: Types.ObjectId,
+    reviewedText: string,
+    updatedAt: Date,
+  ): Promise<DocumentRecord | null> {
+    const updated = await this.model
+      .findOneAndUpdate(
+        { _id: id, ownerId, 'ocr.status': 'ready' },
+        { $set: { 'ocr.reviewedText': reviewedText, 'ocr.updatedAt': updatedAt } },
         { returnDocument: 'after', runValidators: true, strict: 'throw' },
       )
       .lean()

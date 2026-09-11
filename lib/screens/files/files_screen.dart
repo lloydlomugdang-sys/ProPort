@@ -1,15 +1,13 @@
-// LOCATION: lib/screens/files/files_screen.dart
-//
-// Create the folder:  lib/screens/files/
-// Then place this file inside it.
-
 import 'package:flutter/material.dart';
+
 import '../../constants/app_colors.dart';
 import '../../constants/app_text_styles.dart';
+import '../../services/document_models.dart';
+import '../../services/document_scope.dart';
+import '../../widgets/empty_state.dart';
+import '../../widgets/folder_row_item.dart';
 import '../../widgets/grad_app_bar.dart';
 import '../../widgets/search_bar_field.dart';
-import '../../widgets/folder_row_item.dart';
-import '../../widgets/empty_state.dart';
 import 'view_files_screen.dart';
 
 class FilesScreen extends StatefulWidget {
@@ -20,80 +18,63 @@ class FilesScreen extends StatefulWidget {
 }
 
 class _FilesScreenState extends State<FilesScreen> {
-  final _searchCtrl = TextEditingController();
+  final _searchController = TextEditingController();
   String _query = '';
+  bool _loadRequested = false;
 
-  final List<_FolderCategory> _categories = [
-    _FolderCategory(
-      name: 'Curriculum Vitae',
-      folders: [
-        _Folder('Creative Title', 1),
-        _Folder('Curriculum Vitae', 0),
-      ],
-    ),
-    _FolderCategory(
-      name: 'Scholastic Record',
-      folders: [
-        _Folder('Creative Title', 1),
-        _Folder('Unofficial TOR with Reflections', 4),
-      ],
-    ),
-    _FolderCategory(
-      name: 'Certificates',
-      folders: [
-        _Folder('Creative Title', 1),
-        _Folder('Seminars', 6),
-        _Folder('Other Seminars', 2),
-        _Folder('Trainings', 3),
-      ],
-    ),
-    _FolderCategory(
-      name: 'Accomplishments',
-      folders: [
-        _Folder('Creative Title', 1),
-        _Folder('Thesis/Capstone', 1),
-        _Folder('Case Studies', 4),
-        _Folder('Projects', 5),
-        _Folder('Assessments', 20),
-      ],
-    ),
-    _FolderCategory(
-      name: 'Other Achievements',
-      folders: [
-        _Folder('Creative Title', 1),
-        _Folder('Projects', 2),
-      ],
-    ),
-  ];
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (_loadRequested) return;
+    _loadRequested = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _load();
+    });
+  }
 
   @override
   void dispose() {
-    _searchCtrl.dispose();
+    _searchController.dispose();
     super.dispose();
   }
 
-  List<_FolderCategory> get _filtered {
-    if (_query.isEmpty) return _categories;
-    final q = _query.toLowerCase();
-    return _categories
-        .map((cat) => _FolderCategory(
-              name: cat.name,
-              folders: cat.folders
-                  .where((f) => f.name.toLowerCase().contains(q))
-                  .toList(),
-            ))
-        .where((cat) =>
-            cat.folders.isNotEmpty ||
-            cat.name.toLowerCase().contains(q))
-        .toList();
+  Future<void> _load({bool force = false}) async {
+    try {
+      await DocumentScope.of(context).load(force: force);
+    } catch (_) {
+      // The service exposes the safe API error in this screen's error state.
+    }
   }
 
-  void _openFolder(String categoryName, _Folder folder) {
+  List<DocumentCategory> _filtered(List<DocumentCategory> categories) {
+    if (_query.trim().isEmpty) return categories;
+    final query = _query.toLowerCase();
+    return categories
+        .map(
+          (category) => DocumentCategory(
+            key: category.key,
+            name: category.name,
+            folders: category.folders
+                .where((folder) => folder.name.toLowerCase().contains(query))
+                .toList(growable: false),
+          ),
+        )
+        .where(
+          (category) =>
+              category.folders.isNotEmpty ||
+              category.name.toLowerCase().contains(query),
+        )
+        .toList(growable: false);
+  }
+
+  void _openFolder(DocumentCategory category, DocumentFolder folder) {
     Navigator.push(
       context,
       MaterialPageRoute(
         builder: (_) => ViewFilesScreen(
-          categoryName: categoryName,
+          categoryKey: category.key,
+          categoryName: category.name,
+          folderKey: folder.key,
           folderName: folder.name,
         ),
       ),
@@ -102,38 +83,57 @@ class _FilesScreenState extends State<FilesScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final filtered = _filtered;
+    final service = DocumentScope.of(context);
+    final categories = _filtered(service.categories);
+
     return Scaffold(
       backgroundColor: AppColors.background,
       appBar: const GradAppBar(title: 'Files'),
-      body: SingleChildScrollView(
-        physics: const BouncingScrollPhysics(),
-        padding: const EdgeInsets.fromLTRB(20, 16, 20, 32),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            SearchBarField(
-              controller: _searchCtrl,
-              hintText: 'Search folders...',
-              onChanged: (v) => setState(() => _query = v),
-            ),
-            const SizedBox(height: 20),
-            if (filtered.isEmpty)
-              const EmptyState(
-                message: 'No folders found.',
-                icon: Icons.folder_off_outlined,
-              )
-            else
-              ...filtered.map(
-                (cat) => _CategorySection(
-                  category: cat,
-                  onFolderTap: (folder) =>
-                      _openFolder(cat.name, folder),
+      body: service.isLoading && service.categories.isEmpty
+          ? const Center(
+              child: CircularProgressIndicator(color: AppColors.primary),
+            )
+          : service.errorMessage != null && service.categories.isEmpty
+          ? _LoadError(
+              message: service.errorMessage!,
+              onRetry: () => _load(force: true),
+            )
+          : RefreshIndicator(
+              color: AppColors.primary,
+              onRefresh: () => _load(force: true),
+              child: SingleChildScrollView(
+                physics: const AlwaysScrollableScrollPhysics(
+                  parent: BouncingScrollPhysics(),
+                ),
+                padding: const EdgeInsets.fromLTRB(20, 16, 20, 32),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    SearchBarField(
+                      controller: _searchController,
+                      hintText: 'Search folders...',
+                      onChanged: (value) => setState(() => _query = value),
+                    ),
+                    const SizedBox(height: 20),
+                    if (categories.isEmpty)
+                      const EmptyState(
+                        message: 'No folders found.',
+                        icon: Icons.folder_off_outlined,
+                      )
+                    else
+                      ...categories.map(
+                        (category) => _CategorySection(
+                          category: category,
+                          countForFolder: (folder) => service.summary
+                              .folderCount(category.key, folder.key),
+                          onFolderTap: (folder) =>
+                              _openFolder(category, folder),
+                        ),
+                      ),
+                  ],
                 ),
               ),
-          ],
-        ),
-      ),
+            ),
     );
   }
 }
@@ -141,11 +141,13 @@ class _FilesScreenState extends State<FilesScreen> {
 class _CategorySection extends StatelessWidget {
   const _CategorySection({
     required this.category,
+    required this.countForFolder,
     required this.onFolderTap,
   });
 
-  final _FolderCategory category;
-  final ValueChanged<_Folder> onFolderTap;
+  final DocumentCategory category;
+  final int Function(DocumentFolder folder) countForFolder;
+  final ValueChanged<DocumentFolder> onFolderTap;
 
   @override
   Widget build(BuildContext context) {
@@ -176,7 +178,6 @@ class _CategorySection extends StatelessWidget {
             ),
             child: Column(
               children: category.folders.asMap().entries.map((entry) {
-                final idx    = entry.key;
                 final folder = entry.value;
                 return Column(
                   children: [
@@ -184,11 +185,11 @@ class _CategorySection extends StatelessWidget {
                       padding: const EdgeInsets.symmetric(horizontal: 14),
                       child: FolderRowItem(
                         name: folder.name,
-                        count: folder.count,
+                        count: countForFolder(folder),
                         onTap: () => onFolderTap(folder),
                       ),
                     ),
-                    if (idx < category.folders.length - 1)
+                    if (entry.key < category.folders.length - 1)
                       const Divider(
                         height: 1,
                         indent: 14,
@@ -206,14 +207,36 @@ class _CategorySection extends StatelessWidget {
   }
 }
 
-class _FolderCategory {
-  const _FolderCategory({required this.name, required this.folders});
-  final String name;
-  final List<_Folder> folders;
-}
+class _LoadError extends StatelessWidget {
+  const _LoadError({required this.message, required this.onRetry});
 
-class _Folder {
-  const _Folder(this.name, this.count);
-  final String name;
-  final int count;
+  final String message;
+  final VoidCallback onRetry;
+
+  @override
+  Widget build(BuildContext context) {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(24),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Icon(
+              Icons.cloud_off_outlined,
+              color: AppColors.textMuted,
+              size: 42,
+            ),
+            const SizedBox(height: 12),
+            Text(
+              message,
+              textAlign: TextAlign.center,
+              style: AppTextStyles.bodySmall,
+            ),
+            const SizedBox(height: 12),
+            TextButton(onPressed: onRetry, child: const Text('Try Again')),
+          ],
+        ),
+      ),
+    );
+  }
 }

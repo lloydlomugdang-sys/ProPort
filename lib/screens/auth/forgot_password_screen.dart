@@ -1,4 +1,7 @@
 import 'package:flutter/material.dart';
+import '../../services/api_client.dart';
+import '../../services/auth_models.dart';
+import '../../services/auth_scope.dart';
 import 'verification_code_screen.dart';
 
 class ForgotPasswordScreen extends StatefulWidget {
@@ -31,10 +34,7 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen>
       vsync: this,
       duration: const Duration(milliseconds: 500),
     );
-    _fadeAnim = CurvedAnimation(
-      parent: _animController,
-      curve: Curves.easeOut,
-    );
+    _fadeAnim = CurvedAnimation(parent: _animController, curve: Curves.easeOut);
     _slideAnim = Tween<Offset>(
       begin: const Offset(0, 0.08),
       end: Offset.zero,
@@ -51,33 +51,49 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen>
 
   Future<void> _handleSend() async {
     if (!_formKey.currentState!.validate()) return;
+    final email = _emailController.text.trim();
     setState(() => _isLoading = true);
-    await Future.delayed(const Duration(milliseconds: 800));
-    if (!mounted) return;
-    setState(() => _isLoading = false);
-
-    Navigator.of(context).push(
-      PageRouteBuilder(
-        pageBuilder: (_, animation, __) => VerificationCodeScreen(
-          email: _emailController.text.trim(),
-        ),
-        transitionsBuilder: (_, animation, __, child) {
-          return FadeTransition(
-            opacity: animation,
-            child: SlideTransition(
-              position: Tween<Offset>(
-                begin: const Offset(1, 0),
-                end: Offset.zero,
-              ).animate(
-                CurvedAnimation(parent: animation, curve: Curves.easeOut),
+    try {
+      await AuthScope.of(context).requestPasswordReset(email: email);
+      if (!mounted) return;
+      Navigator.of(context).push(
+        PageRouteBuilder(
+          pageBuilder: (_, animation, _) => VerificationCodeScreen(
+            email: email,
+            purpose: VerificationPurpose.passwordReset,
+          ),
+          transitionsBuilder: (_, animation, _, child) {
+            return FadeTransition(
+              opacity: animation,
+              child: SlideTransition(
+                position:
+                    Tween<Offset>(
+                      begin: const Offset(1, 0),
+                      end: Offset.zero,
+                    ).animate(
+                      CurvedAnimation(parent: animation, curve: Curves.easeOut),
+                    ),
+                child: child,
               ),
-              child: child,
-            ),
-          );
-        },
-        transitionDuration: const Duration(milliseconds: 350),
-      ),
-    );
+            );
+          },
+          transitionDuration: const Duration(milliseconds: 350),
+        ),
+      );
+    } on ApiException catch (error) {
+      _showError(error.message);
+    } catch (_) {
+      _showError('Unable to send a reset code right now. Please try again.');
+    } finally {
+      if (mounted) setState(() => _isLoading = false);
+    }
+  }
+
+  void _showError(String message) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context)
+      ..clearSnackBars()
+      ..showSnackBar(SnackBar(content: Text(message)));
   }
 
   @override
@@ -95,8 +111,11 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen>
                 Padding(
                   padding: const EdgeInsets.only(left: 8, top: 8),
                   child: IconButton(
-                    icon: const Icon(Icons.arrow_back_ios_new,
-                        color: _darkTeal, size: 20),
+                    icon: const Icon(
+                      Icons.arrow_back_ios_new,
+                      color: _darkTeal,
+                      size: 20,
+                    ),
                     onPressed: () => Navigator.of(context).pop(),
                   ),
                 ),
@@ -155,7 +174,9 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen>
                               controller: _emailController,
                               keyboardType: TextInputType.emailAddress,
                               style: const TextStyle(
-                                  color: Colors.black87, fontSize: 14),
+                                color: Colors.black87,
+                                fontSize: 14,
+                              ),
                               decoration: InputDecoration(
                                 hintText: 'Enter your email address',
                                 hintStyle: const TextStyle(
@@ -165,39 +186,52 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen>
                                 filled: true,
                                 fillColor: Colors.white,
                                 contentPadding: const EdgeInsets.symmetric(
-                                    horizontal: 16, vertical: 14),
+                                  horizontal: 16,
+                                  vertical: 14,
+                                ),
                                 border: OutlineInputBorder(
                                   borderRadius: BorderRadius.circular(8),
                                   borderSide: const BorderSide(
-                                      color: _fieldBorder, width: 1),
+                                    color: _fieldBorder,
+                                    width: 1,
+                                  ),
                                 ),
                                 enabledBorder: OutlineInputBorder(
                                   borderRadius: BorderRadius.circular(8),
                                   borderSide: const BorderSide(
-                                      color: _fieldBorder, width: 1),
+                                    color: _fieldBorder,
+                                    width: 1,
+                                  ),
                                 ),
                                 focusedBorder: OutlineInputBorder(
                                   borderRadius: BorderRadius.circular(8),
                                   borderSide: const BorderSide(
-                                      color: _accentColor, width: 1.5),
+                                    color: _accentColor,
+                                    width: 1.5,
+                                  ),
                                 ),
                                 errorBorder: OutlineInputBorder(
                                   borderRadius: BorderRadius.circular(8),
                                   borderSide: const BorderSide(
-                                      color: Colors.redAccent, width: 1.2),
+                                    color: Colors.redAccent,
+                                    width: 1.2,
+                                  ),
                                 ),
                                 focusedErrorBorder: OutlineInputBorder(
                                   borderRadius: BorderRadius.circular(8),
                                   borderSide: const BorderSide(
-                                      color: Colors.redAccent, width: 1.5),
+                                    color: Colors.redAccent,
+                                    width: 1.5,
+                                  ),
                                 ),
                               ),
                               validator: (v) {
                                 if (v == null || v.trim().isEmpty) {
                                   return 'Enter your email';
                                 }
-                                if (!RegExp(r'^[^@]+@[^@]+\.[^@]+')
-                                    .hasMatch(v.trim())) {
+                                if (!RegExp(
+                                  r'^[^\s@]+@[^\s@]+\.[^\s@]+$',
+                                ).hasMatch(v.trim())) {
                                   return 'Enter a valid email';
                                 }
                                 return null;

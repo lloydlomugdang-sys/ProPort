@@ -4,13 +4,17 @@ import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import '../../constants/app_colors.dart';
 import '../../constants/app_text_styles.dart';
+import '../../services/auth_models.dart';
+import '../../services/auth_scope.dart';
+import '../../services/document_models.dart';
+import '../../services/document_scope.dart';
 import '../../widgets/grad_app_bar.dart';
 import '../../widgets/section_header.dart';
 import '../../widgets/tracker_row.dart';
 import '../../widgets/file_count_row.dart';
 import '../../widgets/stat_card.dart';
 import '../../widgets/primary_button.dart';
-import '../portfolio/portfolio_info_screen.dart';
+import '../portfolio/portfolio_list_screen.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -24,24 +28,7 @@ class _HomeScreenState extends State<HomeScreen>
   late final AnimationController _entranceCtrl;
   late final Animation<double> _fadeAnim;
   late final Animation<Offset> _slideAnim;
-
-  final String _userName   = 'John Dela Cruz';
-  final String _degree     = 'BS Information Technology';
-  final String _year       = '3rd year';
-  final int    _totalFiles = 43;
-
-  final List<_TrackerItem> _trackerItems = [
-    _TrackerItem('Curriculum Vitae',  TrackerStatus.none),
-    _TrackerItem('Scholastic Record', TrackerStatus.complete),
-    _TrackerItem('College Report',    TrackerStatus.incomplete),
-  ];
-
-  final List<_FileCountItem> _uploadedFiles = [
-    _FileCountItem('Creative Titles',     0),
-    _FileCountItem('Certificates',       11),
-    _FileCountItem('Accomplishments',    30),
-    _FileCountItem('Other Achievements',  2),
-  ];
+  bool _documentLoadRequested = false;
 
   @override
   void initState() {
@@ -54,13 +41,13 @@ class _HomeScreenState extends State<HomeScreen>
       parent: _entranceCtrl,
       curve: const Interval(0.0, 0.7, curve: Curves.easeOut),
     );
-    _slideAnim = Tween<Offset>(
-      begin: const Offset(0, 0.06),
-      end: Offset.zero,
-    ).animate(CurvedAnimation(
-      parent: _entranceCtrl,
-      curve: const Interval(0.0, 1.0, curve: Curves.easeOutCubic),
-    ));
+    _slideAnim = Tween<Offset>(begin: const Offset(0, 0.06), end: Offset.zero)
+        .animate(
+          CurvedAnimation(
+            parent: _entranceCtrl,
+            curve: const Interval(0.0, 1.0, curve: Curves.easeOutCubic),
+          ),
+        );
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) _entranceCtrl.forward();
     });
@@ -73,7 +60,21 @@ class _HomeScreenState extends State<HomeScreen>
   }
 
   @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (_documentLoadRequested) return;
+    _documentLoadRequested = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      DocumentScope.of(context).load().catchError((_) {});
+    });
+  }
+
+  @override
   Widget build(BuildContext context) {
+    final currentUser = AuthScope.of(context).user;
+    final documents = DocumentScope.of(context);
+
     return Scaffold(
       backgroundColor: AppColors.background,
       appBar: const GradAppBar(title: 'Dashboard'),
@@ -94,21 +95,30 @@ class _HomeScreenState extends State<HomeScreen>
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                _buildUserCard(),
+                _buildUserCard(currentUser),
                 const SizedBox(height: 20),
-                StatCard(
-                  label: 'Total Files',
-                  value: _totalFiles.toString(),
-                  icon: Icons.folder_copy_rounded,
-                ),
-                const SizedBox(height: 24),
-                const SectionHeader(title: 'Portfolio Tracker'),
-                const SizedBox(height: 10),
-                _buildPortfolioTracker(),
-                const SizedBox(height: 24),
-                const SectionHeader(title: 'Uploaded Files'),
-                const SizedBox(height: 10),
-                _buildUploadedFiles(),
+                if (!documents.hasLoadedDocuments)
+                  _DocumentMetricsState(
+                    isLoading: documents.isLoading,
+                    message: documents.errorMessage,
+                    onRetry: () =>
+                        documents.load(force: true).catchError((_) {}),
+                  )
+                else ...[
+                  StatCard(
+                    label: 'Total Files',
+                    value: documents.summary.totalCount.toString(),
+                    icon: Icons.folder_copy_rounded,
+                  ),
+                  const SizedBox(height: 24),
+                  const SectionHeader(title: 'Portfolio Tracker'),
+                  const SizedBox(height: 10),
+                  _buildPortfolioTracker(documents.summary),
+                  const SizedBox(height: 24),
+                  const SectionHeader(title: 'Uploaded Files'),
+                  const SizedBox(height: 10),
+                  _buildUploadedFiles(documents.summary),
+                ],
                 const SizedBox(height: 28),
                 // ── Generate Portfolio → navigates to PortfolioInfoScreen ──
                 PrimaryButton(
@@ -130,15 +140,17 @@ class _HomeScreenState extends State<HomeScreen>
       context,
       PageRouteBuilder(
         transitionDuration: const Duration(milliseconds: 380),
-        pageBuilder: (_, __, ___) => const PortfolioInfoScreen(),
-        transitionsBuilder: (_, anim, __, child) => FadeTransition(
+        pageBuilder: (_, _, _) => const PortfolioListScreen(),
+        transitionsBuilder: (_, anim, _, child) => FadeTransition(
           opacity: CurvedAnimation(parent: anim, curve: Curves.easeOut),
           child: SlideTransition(
-            position: Tween<Offset>(
-              begin: const Offset(0, 0.05),
-              end: Offset.zero,
-            ).animate(CurvedAnimation(
-                parent: anim, curve: Curves.easeOutCubic)),
+            position:
+                Tween<Offset>(
+                  begin: const Offset(0, 0.05),
+                  end: Offset.zero,
+                ).animate(
+                  CurvedAnimation(parent: anim, curve: Curves.easeOutCubic),
+                ),
             child: child,
           ),
         ),
@@ -146,7 +158,13 @@ class _HomeScreenState extends State<HomeScreen>
     );
   }
 
-  Widget _buildUserCard() {
+  Widget _buildUserCard(AuthUser? user) {
+    final fullName = user == null
+        ? null
+        : '${user.firstName} ${user.lastName}'.trim();
+    final program = user?.program.trim();
+    final yearLevel = user?.yearLevel.trim();
+
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
@@ -174,34 +192,77 @@ class _HomeScreenState extends State<HomeScreen>
                 width: 2,
               ),
             ),
-            child: const Icon(Icons.person_rounded,
-                color: AppColors.primary, size: 30),
+            child: const Icon(
+              Icons.person_rounded,
+              color: AppColors.primary,
+              size: 30,
+            ),
           ),
           const SizedBox(width: 14),
           Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(_userName, style: AppTextStyles.h3),
-                const SizedBox(height: 2),
-                Text(_degree, style: AppTextStyles.bodySmall),
-                const SizedBox(height: 1),
-                Text(
-                  _year,
-                  style: AppTextStyles.labelSmall.copyWith(
-                    color: AppColors.primary,
-                    fontWeight: FontWeight.w600,
+            child: user == null
+                ? Row(
+                    children: [
+                      const SizedBox(
+                        width: 18,
+                        height: 18,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2,
+                          color: AppColors.primary,
+                        ),
+                      ),
+                      const SizedBox(width: 10),
+                      Text(
+                        'Loading profile...',
+                        style: AppTextStyles.bodySmall,
+                      ),
+                    ],
+                  )
+                : Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        fullName!.isEmpty ? 'Name not provided' : fullName,
+                        style: AppTextStyles.h3,
+                      ),
+                      const SizedBox(height: 2),
+                      Text(
+                        program!.isEmpty ? 'Program not provided' : program,
+                        style: AppTextStyles.bodySmall,
+                      ),
+                      const SizedBox(height: 1),
+                      Text(
+                        yearLevel!.isEmpty
+                            ? 'Year level not provided'
+                            : yearLevel,
+                        style: AppTextStyles.labelSmall.copyWith(
+                          color: AppColors.primary,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ],
                   ),
-                ),
-              ],
-            ),
           ),
         ],
       ),
     );
   }
 
-  Widget _buildPortfolioTracker() {
+  Widget _buildPortfolioTracker(DocumentSummary summary) {
+    final trackerItems = [
+      _TrackerItem(
+        'Curriculum Vitae',
+        _trackerStatus(summary.categoryCount('curriculum-vitae')),
+      ),
+      _TrackerItem(
+        'Scholastic Record',
+        _trackerStatus(summary.categoryCount('scholastic-record')),
+      ),
+      _TrackerItem(
+        'College Report',
+        _trackerStatus(summary.categoryCount('college-report')),
+      ),
+    ];
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
       decoration: BoxDecoration(
@@ -217,8 +278,8 @@ class _HomeScreenState extends State<HomeScreen>
         ],
       ),
       child: Column(
-        children: _trackerItems.asMap().entries.map((entry) {
-          final idx  = entry.key;
+        children: trackerItems.asMap().entries.map((entry) {
+          final idx = entry.key;
           final item = entry.value;
           return Column(
             children: [
@@ -227,7 +288,7 @@ class _HomeScreenState extends State<HomeScreen>
                 status: item.status,
                 onTap: () => _showSnack('Opened: ${item.label}'),
               ),
-              if (idx < _trackerItems.length - 1)
+              if (idx < trackerItems.length - 1)
                 const Divider(height: 1, color: AppColors.divider),
             ],
           );
@@ -236,7 +297,22 @@ class _HomeScreenState extends State<HomeScreen>
     );
   }
 
-  Widget _buildUploadedFiles() {
+  TrackerStatus _trackerStatus(int count) =>
+      count == 0 ? TrackerStatus.none : TrackerStatus.incomplete;
+
+  Widget _buildUploadedFiles(DocumentSummary summary) {
+    final uploadedFiles = [
+      _FileCountItem('Creative Titles', summary.creativeTitleCount),
+      _FileCountItem('Certificates', summary.categoryCount('certificates')),
+      _FileCountItem(
+        'Accomplishments',
+        summary.categoryCount('accomplishments'),
+      ),
+      _FileCountItem(
+        'Other Achievements',
+        summary.categoryCount('other-achievements'),
+      ),
+    ];
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
       decoration: BoxDecoration(
@@ -252,8 +328,8 @@ class _HomeScreenState extends State<HomeScreen>
         ],
       ),
       child: Column(
-        children: _uploadedFiles.asMap().entries.map((entry) {
-          final idx  = entry.key;
+        children: uploadedFiles.asMap().entries.map((entry) {
+          final idx = entry.key;
           final item = entry.value;
           return Column(
             children: [
@@ -262,7 +338,7 @@ class _HomeScreenState extends State<HomeScreen>
                 count: item.count,
                 onTap: () => _showSnack('Opened: ${item.label}'),
               ),
-              if (idx < _uploadedFiles.length - 1)
+              if (idx < uploadedFiles.length - 1)
                 const Divider(height: 1, color: AppColors.divider),
             ],
           );
@@ -272,16 +348,19 @@ class _HomeScreenState extends State<HomeScreen>
   }
 
   void _showSnack(String msg) {
-    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-      content: Text(msg,
-          style: GoogleFonts.poppins(fontSize: 13, color: Colors.white)),
-      backgroundColor: AppColors.primary,
-      behavior: SnackBarBehavior.floating,
-      shape:
-          RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-      margin: const EdgeInsets.fromLTRB(16, 0, 16, 16),
-      duration: const Duration(seconds: 1),
-    ));
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          msg,
+          style: GoogleFonts.poppins(fontSize: 13, color: Colors.white),
+        ),
+        backgroundColor: AppColors.primary,
+        behavior: SnackBarBehavior.floating,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+        margin: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+        duration: const Duration(seconds: 1),
+      ),
+    );
   }
 }
 
@@ -295,4 +374,51 @@ class _FileCountItem {
   const _FileCountItem(this.label, this.count);
   final String label;
   final int count;
+}
+
+class _DocumentMetricsState extends StatelessWidget {
+  const _DocumentMetricsState({
+    required this.isLoading,
+    required this.message,
+    required this.onRetry,
+  });
+
+  final bool isLoading;
+  final String? message;
+  final VoidCallback onRetry;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(18),
+      decoration: BoxDecoration(
+        color: AppColors.cardBackground,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: AppColors.cardBorder),
+      ),
+      child: Column(
+        children: [
+          if (isLoading)
+            const CircularProgressIndicator(color: AppColors.primary)
+          else
+            const Icon(
+              Icons.cloud_off_outlined,
+              color: AppColors.textMuted,
+              size: 30,
+            ),
+          const SizedBox(height: 10),
+          Text(
+            isLoading
+                ? 'Loading your documents...'
+                : message ?? 'Document totals are unavailable.',
+            textAlign: TextAlign.center,
+            style: AppTextStyles.bodySmall,
+          ),
+          if (!isLoading)
+            TextButton(onPressed: onRetry, child: const Text('Try Again')),
+        ],
+      ),
+    );
+  }
 }

@@ -16,3 +16,11 @@ export interface EmailSender {
   send(message: EmailMessage): Promise<EmailSendResult>;
   healthCheck(): Promise<ServiceHealth>;
 }
+
+export class EmailDeliveryError extends Error {
+  override readonly name = 'EmailDeliveryError';
+
+  constructor() {
+    super('Email delivery is unavailable.');
+  }
+}

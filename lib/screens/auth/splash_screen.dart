@@ -3,6 +3,9 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import '../../constants/app_colors.dart';
+import '../../services/auth_scope.dart';
+import '../../services/auth_service.dart';
+import '../main_screen.dart';
 import 'login_screen.dart';
 
 class SplashScreen extends StatefulWidget {
@@ -19,6 +22,7 @@ class _SplashScreenState extends State<SplashScreen>
   late final Animation<double> _logoFade;
   late final Animation<double> _textFade;
   late final Animation<double> _lineFade;
+  bool _restoreStarted = false;
 
   @override
   void initState() {
@@ -54,21 +58,42 @@ class _SplashScreenState extends State<SplashScreen>
     );
 
     _ctrl.forward();
+  }
 
-    Future.delayed(const Duration(milliseconds: 2000), () {
-      if (!mounted) return;
-      Navigator.pushReplacement(
-        context,
-        PageRouteBuilder(
-          transitionDuration: const Duration(milliseconds: 450),
-          pageBuilder: (_, __, ___) => const LoginScreen(),
-          transitionsBuilder: (_, anim, __, child) => FadeTransition(
-            opacity: CurvedAnimation(parent: anim, curve: Curves.easeOut),
-            child: child,
-          ),
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (_restoreStarted) return;
+    _restoreStarted = true;
+    _completeStartup();
+  }
+
+  Future<void> _completeStartup() async {
+    final minimumSplashTime = Future<void>.delayed(
+      const Duration(milliseconds: 2000),
+    );
+    final result = await AuthScope.of(context).restoreSession();
+    await minimumSplashTime;
+    if (!mounted) return;
+
+    final destination = result == SessionRestoreResult.authenticated
+        ? const MainScreen()
+        : LoginScreen(
+            initialMessage: result == SessionRestoreResult.unavailable
+                ? 'Unable to restore your session right now. Please log in or try again later.'
+                : null,
+          );
+    Navigator.pushReplacement(
+      context,
+      PageRouteBuilder(
+        transitionDuration: const Duration(milliseconds: 450),
+        pageBuilder: (_, __, ___) => destination,
+        transitionsBuilder: (_, anim, __, child) => FadeTransition(
+          opacity: CurvedAnimation(parent: anim, curve: Curves.easeOut),
+          child: child,
         ),
-      );
-    });
+      ),
+    );
   }
 
   @override
@@ -92,7 +117,7 @@ class _SplashScreenState extends State<SplashScreen>
                 opacity: _logoFade,
                 child: Image.asset(
                   'assets/images/proport_logo.png',
-                  width:  160,
+                  width: 160,
                   height: 160,
                   fit: BoxFit.contain,
                 ),
@@ -105,24 +130,26 @@ class _SplashScreenState extends State<SplashScreen>
             FadeTransition(
               opacity: _textFade,
               child: RichText(
-                text: TextSpan(children: [
-                  TextSpan(
-                    text: 'Grad',
-                    style: GoogleFonts.poppins(
-                      fontSize: 22,
-                      fontWeight: FontWeight.w700,
-                      color: AppColors.primary,
+                text: TextSpan(
+                  children: [
+                    TextSpan(
+                      text: 'Grad',
+                      style: GoogleFonts.poppins(
+                        fontSize: 22,
+                        fontWeight: FontWeight.w700,
+                        color: AppColors.primary,
+                      ),
                     ),
-                  ),
-                  TextSpan(
-                    text: 'Port',
-                    style: GoogleFonts.poppins(
-                      fontSize: 22,
-                      fontWeight: FontWeight.w400,
-                      color: AppColors.neutral,
+                    TextSpan(
+                      text: 'Port',
+                      style: GoogleFonts.poppins(
+                        fontSize: 22,
+                        fontWeight: FontWeight.w400,
+                        color: AppColors.neutral,
+                      ),
                     ),
-                  ),
-                ]),
+                  ],
+                ),
               ),
             ),
 
@@ -133,10 +160,10 @@ class _SplashScreenState extends State<SplashScreen>
             FadeTransition(
               opacity: _lineFade,
               child: Container(
-                width:  80,
+                width: 80,
                 height: 2.5,
                 decoration: BoxDecoration(
-                  color:        AppColors.primary,
+                  color: AppColors.primary,
                   borderRadius: BorderRadius.circular(2),
                 ),
               ),

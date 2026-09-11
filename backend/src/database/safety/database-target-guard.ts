@@ -1,11 +1,12 @@
-import type { AppConfig, DatabaseAccessMode } from '../../config/env.types.js';
+import type { DatabaseAccessMode, DatabaseConfig } from '../../config/env.types.js';
 
 export class DatabaseTargetError extends Error {
   override readonly name = 'DatabaseTargetError';
 }
 
 export interface DatabaseTargetGuardOptions {
-  readonly requiredAccessMode: DatabaseAccessMode;
+  readonly allowedAccessModes: readonly DatabaseAccessMode[];
+  readonly requireConfirmation?: boolean;
   readonly argv?: readonly string[];
 }
 
@@ -15,7 +16,7 @@ function confirmedDatabase(argv: readonly string[]): string | undefined {
 }
 
 export function assertDevelopmentDatabaseTarget(
-  config: AppConfig,
+  config: DatabaseConfig,
   options: DatabaseTargetGuardOptions,
 ): void {
   if (config.nodeEnv !== 'development' || config.databaseEnvironment !== 'development') {
@@ -24,13 +25,16 @@ export function assertDevelopmentDatabaseTarget(
   if (config.databaseDriver !== 'mongodb' || config.mongodbUri === undefined) {
     throw new DatabaseTargetError('Database command refused: MongoDB must be configured explicitly.');
   }
-  if (config.databaseAccessMode !== options.requiredAccessMode) {
+  if (!options.allowedAccessModes.includes(config.databaseAccessMode)) {
     throw new DatabaseTargetError(
-      `Database command refused: ${options.requiredAccessMode} credentials are required.`,
+      `Database command refused: ${options.allowedAccessModes.join(' or ')} credentials are required.`,
     );
   }
   if (config.mongodbDbName !== 'gradport_dev') {
     throw new DatabaseTargetError('Database command refused: target must be gradport_dev.');
+  }
+  if (options.requireConfirmation === false) {
+    return;
   }
 
   const confirmation = confirmedDatabase(options.argv ?? process.argv.slice(2));

@@ -50,6 +50,21 @@ describe('health routes', () => {
     });
   });
 
+  it('reports a healthy SMTP adapter as ready without changing the response shape', async () => {
+    const app = await buildTestApp({ email: { status: 'up' } });
+    apps.push(app);
+
+    const response = await app.inject({ method: 'GET', url: '/ready' });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toMatchObject({
+      data: {
+        status: 'ready',
+        checks: { database: 'mock', storage: 'local', email: 'up' },
+      },
+    });
+  });
+
   it('returns the standard 503 response when a dependency is down', async () => {
     const app = await buildTestApp({ database: { status: 'down', detail: 'test failure' } });
     apps.push(app);

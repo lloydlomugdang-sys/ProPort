@@ -68,11 +68,11 @@ describe.sequential('MongoDB persistence', () => {
 
     const first = await runMigrations(db);
     const second = await runMigrations(db);
-    expect(first).toEqual({ appliedVersions: [1], pendingCount: 0 });
+    expect(first).toEqual({ appliedVersions: [1, 2], pendingCount: 0 });
     expect(second).toEqual({ appliedVersions: [], pendingCount: 0 });
 
     const status = await getMigrationStatus(db);
-    expect(status.applied).toHaveLength(1);
+    expect(status.applied).toHaveLength(2);
     expect(status.pending).toHaveLength(0);
 
     const migrationRecords = db.collection<{ _id: number; checksum: string }>(
@@ -89,7 +89,7 @@ describe.sequential('MongoDB persistence', () => {
     await migrationRecords
       .updateOne({ _id: 1 }, { $set: { checksum: APPLICATION_INDEX_CHECKSUM } });
 
-    await migrationRecords.deleteOne({ _id: 1 });
+    await migrationRecords.deleteOne({ _id: 2 });
     await migrationLocks.insertOne({
       _id: 'database-migrations',
       ownerId: 'another-runner',
@@ -97,7 +97,7 @@ describe.sequential('MongoDB persistence', () => {
     });
     await expect(runMigrations(db)).rejects.toBeInstanceOf(MigrationError);
     await migrationLocks.deleteOne({ _id: 'database-migrations' });
-    await expect(runMigrations(db)).resolves.toEqual({ appliedVersions: [1], pendingCount: 0 });
+    await expect(runMigrations(db)).resolves.toEqual({ appliedVersions: [2], pendingCount: 0 });
   });
 
   it('creates every declared index with the required options', async () => {
@@ -105,7 +105,7 @@ describe.sequential('MongoDB persistence', () => {
     const result = await verifyApplicationIndexes(context.connection.db!);
 
     expect(result.ok).toBe(true);
-    expect(result.expectedCount).toBe(17);
+    expect(result.expectedCount).toBe(18);
     expect(result.verifiedCount).toBe(APPLICATION_INDEXES.length);
     expect(result.missing).toEqual([]);
     expect(result.mismatched).toEqual([]);
@@ -129,7 +129,7 @@ describe.sequential('MongoDB persistence', () => {
     });
   });
 
-  it('performs scoped CRUD across all seven repositories with safe outputs', async () => {
+  it('performs scoped CRUD across all eight repositories with safe outputs', async () => {
     const context = requireDatabase(disposable);
     const repositories = createRepositories(context.connection);
 
@@ -225,6 +225,26 @@ describe.sequential('MongoDB persistence', () => {
         attempts: 1,
       }),
     );
+
+    const portfolio = await repositories.portfolios.create({
+      ownerId: user._id,
+      fullName: 'Grad Port',
+      yearAndSection: '4BSIT-1',
+      schedule: 'Monday 8:00 AM',
+      instructorName: 'Professor Example',
+      course: 'Free Elective',
+      courseCode: 'CCSFE4-18',
+      semesterAndYear: '2nd Semester, A.Y. 2025-2026',
+    });
+    expect(
+      await repositories.portfolios.findByIdForOwner(otherUser._id, portfolio._id),
+    ).toBeNull();
+    expect(
+      (await repositories.portfolios.updateByIdForOwner(user._id, portfolio._id, {
+        course: 'Updated Elective',
+      }))?.course,
+    ).toBe('Updated Elective');
+    expect(await repositories.portfolios.listForOwner(user._id)).toHaveLength(1);
 
     const category = await repositories.documentCategories.create({
       key: 'integration-category',
@@ -332,6 +352,7 @@ describe.sequential('MongoDB persistence', () => {
     expect(
       await repositories.oneTimeCodes.deleteByIdForUser(user._id, oneTimeCode._id),
     ).toBe(true);
+    expect(await repositories.portfolios.deleteByIdForOwner(user._id, portfolio._id)).toBe(true);
     expect(await repositories.documents.deleteByIdForOwner(user._id, document._id)).toBe(true);
     expect(
       await repositories.collegeReports.deleteByIdForOwner(user._id, collegeReport._id),
@@ -382,6 +403,11 @@ describe.sequential('MongoDB persistence', () => {
         },
         async healthCheck() {
           return { status: 'console' as const };
+        },
+      },
+      ocr: {
+        async extract() {
+          return { rawText: 'Integration test text', engine: 'tesseract.js' as const };
         },
       },
     };

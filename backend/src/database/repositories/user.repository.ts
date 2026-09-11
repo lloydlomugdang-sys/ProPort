@@ -12,6 +12,10 @@ export type SafeUser = Omit<User, 'passwordHash'>;
 export type SafeUserRecord = PersistedRecord<SafeUser>;
 export type CreateUserInput = CreateRecord<User>;
 export type UpdateUserInput = UpdateRecord<User>;
+export type UpdateUserProfileInput = Readonly<
+  Partial<Pick<User, 'firstName' | 'lastName' | 'program' | 'yearLevel' | 'school'>>
+>;
+export type CredentialUserRecord = PersistedRecord<User>;
 
 function safeUser(value: unknown): SafeUserRecord {
   const { passwordHash: _passwordHash, ...safe } = value as Record<string, unknown>;
@@ -40,6 +44,40 @@ export class UserRepository {
     return found === null ? null : safeUser(found);
   }
 
+  /** Authentication-only lookup. Callers must never return or log this record. */
+  async findByEmailWithPassword(email: string): Promise<CredentialUserRecord | null> {
+    const found = await this.model
+      .findOne({ email: email.trim().toLowerCase() })
+      .select('+passwordHash')
+      .lean()
+      .exec();
+    return found === null ? null : asPersistedRecord<User>(found);
+  }
+
+  async markEmailVerified(id: Types.ObjectId, verifiedAt: Date): Promise<SafeUserRecord | null> {
+    const updated = await this.model
+      .findOneAndUpdate(
+        { _id: id, status: 'pendingVerification' },
+        { $set: { status: 'active', emailVerifiedAt: verifiedAt } },
+        { returnDocument: 'after', runValidators: true, strict: 'throw' },
+      )
+      .select('-passwordHash')
+      .lean()
+      .exec();
+    return updated === null ? null : safeUser(updated);
+  }
+
+  async recordSuccessfulLogin(id: Types.ObjectId, loggedInAt: Date): Promise<void> {
+    await this.model.updateOne({ _id: id }, { $set: { lastLoginAt: loggedInAt } }).exec();
+  }
+
+  async updatePasswordHash(id: Types.ObjectId, passwordHash: string): Promise<boolean> {
+    const result = await this.model
+      .updateOne({ _id: id }, { $set: { passwordHash } }, { runValidators: true, strict: 'throw' })
+      .exec();
+    return result.matchedCount === 1;
+  }
+
   async list(limit = 50): Promise<readonly SafeUserRecord[]> {
     const found = await this.model
       .find()
@@ -52,6 +90,22 @@ export class UserRepository {
   }
 
   async updateById(id: Types.ObjectId, patch: UpdateUserInput): Promise<SafeUserRecord | null> {
+    const updated = await this.model
+      .findByIdAndUpdate(
+        id,
+        { $set: patch },
+        { returnDocument: 'after', runValidators: true, strict: 'throw' },
+      )
+      .select('-passwordHash')
+      .lean()
+      .exec();
+    return updated === null ? null : safeUser(updated);
+  }
+
+  async updateProfileById(
+    id: Types.ObjectId,
+    patch: UpdateUserProfileInput,
+  ): Promise<SafeUserRecord | null> {
     const updated = await this.model
       .findByIdAndUpdate(
         id,

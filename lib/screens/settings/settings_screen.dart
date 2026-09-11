@@ -4,9 +4,11 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import '../../constants/app_colors.dart';
+import '../../services/auth_scope.dart';
 import '../../widgets/grad_app_bar.dart';
 import '../auth/login_screen.dart';
 import '../profile/edit_profile_screen.dart';
+import '../profile/models/user_profile_model.dart';
 import 'change_password_screen.dart';
 import 'help_center_screen.dart';
 import 'about_screen.dart';
@@ -18,6 +20,8 @@ class SettingsScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final currentUser = AuthScope.of(context).user;
+
     return Scaffold(
       backgroundColor: AppColors.background,
       appBar: const GradAppBar(title: 'Settings'),
@@ -38,10 +42,26 @@ class SettingsScreen extends StatelessWidget {
                       SettingsTile(
                         icon: Icons.person_outline_rounded,
                         label: 'Edit Profile',
-                        onTap: () => Navigator.push(
-                          context,
-                          _slideRoute(const EditProfileScreen()),
-                        ),
+                        onTap: () {
+                          if (currentUser == null) {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              const SnackBar(
+                                content: Text(
+                                  'Your profile is unavailable. Please sign in again.',
+                                ),
+                              ),
+                            );
+                            return;
+                          }
+                          Navigator.push(
+                            context,
+                            _slideRoute(
+                              EditProfileScreen(
+                                profile: UserProfile.fromAuthUser(currentUser),
+                              ),
+                            ),
+                          );
+                        },
                       ),
                       SettingsTile(
                         icon: Icons.lock_outline_rounded,
@@ -108,9 +128,7 @@ class SettingsScreen extends StatelessWidget {
           // ── Log out button — pinned above bottom nav ───────────
           Padding(
             padding: const EdgeInsets.fromLTRB(20, 8, 20, 16),
-            child: _LogoutButton(
-              onTap: () => _confirmLogout(context),
-            ),
+            child: _LogoutButton(onTap: () => _confirmLogout(context)),
           ),
         ],
       ),
@@ -121,15 +139,14 @@ class SettingsScreen extends StatelessWidget {
   PageRoute _slideRoute(Widget screen) {
     return PageRouteBuilder(
       transitionDuration: const Duration(milliseconds: 320),
-      pageBuilder: (_, __, ___) => screen,
-      transitionsBuilder: (_, anim, __, child) => FadeTransition(
+      pageBuilder: (_, _, _) => screen,
+      transitionsBuilder: (_, anim, _, child) => FadeTransition(
         opacity: CurvedAnimation(parent: anim, curve: Curves.easeOut),
         child: SlideTransition(
           position: Tween<Offset>(
             begin: const Offset(0.04, 0),
             end: Offset.zero,
-          ).animate(
-              CurvedAnimation(parent: anim, curve: Curves.easeOutCubic)),
+          ).animate(CurvedAnimation(parent: anim, curve: Curves.easeOutCubic)),
           child: child,
         ),
       ),
@@ -140,50 +157,65 @@ class SettingsScreen extends StatelessWidget {
   void _confirmLogout(BuildContext context) {
     showDialog(
       context: context,
-      builder: (_) => AlertDialog(
+      builder: (dialogContext) => AlertDialog(
         backgroundColor: Colors.white,
-        shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(20)),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
         title: Text(
           'Log Out',
           style: GoogleFonts.poppins(
-              fontSize: 17,
-              fontWeight: FontWeight.w600,
-              color: AppColors.textPrimary),
+            fontSize: 17,
+            fontWeight: FontWeight.w600,
+            color: AppColors.textPrimary,
+          ),
         ),
         content: Text(
           'Are you sure you want to log out?',
           style: GoogleFonts.poppins(
-              fontSize: 14,
-              color: AppColors.textSecondary,
-              height: 1.5),
+            fontSize: 14,
+            color: AppColors.textSecondary,
+            height: 1.5,
+          ),
         ),
         actions: [
           TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: Text('Cancel',
-                style: GoogleFonts.poppins(
-                    fontSize: 14, color: AppColors.textSecondary)),
+            onPressed: () => Navigator.pop(dialogContext),
+            child: Text(
+              'Cancel',
+              style: GoogleFonts.poppins(
+                fontSize: 14,
+                color: AppColors.textSecondary,
+              ),
+            ),
           ),
           TextButton(
-            onPressed: () {
-              Navigator.pop(context);
+            onPressed: () async {
+              Navigator.pop(dialogContext);
+              final authService = AuthScope.of(context);
+              try {
+                await authService.logout();
+              } catch (_) {
+                // Local logout and navigation still succeed when offline.
+              }
+              if (!context.mounted) return;
               Navigator.pushAndRemoveUntil(
                 context,
                 PageRouteBuilder(
                   transitionDuration: const Duration(milliseconds: 400),
-                  pageBuilder: (_, __, ___) => const LoginScreen(),
-                  transitionsBuilder: (_, anim, __, child) =>
+                  pageBuilder: (_, _, _) => const LoginScreen(),
+                  transitionsBuilder: (_, anim, _, child) =>
                       FadeTransition(opacity: anim, child: child),
                 ),
                 (route) => false,
               );
             },
-            child: Text('Log Out',
-                style: GoogleFonts.poppins(
-                    fontSize: 14,
-                    fontWeight: FontWeight.w600,
-                    color: AppColors.danger)),
+            child: Text(
+              'Log Out',
+              style: GoogleFonts.poppins(
+                fontSize: 14,
+                fontWeight: FontWeight.w600,
+                color: AppColors.danger,
+              ),
+            ),
           ),
         ],
       ),
@@ -196,28 +228,33 @@ class SettingsScreen extends StatelessWidget {
       context: context,
       builder: (_) => AlertDialog(
         backgroundColor: Colors.white,
-        shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(20)),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
         title: Text(
           'Delete Account',
           style: GoogleFonts.poppins(
-              fontSize: 17,
-              fontWeight: FontWeight.w600,
-              color: AppColors.danger),
+            fontSize: 17,
+            fontWeight: FontWeight.w600,
+            color: AppColors.danger,
+          ),
         ),
         content: Text(
           'Are you sure you want to delete your account? This action cannot be undone.',
           style: GoogleFonts.poppins(
-              fontSize: 14,
-              color: AppColors.textSecondary,
-              height: 1.5),
+            fontSize: 14,
+            color: AppColors.textSecondary,
+            height: 1.5,
+          ),
         ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context),
-            child: Text('Cancel',
-                style: GoogleFonts.poppins(
-                    fontSize: 14, color: AppColors.textSecondary)),
+            child: Text(
+              'Cancel',
+              style: GoogleFonts.poppins(
+                fontSize: 14,
+                color: AppColors.textSecondary,
+              ),
+            ),
           ),
           TextButton(
             onPressed: () {
@@ -227,22 +264,28 @@ class SettingsScreen extends StatelessWidget {
                   content: Text(
                     'Account deletion will be connected to the backend in a future implementation.',
                     style: GoogleFonts.poppins(
-                        fontSize: 13, color: Colors.white),
+                      fontSize: 13,
+                      color: Colors.white,
+                    ),
                   ),
                   backgroundColor: AppColors.primary,
                   behavior: SnackBarBehavior.floating,
                   shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(10)),
+                    borderRadius: BorderRadius.circular(10),
+                  ),
                   margin: const EdgeInsets.fromLTRB(16, 0, 16, 16),
                   duration: const Duration(seconds: 4),
                 ),
               );
             },
-            child: Text('Delete',
-                style: GoogleFonts.poppins(
-                    fontSize: 14,
-                    fontWeight: FontWeight.w600,
-                    color: AppColors.danger)),
+            child: Text(
+              'Delete',
+              style: GoogleFonts.poppins(
+                fontSize: 14,
+                fontWeight: FontWeight.w600,
+                color: AppColors.danger,
+              ),
+            ),
           ),
         ],
       ),
@@ -272,9 +315,10 @@ class _LogoutButtonState extends State<_LogoutButton>
       duration: const Duration(milliseconds: 80),
       reverseDuration: const Duration(milliseconds: 160),
     );
-    _scale = Tween<double>(begin: 1.0, end: 0.97).animate(
-      CurvedAnimation(parent: _ctrl, curve: Curves.easeIn),
-    );
+    _scale = Tween<double>(
+      begin: 1.0,
+      end: 0.97,
+    ).animate(CurvedAnimation(parent: _ctrl, curve: Curves.easeIn));
   }
 
   @override
@@ -286,9 +330,9 @@ class _LogoutButtonState extends State<_LogoutButton>
   @override
   Widget build(BuildContext context) {
     return GestureDetector(
-      onTapDown:   (_) => _ctrl.forward(),
-      onTapUp:     (_) => _ctrl.reverse(),
-      onTapCancel: ()  => _ctrl.reverse(),
+      onTapDown: (_) => _ctrl.forward(),
+      onTapUp: (_) => _ctrl.reverse(),
+      onTapCancel: () => _ctrl.reverse(),
       onTap: widget.onTap,
       child: AnimatedBuilder(
         animation: _scale,
@@ -305,8 +349,11 @@ class _LogoutButtonState extends State<_LogoutButton>
           child: Row(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              const Icon(Icons.logout_rounded,
-                  color: AppColors.danger, size: 18),
+              const Icon(
+                Icons.logout_rounded,
+                color: AppColors.danger,
+                size: 18,
+              ),
               const SizedBox(width: 8),
               Text(
                 'Log out',

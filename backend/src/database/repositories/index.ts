@@ -4,6 +4,7 @@ import { CollegeReportRepository } from './college-report.repository.js';
 import { DocumentCategoryRepository } from './document-category.repository.js';
 import { DocumentRepository } from './document.repository.js';
 import { OneTimeCodeRepository } from './one-time-code.repository.js';
+import { PortfolioRepository } from './portfolio.repository.js';
 import { ReportTemplateRepository } from './report-template.repository.js';
 import { SessionRepository } from './session.repository.js';
 import { UserRepository } from './user.repository.js';
@@ -12,6 +13,7 @@ export interface GradPortRepositories {
   readonly users: UserRepository;
   readonly sessions: SessionRepository;
   readonly oneTimeCodes: OneTimeCodeRepository;
+  readonly portfolios: PortfolioRepository;
   readonly documentCategories: DocumentCategoryRepository;
   readonly documents: DocumentRepository;
   readonly reportTemplates: ReportTemplateRepository;
@@ -24,6 +26,7 @@ export function createRepositories(connection: Connection): GradPortRepositories
     users: new UserRepository(models.User),
     sessions: new SessionRepository(models.Session),
     oneTimeCodes: new OneTimeCodeRepository(models.OneTimeCode),
+    portfolios: new PortfolioRepository(models.Portfolio),
     documentCategories: new DocumentCategoryRepository(models.DocumentCategory),
     documents: new DocumentRepository(models.Document),
     reportTemplates: new ReportTemplateRepository(models.ReportTemplate),
@@ -35,6 +38,7 @@ export { CollegeReportRepository } from './college-report.repository.js';
 export { DocumentCategoryRepository } from './document-category.repository.js';
 export { DocumentRepository } from './document.repository.js';
 export { OneTimeCodeRepository } from './one-time-code.repository.js';
+export { PortfolioRepository } from './portfolio.repository.js';
 export { ReportTemplateRepository } from './report-template.repository.js';
 export { SessionRepository } from './session.repository.js';
 export { UserRepository } from './user.repository.js';

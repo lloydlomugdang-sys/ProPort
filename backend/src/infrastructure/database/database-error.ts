@@ -1,5 +1,6 @@
 export type SafeDatabaseErrorCode =
   | 'DATABASE_AUTHENTICATION_FAILED'
+  | 'DATABASE_AUTHORIZATION_FAILED'
   | 'DATABASE_DNS_FAILED'
   | 'DATABASE_TLS_FAILED'
   | 'DATABASE_TIMEOUT'
@@ -15,11 +16,24 @@ export class SafeDatabaseError extends Error {
 
 export function toSafeDatabaseError(error: unknown): SafeDatabaseError {
   const source = error instanceof Error ? `${error.name} ${error.message}`.toLowerCase() : '';
+  const code =
+    typeof error === 'object' && error !== null && 'code' in error ? error.code : undefined;
 
   if (source.includes('authentication') || source.includes('bad auth') || source.includes('code 18')) {
     return new SafeDatabaseError(
       'DATABASE_AUTHENTICATION_FAILED',
       'MongoDB authentication failed.',
+    );
+  }
+  if (
+    code === 13 ||
+    source.includes('not authorized') ||
+    source.includes('unauthorized') ||
+    source.includes('not allowed')
+  ) {
+    return new SafeDatabaseError(
+      'DATABASE_AUTHORIZATION_FAILED',
+      'MongoDB authorization failed.',
     );
   }
   if (source.includes('enotfound') || source.includes('querysrv') || source.includes('dns')) {

@@ -7,7 +7,6 @@ import '../../constants/app_text_styles.dart';
 import '../../widgets/grad_app_bar.dart';
 import 'models/portfolio_models.dart';
 import 'portfolio_export_screen.dart';
-import 'portfolio_info_screen.dart';
 import 'widgets/section_counter_row.dart';
 import 'widgets/step_indicator.dart';
 
@@ -15,22 +14,18 @@ import 'widgets/step_indicator.dart';
 /// Displays total items and a breakdown of sections included.
 /// Uses mock data — replace with real MongoDB / OCR data when backend is ready.
 class PortfolioSummaryScreen extends StatefulWidget {
-  const PortfolioSummaryScreen({
-    super.key,
-    required this.portfolioInfo,
-  });
+  const PortfolioSummaryScreen({super.key, required this.portfolioInfo});
 
   final PortfolioInfo portfolioInfo;
 
   @override
-  State<PortfolioSummaryScreen> createState() =>
-      _PortfolioSummaryScreenState();
+  State<PortfolioSummaryScreen> createState() => _PortfolioSummaryScreenState();
 }
 
 class _PortfolioSummaryScreenState extends State<PortfolioSummaryScreen>
     with SingleTickerProviderStateMixin {
   // MOCK DATA — replace with real data source when backend is ready
-  final PortfolioSummary _summary = PortfolioSummary.mock;
+  final PortfolioSummary _summary = PortfolioSummary.empty;
 
   late final AnimationController _entranceCtrl;
   late final Animation<double> _fadeAnim;
@@ -47,13 +42,13 @@ class _PortfolioSummaryScreenState extends State<PortfolioSummaryScreen>
       parent: _entranceCtrl,
       curve: const Interval(0.0, 0.7, curve: Curves.easeOut),
     );
-    _slideAnim = Tween<Offset>(
-      begin: const Offset(0.04, 0),
-      end: Offset.zero,
-    ).animate(CurvedAnimation(
-      parent: _entranceCtrl,
-      curve: const Interval(0.0, 1.0, curve: Curves.easeOutCubic),
-    ));
+    _slideAnim = Tween<Offset>(begin: const Offset(0.04, 0), end: Offset.zero)
+        .animate(
+          CurvedAnimation(
+            parent: _entranceCtrl,
+            curve: const Interval(0.0, 1.0, curve: Curves.easeOutCubic),
+          ),
+        );
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) _entranceCtrl.forward();
     });
@@ -70,18 +65,20 @@ class _PortfolioSummaryScreenState extends State<PortfolioSummaryScreen>
       context,
       PageRouteBuilder(
         transitionDuration: const Duration(milliseconds: 350),
-        pageBuilder: (_, __, ___) => PortfolioExportScreen(
+        pageBuilder: (_, _, _) => PortfolioExportScreen(
           portfolioInfo: widget.portfolioInfo,
           summary: _summary,
         ),
-        transitionsBuilder: (_, anim, __, child) => FadeTransition(
+        transitionsBuilder: (_, anim, _, child) => FadeTransition(
           opacity: CurvedAnimation(parent: anim, curve: Curves.easeOut),
           child: SlideTransition(
-            position: Tween<Offset>(
-              begin: const Offset(0.05, 0),
-              end: Offset.zero,
-            ).animate(CurvedAnimation(
-                parent: anim, curve: Curves.easeOutCubic)),
+            position:
+                Tween<Offset>(
+                  begin: const Offset(0.05, 0),
+                  end: Offset.zero,
+                ).animate(
+                  CurvedAnimation(parent: anim, curve: Curves.easeOutCubic),
+                ),
             child: child,
           ),
         ),
@@ -120,10 +117,7 @@ class _PortfolioSummaryScreenState extends State<PortfolioSummaryScreen>
                       const SizedBox(height: 28),
 
                       // ── Next button ────────────────────────────────
-                      _PortfolioActionButton(
-                        label: 'Next',
-                        onPressed: _onNext,
-                      ),
+                      _PortfolioActionButton(label: 'Next', onPressed: _onNext),
                     ],
                   ),
                 ),
@@ -161,18 +155,21 @@ class _PortfolioSummaryScreenState extends State<PortfolioSummaryScreen>
             'Portfolio Summary',
             style: AppTextStyles.h3.copyWith(color: AppColors.primary),
           ),
-          const SizedBox(height: 10),
+          const SizedBox(height: 4),
           Text(
-            'Total Items',
+            widget.portfolioInfo.formattedSchedule,
             style: AppTextStyles.labelMedium,
+            textAlign: TextAlign.center,
           ),
+          const SizedBox(height: 10),
+          Text('Total Items', style: AppTextStyles.labelMedium),
           const SizedBox(height: 4),
           // Animated count
           TweenAnimationBuilder<int>(
             tween: IntTween(begin: 0, end: _summary.totalItems),
             duration: const Duration(milliseconds: 600),
             curve: Curves.easeOut,
-            builder: (_, value, __) => Text(
+            builder: (_, value, _) => Text(
               value.toString(),
               style: GoogleFonts.poppins(
                 fontSize: 48,
@@ -209,9 +206,7 @@ class _PortfolioSummaryScreenState extends State<PortfolioSummaryScreen>
             width: double.infinity,
             padding: const EdgeInsets.symmetric(vertical: 14),
             decoration: const BoxDecoration(
-              border: Border(
-                bottom: BorderSide(color: AppColors.divider),
-              ),
+              border: Border(bottom: BorderSide(color: AppColors.divider)),
             ),
             child: Center(
               child: Text(
@@ -223,8 +218,7 @@ class _PortfolioSummaryScreenState extends State<PortfolioSummaryScreen>
 
           // Section rows
           ..._summary.sections.asMap().entries.map((entry) {
-            final isLast =
-                entry.key == _summary.sections.length - 1;
+            final isLast = entry.key == _summary.sections.length - 1;
             return SectionCounterRow(
               name: entry.value.name,
               count: entry.value.count,
@@ -247,19 +241,13 @@ class _PortfolioSummaryScreenState extends State<PortfolioSummaryScreen>
 
 // ─── Reusable action button for portfolio flow screens ────────────────────────
 class _PortfolioActionButton extends StatefulWidget {
-  const _PortfolioActionButton({
-    required this.label,
-    required this.onPressed,
-    this.isLoading = false,
-  });
+  const _PortfolioActionButton({required this.label, required this.onPressed});
 
   final String label;
   final VoidCallback onPressed;
-  final bool isLoading;
 
   @override
-  State<_PortfolioActionButton> createState() =>
-      _PortfolioActionButtonState();
+  State<_PortfolioActionButton> createState() => _PortfolioActionButtonState();
 }
 
 class _PortfolioActionButtonState extends State<_PortfolioActionButton>
@@ -275,9 +263,10 @@ class _PortfolioActionButtonState extends State<_PortfolioActionButton>
       duration: const Duration(milliseconds: 90),
       reverseDuration: const Duration(milliseconds: 180),
     );
-    _scale = Tween<double>(begin: 1.0, end: 0.97).animate(
-      CurvedAnimation(parent: _ctrl, curve: Curves.easeIn),
-    );
+    _scale = Tween<double>(
+      begin: 1.0,
+      end: 0.97,
+    ).animate(CurvedAnimation(parent: _ctrl, curve: Curves.easeIn));
   }
 
   @override
@@ -292,7 +281,7 @@ class _PortfolioActionButtonState extends State<_PortfolioActionButton>
       onTapDown: (_) => _ctrl.forward(),
       onTapUp: (_) => _ctrl.reverse(),
       onTapCancel: () => _ctrl.reverse(),
-      onTap: widget.isLoading ? null : widget.onPressed,
+      onTap: widget.onPressed,
       child: AnimatedBuilder(
         animation: _scale,
         builder: (_, child) =>
@@ -312,24 +301,14 @@ class _PortfolioActionButtonState extends State<_PortfolioActionButton>
             ],
           ),
           child: Center(
-            child: widget.isLoading
-                ? const SizedBox(
-                    width: 22,
-                    height: 22,
-                    child: CircularProgressIndicator(
-                      strokeWidth: 2.5,
-                      valueColor:
-                          AlwaysStoppedAnimation<Color>(Colors.white),
-                    ),
-                  )
-                : Text(
-                    widget.label,
-                    style: GoogleFonts.poppins(
-                      fontSize: 15,
-                      fontWeight: FontWeight.w600,
-                      color: Colors.white,
-                    ),
-                  ),
+            child: Text(
+              widget.label,
+              style: GoogleFonts.poppins(
+                fontSize: 15,
+                fontWeight: FontWeight.w600,
+                color: Colors.white,
+              ),
+            ),
           ),
         ),
       ),

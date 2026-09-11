@@ -44,9 +44,7 @@ class PortfolioPreviewScreen extends StatelessWidget {
       barrierDismissible: false,
       builder: (_) => AlertDialog(
         backgroundColor: Colors.white,
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(20),
-        ),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
         contentPadding: const EdgeInsets.fromLTRB(24, 24, 24, 20),
         content: Column(
           mainAxisSize: MainAxisSize.min,
@@ -133,7 +131,7 @@ class PortfolioPreviewScreen extends StatelessWidget {
   Widget build(BuildContext context) {
     final sections = summary.sections.isNotEmpty
         ? summary.sections
-        : PortfolioSummary.mock.sections;
+        : PortfolioSummary.empty.sections;
 
     return Scaffold(
       backgroundColor: AppColors.background,
@@ -174,9 +172,7 @@ class PortfolioPreviewScreen extends StatelessWidget {
       padding: const EdgeInsets.fromLTRB(20, 12, 20, 16),
       decoration: BoxDecoration(
         color: AppColors.background,
-        border: Border(
-          top: BorderSide(color: AppColors.divider),
-        ),
+        border: Border(top: BorderSide(color: AppColors.divider)),
       ),
       child: SafeArea(
         top: false,
@@ -205,10 +201,7 @@ class PortfolioPreviewScreen extends StatelessWidget {
 
 // ─── A4-like preview sheet ───────────────────────────────────────────────
 class _PreviewSheet extends StatelessWidget {
-  const _PreviewSheet({
-    required this.portfolioInfo,
-    required this.sections,
-  });
+  const _PreviewSheet({required this.portfolioInfo, required this.sections});
 
   final PortfolioInfo portfolioInfo;
   final List<PortfolioSection> sections;
@@ -293,7 +286,7 @@ class _PreviewSheet extends StatelessWidget {
     final fields = <MapEntry<String, String>>[
       MapEntry('Full Name', portfolioInfo.fullName),
       MapEntry('Year & Section', portfolioInfo.yearAndSection),
-      MapEntry('Schedule', portfolioInfo.schedule),
+      MapEntry('Schedule', portfolioInfo.formattedSchedule),
       MapEntry('Instructor', portfolioInfo.instructorName),
       MapEntry('Course', portfolioInfo.course),
       MapEntry('Course Code', portfolioInfo.courseCode),
@@ -305,9 +298,7 @@ class _PreviewSheet extends StatelessWidget {
       children: [
         Text(
           'Student Information',
-          style: AppTextStyles.sectionHeader.copyWith(
-            color: AppColors.primary,
-          ),
+          style: AppTextStyles.sectionHeader.copyWith(color: AppColors.primary),
         ),
         const SizedBox(height: 12),
         ...fields.map((f) => _InfoRow(label: f.key, value: f.value)),
@@ -322,9 +313,7 @@ class _PreviewSheet extends StatelessWidget {
       children: [
         Text(
           'Sections Included',
-          style: AppTextStyles.sectionHeader.copyWith(
-            color: AppColors.primary,
-          ),
+          style: AppTextStyles.sectionHeader.copyWith(color: AppColors.primary),
         ),
         const SizedBox(height: 12),
         Container(
@@ -385,9 +374,7 @@ class _PreviewSheet extends StatelessWidget {
           'This portfolio was generated automatically from the '
           'student\u2019s uploaded academic records.',
           textAlign: TextAlign.center,
-          style: AppTextStyles.labelSmall.copyWith(
-            fontStyle: FontStyle.italic,
-          ),
+          style: AppTextStyles.labelSmall.copyWith(fontStyle: FontStyle.italic),
         ),
       ],
     );
@@ -412,10 +399,7 @@ class _InfoRow extends StatelessWidget {
         children: [
           SizedBox(
             width: 148,
-            child: Text(
-              label,
-              style: AppTextStyles.labelMedium,
-            ),
+            child: Text(label, style: AppTextStyles.labelMedium),
           ),
           Expanded(
             child: Text(

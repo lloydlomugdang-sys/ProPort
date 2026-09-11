@@ -11,7 +11,7 @@ export interface ApplicationIndexDefinition {
   readonly expireAfterSeconds?: number;
 }
 
-export const APPLICATION_INDEXES: readonly ApplicationIndexDefinition[] = [
+const INITIAL_APPLICATION_INDEXES: readonly ApplicationIndexDefinition[] = [
   {
     collection: COLLECTION_NAMES.users,
     name: 'uniq_users_email',
@@ -107,6 +107,26 @@ export const APPLICATION_INDEXES: readonly ApplicationIndexDefinition[] = [
   },
 ] as const;
 
+export const PORTFOLIO_INDEXES: readonly ApplicationIndexDefinition[] = [
+  {
+    collection: COLLECTION_NAMES.portfolios,
+    name: 'idx_portfolios_owner_updated',
+    key: { ownerId: 1, updatedAt: -1 },
+  },
+] as const;
+
+export const APPLICATION_INDEXES: readonly ApplicationIndexDefinition[] = [
+  ...INITIAL_APPLICATION_INDEXES.slice(0, 7),
+  ...PORTFOLIO_INDEXES,
+  ...INITIAL_APPLICATION_INDEXES.slice(7),
+] as const;
+
+// Version 1 is already deployed, so its checksum must remain based on the
+// original index set. New index groups receive their own migration checksum.
 export const APPLICATION_INDEX_CHECKSUM = createHash('sha256')
-  .update(JSON.stringify(APPLICATION_INDEXES))
+  .update(JSON.stringify(INITIAL_APPLICATION_INDEXES))
+  .digest('hex');
+
+export const PORTFOLIO_INDEX_CHECKSUM = createHash('sha256')
+  .update(JSON.stringify(PORTFOLIO_INDEXES))
   .digest('hex');

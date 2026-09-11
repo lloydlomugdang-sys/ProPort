@@ -20,6 +20,7 @@ export async function createDisposableMongoDatabase(): Promise<DisposableMongoDa
   const databaseName = `gradport_test_${randomUUID().replaceAll('-', '')}`;
   const replicaSet = await MongoMemoryReplSet.create({
     binary: { version: '8.0.29' },
+    instanceOpts: [{ launchTimeout: 30_000 }],
     replSet: { count: 1, storageEngine: 'wiredTiger' },
   });
   const uri = replicaSet.getUri(databaseName);

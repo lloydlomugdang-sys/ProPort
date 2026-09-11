@@ -12,6 +12,8 @@ describe('database error sanitization', () => {
 
   it.each([
     [`authentication failed ${sensitiveTestUri}`, 'DATABASE_AUTHENTICATION_FAILED'],
+    ['not authorized to read a database collection', 'DATABASE_AUTHORIZATION_FAILED'],
+    ['user is not allowed to execute find', 'DATABASE_AUTHORIZATION_FAILED'],
     ['querySrv ENOTFOUND cluster.mongodb.net', 'DATABASE_DNS_FAILED'],
     ['TLS certificate rejected', 'DATABASE_TLS_FAILED'],
     ['server selection timed out', 'DATABASE_TIMEOUT'],

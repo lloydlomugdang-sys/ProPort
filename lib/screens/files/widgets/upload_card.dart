@@ -25,20 +25,28 @@ class UploadCard extends StatelessWidget {
   IconData get _fileIcon {
     if (fileName == null) return Icons.upload_file_rounded;
     final lower = fileName!.toLowerCase();
-    if (lower.endsWith('.pdf'))  return Icons.picture_as_pdf_rounded;
+    if (lower.endsWith('.pdf')) {
+      return Icons.picture_as_pdf_rounded;
+    }
     if (lower.endsWith('.jpg') ||
         lower.endsWith('.jpeg') ||
-        lower.endsWith('.png'))  return Icons.image_rounded;
+        lower.endsWith('.png')) {
+      return Icons.image_rounded;
+    }
     return Icons.insert_drive_file_rounded;
   }
 
   Color get _fileIconColor {
     if (fileName == null) return AppColors.primary;
     final lower = fileName!.toLowerCase();
-    if (lower.endsWith('.pdf'))  return AppColors.filePdf;
+    if (lower.endsWith('.pdf')) {
+      return AppColors.filePdf;
+    }
     if (lower.endsWith('.jpg') ||
         lower.endsWith('.jpeg') ||
-        lower.endsWith('.png'))  return AppColors.fileImage;
+        lower.endsWith('.png')) {
+      return AppColors.fileImage;
+    }
     return AppColors.fileOther;
   }
 
@@ -101,10 +109,7 @@ class UploadCard extends StatelessWidget {
         const SizedBox(height: 4),
         Text(
           'PDF, JPG, PNG',
-          style: GoogleFonts.poppins(
-            fontSize: 12,
-            color: AppColors.textMuted,
-          ),
+          style: GoogleFonts.poppins(fontSize: 12, color: AppColors.textMuted),
         ),
       ],
     );

@@ -5,7 +5,7 @@ import { getMigrationStatus } from '../migrations/migration-runner.js';
 import { verifySeedData } from '../seeds/seed-database.js';
 
 void executeDatabaseCommand(
-  { requiredAccessMode: 'maintenance' },
+  { allowedAccessModes: ['maintenance'], requireConfirmation: false },
   async ({ db, connection, config }) => {
     await db.admin().ping();
     const migrations = await getMigrationStatus(db);

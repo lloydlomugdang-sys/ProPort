@@ -1,22 +1,29 @@
-// LOCATION: lib/screens/files/view_files_screen.dart
-
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
+
 import '../../constants/app_colors.dart';
-import '../../widgets/grad_app_bar.dart';
-import '../../widgets/filter_chip_bar.dart';
-import '../../widgets/search_bar_field.dart';
-import '../../widgets/file_list_item.dart';
+import '../../services/api_client.dart';
+import '../../services/document_models.dart';
+import '../../services/document_scope.dart';
 import '../../widgets/empty_state.dart';
+import '../../widgets/file_list_item.dart';
+import '../../widgets/filter_chip_bar.dart';
+import '../../widgets/grad_app_bar.dart';
+import '../../widgets/search_bar_field.dart';
+import 'document_ocr_screen.dart';
 
 class ViewFilesScreen extends StatefulWidget {
   const ViewFilesScreen({
     super.key,
+    required this.categoryKey,
     required this.categoryName,
+    required this.folderKey,
     required this.folderName,
   });
 
+  final String categoryKey;
   final String categoryName;
+  final String folderKey;
   final String folderName;
 
   @override
@@ -24,117 +31,120 @@ class ViewFilesScreen extends StatefulWidget {
 }
 
 class _ViewFilesScreenState extends State<ViewFilesScreen> {
-  final _searchCtrl = TextEditingController();
+  static const _filterOptions = ['All', 'Images', 'PDFs'];
 
+  final _searchController = TextEditingController();
   String _query = '';
   String _filter = 'All';
+  bool _loadRequested = false;
+  final Set<String> _deleting = {};
 
-  static const List<String> _filterOptions = [
-    'All',
-    'Images',
-    'PDFs',
-    'Other',
-  ];
-
-  final List<_FileItem> _files = [
-    _FileItem(
-      name: 'Life After Graduation: The Reality No One Talks About',
-      fileName: 'Life_After_Graduation.pdf',
-      fileType: 'PDF',
-      year: '2026',
-    ),
-    _FileItem(
-      name: 'Agentic Coding',
-      fileName: 'Agentic_Coding.png',
-      fileType: 'Image',
-      year: '2025',
-    ),
-    _FileItem(
-      name: 'Career Development Workshop',
-      fileName: 'Career_Workshop.pdf',
-      fileType: 'PDF',
-      year: '2025',
-    ),
-    _FileItem(
-      name: 'Internship Certificate',
-      fileName: 'Internship_Cert.jpg',
-      fileType: 'Image',
-      year: '2026',
-    ),
-    _FileItem(
-      name: 'Portfolio Design Document',
-      fileName: 'Portfolio_Design.docx',
-      fileType: 'Other',
-      year: '2026',
-    ),
-  ];
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (_loadRequested) return;
+    _loadRequested = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      if (!mounted) return;
+      try {
+        await DocumentScope.of(context).load();
+      } catch (_) {
+        // The service exposes a safe error and keeps any previously loaded list.
+      }
+    });
+  }
 
   @override
   void dispose() {
-    _searchCtrl.dispose();
+    _searchController.dispose();
     super.dispose();
   }
 
-  List<_FileItem> get _filteredFiles {
-    var list = List<_FileItem>.from(_files);
-
-    if (_filter != 'All') {
-      list = list.where((f) {
-        if (_filter == 'Images') return f.fileType == 'Image';
-        if (_filter == 'PDFs') return f.fileType == 'PDF';
-        return f.fileType == 'Other';
-      }).toList();
-    }
-
-    if (_query.isNotEmpty) {
-      final q = _query.toLowerCase();
-
-      list = list.where((f) {
-        return f.name.toLowerCase().contains(q) ||
-            f.fileName.toLowerCase().contains(q) ||
-            f.fileType.toLowerCase().contains(q);
-      }).toList();
-    }
-
-    return list;
+  List<DocumentRecord> _visibleFiles(List<DocumentRecord> documents) {
+    return documents
+        .where((document) {
+          if (document.categoryKey != widget.categoryKey ||
+              document.folderKey != widget.folderKey) {
+            return false;
+          }
+          if (_filter == 'Images' && document.fileKind != 'image') return false;
+          if (_filter == 'PDFs' && document.fileKind != 'pdf') return false;
+          final query = _query.trim().toLowerCase();
+          return query.isEmpty ||
+              document.title.toLowerCase().contains(query) ||
+              document.originalFileName.toLowerCase().contains(query) ||
+              document.fileTypeLabel.toLowerCase().contains(query);
+        })
+        .toList(growable: false);
   }
 
-  void _deleteFile(_FileItem file) {
-    setState(() => _files.remove(file));
-    _showSnack('File deleted.');
+  Future<void> _confirmDelete(DocumentRecord document) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Delete file?'),
+        content: Text(
+          'This will permanently delete “${document.originalFileName}”.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, true),
+            child: const Text(
+              'Delete',
+              style: TextStyle(color: AppColors.danger),
+            ),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+
+    setState(() => _deleting.add(document.id));
+    try {
+      await DocumentScope.of(context).delete(document.id);
+      if (mounted) _showSnack('File deleted.');
+    } on ApiException catch (error) {
+      if (mounted) _showSnack(error.message, isError: true);
+    } catch (_) {
+      if (mounted) {
+        _showSnack(
+          'Unable to delete the file. Please try again.',
+          isError: true,
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _deleting.remove(document.id));
+    }
   }
 
-  void _showSnack(String msg) {
+  void _showSnack(String message, {bool isError = false}) {
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text(
-          msg,
-          style: GoogleFonts.poppins(
-            fontSize: 13,
-            color: Colors.white,
-          ),
+          message,
+          style: GoogleFonts.poppins(fontSize: 13, color: Colors.white),
         ),
-        backgroundColor: AppColors.primary,
+        backgroundColor: isError ? AppColors.danger : AppColors.primary,
         behavior: SnackBarBehavior.floating,
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(10),
-        ),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
         margin: const EdgeInsets.fromLTRB(16, 0, 16, 16),
-        duration: const Duration(seconds: 2),
       ),
     );
   }
 
   @override
   Widget build(BuildContext context) {
+    final service = DocumentScope.of(context);
+    final visible = _visibleFiles(service.documents);
     final title = '${widget.categoryName} • ${widget.folderName}';
-    final visible = _filteredFiles;
 
     return Scaffold(
       backgroundColor: AppColors.background,
-      appBar: GradBackAppBar(
-        title: title,
-      ),
+      appBar: GradBackAppBar(title: title),
       body: Column(
         children: [
           Container(
@@ -142,71 +152,67 @@ class _ViewFilesScreenState extends State<ViewFilesScreen> {
             padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
             child: Column(
               children: [
-                // Search Bar (Always Visible)
                 SearchBarField(
-                  controller: _searchCtrl,
+                  controller: _searchController,
                   hintText: 'Search files...',
-                  onChanged: (v) => setState(() => _query = v),
+                  onChanged: (value) => setState(() => _query = value),
                 ),
-
                 const SizedBox(height: 12),
-
-                // Filter Chips
                 FilterChipBar(
                   options: _filterOptions,
                   selected: _filter,
-                  onSelected: (v) => setState(() => _filter = v),
+                  onSelected: (value) => setState(() => _filter = value),
                 ),
               ],
             ),
           ),
-          const Divider(
-            height: 1,
-            color: AppColors.divider,
-          ),
+          const Divider(height: 1, color: AppColors.divider),
           Expanded(
-            child: visible.isEmpty
-                ? const EmptyState(
+            child: service.isLoading && !service.hasLoadedDocuments
+                ? const Center(
+                    child: CircularProgressIndicator(color: AppColors.primary),
+                  )
+                : visible.isEmpty
+                ? EmptyState(
                     message: 'No files found.',
                     icon: Icons.insert_drive_file_outlined,
-                    subtitle: 'Try a different filter or search term.',
+                    subtitle:
+                        service.errorMessage ??
+                        'Upload a PDF, JPG, JPEG, or PNG file to this folder.',
                   )
-                : ListView.separated(
-                    physics: const BouncingScrollPhysics(),
-                    padding: const EdgeInsets.fromLTRB(16, 16, 16, 32),
-                    itemCount: visible.length,
-                    separatorBuilder: (_, __) =>
-                        const SizedBox(height: 10),
-                    itemBuilder: (_, i) {
-                      final file = visible[i];
-
-                      return FileListItem(
-                        fileName: file.fileName,
-                        fileType: file.fileType,
-                        year: file.year,
-                        onTap: () =>
-                            _showSnack('Opened: ${file.name}'),
-                        onDelete: () => _deleteFile(file),
-                      );
-                    },
+                : RefreshIndicator(
+                    color: AppColors.primary,
+                    onRefresh: () => service.load(force: true),
+                    child: ListView.separated(
+                      physics: const AlwaysScrollableScrollPhysics(
+                        parent: BouncingScrollPhysics(),
+                      ),
+                      padding: const EdgeInsets.fromLTRB(16, 16, 16, 32),
+                      itemCount: visible.length,
+                      separatorBuilder: (_, _) => const SizedBox(height: 10),
+                      itemBuilder: (_, index) {
+                        final document = visible[index];
+                        return FileListItem(
+                          fileName: document.originalFileName,
+                          fileType: document.fileTypeLabel,
+                          year: document.documentDate.year.toString(),
+                          onTap: () => Navigator.push(
+                            context,
+                            MaterialPageRoute<void>(
+                              builder: (_) =>
+                                  DocumentOcrScreen(document: document),
+                            ),
+                          ),
+                          onDelete: _deleting.contains(document.id)
+                              ? null
+                              : () => _confirmDelete(document),
+                        );
+                      },
+                    ),
                   ),
           ),
         ],
       ),
     );
   }
-}
-
-class _FileItem {
-  const _FileItem({
-    required this.name,
-    required this.fileName,
-    required this.fileType,
-    required this.year,
-  });
-
-  final String name;
-  final String fileName;
-  final String fileType;
-  final String year;
 }

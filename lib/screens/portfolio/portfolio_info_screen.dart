@@ -4,16 +4,22 @@ import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import '../../constants/app_colors.dart';
 import '../../constants/app_text_styles.dart';
+import '../../services/api_client.dart';
+import '../../services/portfolio_scope.dart';
 import '../../widgets/grad_app_bar.dart';
 import 'models/portfolio_models.dart';
+import 'models/portfolio_schedule.dart';
 import 'portfolio_summary_screen.dart';
+import 'widgets/portfolio_schedule_picker.dart';
 import 'widgets/portfolio_text_field.dart';
 import 'widgets/step_indicator.dart';
 
 /// Screen 1 of 3 — Portfolio Information.
 /// Collects title page fields before generating the portfolio.
 class PortfolioInfoScreen extends StatefulWidget {
-  const PortfolioInfoScreen({super.key});
+  const PortfolioInfoScreen({super.key, this.portfolio});
+
+  final PortfolioRecord? portfolio;
 
   @override
   State<PortfolioInfoScreen> createState() => _PortfolioInfoScreenState();
@@ -21,23 +27,44 @@ class PortfolioInfoScreen extends StatefulWidget {
 
 class _PortfolioInfoScreenState extends State<PortfolioInfoScreen>
     with SingleTickerProviderStateMixin {
+  bool _isSaving = false;
   // ─── Controllers ─────────────────────────────────────────────────────────────
-  final _fullNameCtrl       = TextEditingController();
-  final _yearSectionCtrl    = TextEditingController();
-  final _scheduleCtrl       = TextEditingController();
-  final _instructorCtrl     = TextEditingController();
-  final _courseCtrl         = TextEditingController();
-  final _courseCodeCtrl     = TextEditingController();
-  final _semesterYearCtrl   = TextEditingController();
+  final _fullNameCtrl = TextEditingController();
+  final _yearSectionCtrl = TextEditingController();
+  String? _scheduleDay;
+  TimeOfDay? _scheduleStartTime;
+  TimeOfDay? _scheduleEndTime;
+  String? _legacySchedule;
+  final _instructorCtrl = TextEditingController();
+  final _courseCtrl = TextEditingController();
+  final _courseCodeCtrl = TextEditingController();
+  final _semesterYearCtrl = TextEditingController();
 
   // ─── Entrance animation ───────────────────────────────────────────────────────
   late final AnimationController _entranceCtrl;
-  late final Animation<double>   _fadeAnim;
-  late final Animation<Offset>   _slideAnim;
+  late final Animation<double> _fadeAnim;
+  late final Animation<Offset> _slideAnim;
 
   @override
   void initState() {
     super.initState();
+    final info = widget.portfolio?.info;
+    if (info != null) {
+      _fullNameCtrl.text = info.fullName;
+      _yearSectionCtrl.text = info.yearAndSection;
+      final parsedSchedule = PortfolioSchedule.tryParse(info.schedule);
+      if (parsedSchedule == null) {
+        _legacySchedule = info.schedule;
+      } else {
+        _scheduleDay = parsedSchedule.day;
+        _scheduleStartTime = parsedSchedule.startTime;
+        _scheduleEndTime = parsedSchedule.endTime;
+      }
+      _instructorCtrl.text = info.instructorName;
+      _courseCtrl.text = info.course;
+      _courseCodeCtrl.text = info.courseCode;
+      _semesterYearCtrl.text = info.semesterAndYear;
+    }
     _entranceCtrl = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 480),
@@ -46,13 +73,13 @@ class _PortfolioInfoScreenState extends State<PortfolioInfoScreen>
       parent: _entranceCtrl,
       curve: const Interval(0.0, 0.7, curve: Curves.easeOut),
     );
-    _slideAnim = Tween<Offset>(
-      begin: const Offset(0, 0.06),
-      end: Offset.zero,
-    ).animate(CurvedAnimation(
-      parent: _entranceCtrl,
-      curve: const Interval(0.0, 1.0, curve: Curves.easeOutCubic),
-    ));
+    _slideAnim = Tween<Offset>(begin: const Offset(0, 0.06), end: Offset.zero)
+        .animate(
+          CurvedAnimation(
+            parent: _entranceCtrl,
+            curve: const Interval(0.0, 1.0, curve: Curves.easeOutCubic),
+          ),
+        );
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) _entranceCtrl.forward();
     });
@@ -62,7 +89,6 @@ class _PortfolioInfoScreenState extends State<PortfolioInfoScreen>
   void dispose() {
     _fullNameCtrl.dispose();
     _yearSectionCtrl.dispose();
-    _scheduleCtrl.dispose();
     _instructorCtrl.dispose();
     _courseCtrl.dispose();
     _courseCodeCtrl.dispose();
@@ -72,7 +98,8 @@ class _PortfolioInfoScreenState extends State<PortfolioInfoScreen>
   }
 
   // ─── Validation & navigation ──────────────────────────────────────────────────
-  void _onNext() {
+  Future<void> _onNext() async {
+    if (_isSaving) return;
     // Validate required fields only
     if (_fullNameCtrl.text.trim().isEmpty) {
       _showError('Full Name is required.');
@@ -82,8 +109,25 @@ class _PortfolioInfoScreenState extends State<PortfolioInfoScreen>
       _showError('Year & Section is required.');
       return;
     }
-    if (_scheduleCtrl.text.trim().isEmpty) {
-      _showError('Schedule is required.');
+    if (_scheduleDay == null) {
+      _showError('Please select a schedule day.');
+      return;
+    }
+    if (_scheduleStartTime == null) {
+      _showError('Please select a start time.');
+      return;
+    }
+    if (_scheduleEndTime == null) {
+      _showError('Please select an end time.');
+      return;
+    }
+    final schedule = PortfolioSchedule(
+      day: _scheduleDay!,
+      startTime: _scheduleStartTime!,
+      endTime: _scheduleEndTime!,
+    );
+    if (!schedule.hasValidRange) {
+      _showError('End time must be later than start time.');
       return;
     }
     if (_instructorCtrl.text.trim().isEmpty) {
@@ -91,51 +135,79 @@ class _PortfolioInfoScreenState extends State<PortfolioInfoScreen>
       return;
     }
 
-    // Build the model
     final info = PortfolioInfo(
-      fullName:        _fullNameCtrl.text.trim(),
-      yearAndSection:  _yearSectionCtrl.text.trim(),
-      schedule:        _scheduleCtrl.text.trim(),
-      instructorName:  _instructorCtrl.text.trim(),
-      course:          _courseCtrl.text.trim(),
-      courseCode:      _courseCodeCtrl.text.trim(),
+      fullName: _fullNameCtrl.text.trim(),
+      yearAndSection: _yearSectionCtrl.text.trim(),
+      schedule: schedule.formatted,
+      instructorName: _instructorCtrl.text.trim(),
+      course: _courseCtrl.text.trim(),
+      courseCode: _courseCodeCtrl.text.trim(),
       semesterAndYear: _semesterYearCtrl.text.trim(),
     );
 
-    Navigator.push(
-      context,
-      PageRouteBuilder(
-        transitionDuration: const Duration(milliseconds: 350),
-        pageBuilder: (_, __, ___) =>
-            PortfolioSummaryScreen(portfolioInfo: info),
-        transitionsBuilder: (_, anim, __, child) => FadeTransition(
-          opacity: CurvedAnimation(parent: anim, curve: Curves.easeOut),
-          child: SlideTransition(
-            position: Tween<Offset>(
-              begin: const Offset(0.05, 0),
-              end: Offset.zero,
-            ).animate(
-                CurvedAnimation(parent: anim, curve: Curves.easeOutCubic)),
-            child: child,
+    setState(() => _isSaving = true);
+    try {
+      final service = PortfolioScope.of(context);
+      final existing = widget.portfolio;
+      if (existing != null) {
+        await service.updatePortfolio(existing.id, info);
+        if (mounted) Navigator.pop(context, true);
+        return;
+      }
+
+      await service.createPortfolio(info);
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Portfolio saved successfully.'),
+          backgroundColor: AppColors.success,
+        ),
+      );
+      Navigator.pushReplacement(
+        context,
+        PageRouteBuilder(
+          transitionDuration: const Duration(milliseconds: 350),
+          pageBuilder: (_, _, _) => PortfolioSummaryScreen(portfolioInfo: info),
+          transitionsBuilder: (_, anim, _, child) => FadeTransition(
+            opacity: CurvedAnimation(parent: anim, curve: Curves.easeOut),
+            child: SlideTransition(
+              position:
+                  Tween<Offset>(
+                    begin: const Offset(0.05, 0),
+                    end: Offset.zero,
+                  ).animate(
+                    CurvedAnimation(parent: anim, curve: Curves.easeOutCubic),
+                  ),
+              child: child,
+            ),
           ),
         ),
-      ),
-    );
+      );
+    } on ApiException catch (error) {
+      _showError(error.message);
+    } catch (_) {
+      _showError('Unable to save the portfolio. Please try again.');
+    } finally {
+      if (mounted) setState(() => _isSaving = false);
+    }
   }
 
   void _showError(String msg) {
     if (!mounted) return;
     ScaffoldMessenger.of(context).clearSnackBars();
-    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-      content: Text(msg,
-          style: GoogleFonts.poppins(fontSize: 13, color: Colors.white)),
-      backgroundColor: AppColors.primary,
-      behavior: SnackBarBehavior.floating,
-      shape:
-          RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-      margin: const EdgeInsets.fromLTRB(16, 0, 16, 16),
-      duration: const Duration(seconds: 3),
-    ));
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          msg,
+          style: GoogleFonts.poppins(fontSize: 13, color: Colors.white),
+        ),
+        backgroundColor: AppColors.primary,
+        behavior: SnackBarBehavior.floating,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+        margin: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+        duration: const Duration(seconds: 3),
+      ),
+    );
   }
 
   // ─── Build ────────────────────────────────────────────────────────────────────
@@ -143,7 +215,11 @@ class _PortfolioInfoScreenState extends State<PortfolioInfoScreen>
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: AppColors.background,
-      appBar: const GradBackAppBar(title: 'Generate Portfolio'),
+      appBar: GradBackAppBar(
+        title: widget.portfolio == null
+            ? 'Generate Portfolio'
+            : 'Edit Portfolio',
+      ),
       body: FadeTransition(
         opacity: _fadeAnim,
         child: SlideTransition(
@@ -184,12 +260,23 @@ class _PortfolioInfoScreenState extends State<PortfolioInfoScreen>
                       const SizedBox(height: 14),
 
                       // ── Schedule* ──────────────────────────────────
-                      PortfolioTextField(
-                        controller: _scheduleCtrl,
-                        label: 'Schedule',
-                        hint: 'e.g. Monday 8:00AM - 9:30AM',
-                        required: true,
-                        textInputAction: TextInputAction.next,
+                      PortfolioSchedulePicker(
+                        day: _scheduleDay,
+                        startTime: _scheduleStartTime,
+                        endTime: _scheduleEndTime,
+                        legacyValue: _legacySchedule,
+                        onDayChanged: (value) => setState(() {
+                          _scheduleDay = value;
+                          _legacySchedule = null;
+                        }),
+                        onStartTimeChanged: (value) => setState(() {
+                          _scheduleStartTime = value;
+                          _legacySchedule = null;
+                        }),
+                        onEndTimeChanged: (value) => setState(() {
+                          _scheduleEndTime = value;
+                          _legacySchedule = null;
+                        }),
                       ),
                       const SizedBox(height: 14),
 
@@ -234,7 +321,13 @@ class _PortfolioInfoScreenState extends State<PortfolioInfoScreen>
                       const SizedBox(height: 28),
 
                       // ── Next button ────────────────────────────────
-                      _NextButton(onPressed: _onNext),
+                      _NextButton(
+                        onPressed: _onNext,
+                        label: widget.portfolio == null
+                            ? 'Next'
+                            : 'Save Changes',
+                        isLoading: _isSaving,
+                      ),
                     ],
                   ),
                 ),
@@ -260,9 +353,14 @@ class _PortfolioInfoScreenState extends State<PortfolioInfoScreen>
 
 // ─── Reusable Next / Action button for the portfolio flow ────────────────────
 class _NextButton extends StatefulWidget {
-  const _NextButton({required this.onPressed, this.label = 'Next'});
+  const _NextButton({
+    required this.onPressed,
+    this.label = 'Next',
+    this.isLoading = false,
+  });
   final VoidCallback onPressed;
   final String label;
+  final bool isLoading;
 
   @override
   State<_NextButton> createState() => _NextButtonState();
@@ -281,9 +379,10 @@ class _NextButtonState extends State<_NextButton>
       duration: const Duration(milliseconds: 90),
       reverseDuration: const Duration(milliseconds: 180),
     );
-    _scale = Tween<double>(begin: 1.0, end: 0.97).animate(
-      CurvedAnimation(parent: _ctrl, curve: Curves.easeIn),
-    );
+    _scale = Tween<double>(
+      begin: 1.0,
+      end: 0.97,
+    ).animate(CurvedAnimation(parent: _ctrl, curve: Curves.easeIn));
   }
 
   @override
@@ -298,7 +397,7 @@ class _NextButtonState extends State<_NextButton>
       onTapDown: (_) => _ctrl.forward(),
       onTapUp: (_) => _ctrl.reverse(),
       onTapCancel: () => _ctrl.reverse(),
-      onTap: widget.onPressed,
+      onTap: widget.isLoading ? null : widget.onPressed,
       child: AnimatedBuilder(
         animation: _scale,
         builder: (_, child) =>
@@ -318,14 +417,23 @@ class _NextButtonState extends State<_NextButton>
             ],
           ),
           child: Center(
-            child: Text(
-              widget.label,
-              style: GoogleFonts.poppins(
-                fontSize: 15,
-                fontWeight: FontWeight.w600,
-                color: Colors.white,
-              ),
-            ),
+            child: widget.isLoading
+                ? const SizedBox(
+                    width: 22,
+                    height: 22,
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2.5,
+                      color: Colors.white,
+                    ),
+                  )
+                : Text(
+                    widget.label,
+                    style: GoogleFonts.poppins(
+                      fontSize: 15,
+                      fontWeight: FontWeight.w600,
+                      color: Colors.white,
+                    ),
+                  ),
           ),
         ),
       ),

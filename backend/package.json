@@ -14,9 +14,9 @@
     "start": "node dist/src/server.js",
     "typecheck": "tsc --noEmit",
     "lint": "eslint .",
-    "test": "vitest run",
-    "test:unit": "vitest run --exclude tests/integration/**",
-    "test:integration": "vitest run tests/integration/persistence.integration.test.ts",
+    "test": "vitest run --maxWorkers=1",
+    "test:unit": "vitest run --exclude tests/integration/** --maxWorkers=1",
+    "test:integration": "vitest run tests/integration --maxWorkers=1",
     "db:ping": "node --env-file=.env.development.local --import tsx src/database/diagnostics/ping-database.ts",
     "db:migrate": "node --env-file=.env.maintenance.local --import tsx src/database/migrations/run-migrations.ts",
     "db:migrate:status": "node --env-file=.env.maintenance.local --import tsx src/database/migrations/show-migration-status.ts",
@@ -25,9 +25,17 @@
     "seed": "node --env-file=.env.maintenance.local --import tsx src/database/seeds/run-seeds.ts"
   },
   "dependencies": {
+    "@fastify/jwt": "^10.2.2",
+    "@fastify/multipart": "^10.1.1",
+    "@fastify/rate-limit": "^11.2.0",
+    "@tesseract.js-data/eng": "^1.0.0",
+    "argon2": "^0.45.1",
     "fastify": "^5.6.2",
     "mongodb": "~7.5.0",
-    "mongoose": "^9.0.0"
+    "mongoose": "^9.0.0",
+    "nodemailer": "^10.0.1",
+    "pdfjs-dist": "^6.3.289",
+    "tesseract.js": "^7.0.0"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",

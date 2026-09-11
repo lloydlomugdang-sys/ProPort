@@ -5,13 +5,14 @@ import { COLLECTION_NAMES } from '../../src/database/collection-names.js';
 import { registerModels } from '../../src/infrastructure/database/model-registry.js';
 
 describe('application index manifest', () => {
-  it('matches every index declared by the seven Mongoose schemas', async () => {
+  it('matches every index declared by the eight Mongoose schemas', async () => {
     const connection = mongoose.createConnection();
     const models = registerModels(connection);
     const modelList = [
       models.User,
       models.Session,
       models.OneTimeCode,
+      models.Portfolio,
       models.DocumentCategory,
       models.Document,
       models.ReportTemplate,
@@ -30,13 +31,14 @@ describe('application index manifest', () => {
     );
 
     expect(actual).toEqual(APPLICATION_INDEXES);
-    expect(APPLICATION_INDEXES).toHaveLength(17);
+    expect(APPLICATION_INDEXES).toHaveLength(18);
     await connection.destroy();
   });
 
   it('uses explicit application collection names without GridFS collections', () => {
     const names = Object.values(COLLECTION_NAMES);
     expect(names).toContain('documents');
+    expect(names).toContain('portfolios');
     expect(names).not.toContain('fs.files');
     expect(names).not.toContain('fs.chunks');
     expect(names.some((name) => name.includes('gridfs'))).toBe(false);

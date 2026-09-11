@@ -1,7 +1,7 @@
 import type { Db } from 'mongodb';
 import type { Connection } from 'mongoose';
-import { loadConfig, ConfigurationError } from '../../config/env.js';
-import type { AppConfig, DatabaseAccessMode } from '../../config/env.types.js';
+import { loadDatabaseConfig, ConfigurationError } from '../../config/env.js';
+import type { DatabaseAccessMode, DatabaseConfig } from '../../config/env.types.js';
 import { MongooseDatabaseConnection } from '../../infrastructure/database/mongoose-database.js';
 import {
   SafeDatabaseError,
@@ -13,13 +13,14 @@ import {
 } from '../safety/database-target-guard.js';
 
 export interface DatabaseCommandContext {
-  readonly config: AppConfig;
+  readonly config: DatabaseConfig;
   readonly connection: Connection;
   readonly db: Db;
 }
 
 export interface DatabaseCommandOptions {
-  readonly requiredAccessMode: DatabaseAccessMode;
+  readonly allowedAccessModes: readonly DatabaseAccessMode[];
+  readonly requireConfirmation?: boolean;
 }
 
 export async function executeDatabaseCommand(
@@ -29,9 +30,10 @@ export async function executeDatabaseCommand(
   let database: MongooseDatabaseConnection | undefined;
 
   try {
-    const config = loadConfig();
+    const config = loadDatabaseConfig();
     assertDevelopmentDatabaseTarget(config, {
-      requiredAccessMode: options.requiredAccessMode,
+      allowedAccessModes: options.allowedAccessModes,
+      requireConfirmation: options.requireConfirmation ?? true,
     });
     if (config.mongodbUri === undefined) {
       throw new DatabaseTargetError('MongoDB URI is unavailable after configuration validation.');

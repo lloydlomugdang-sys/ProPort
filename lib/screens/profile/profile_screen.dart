@@ -1,10 +1,9 @@
-// LOCATION: lib/screens/profile/profile_screen.dart
-// REPLACE the existing file entirely.
-
 import 'package:flutter/material.dart';
-import 'package:google_fonts/google_fonts.dart';
+
 import '../../constants/app_colors.dart';
 import '../../constants/app_text_styles.dart';
+import '../../services/api_client.dart';
+import '../../services/auth_scope.dart';
 import '../../widgets/grad_app_bar.dart';
 import 'edit_profile_screen.dart';
 import 'models/user_profile_model.dart';
@@ -19,37 +18,54 @@ class ProfileScreen extends StatefulWidget {
 }
 
 class _ProfileScreenState extends State<ProfileScreen> {
-  @override
-  void initState() {
-    super.initState();
-    // Listen for profile updates from EditProfileScreen
-    userProfileNotifier.addListener(_onProfileChanged);
-  }
+  bool _loadStarted = false;
+  bool _isLoading = true;
+  String? _errorMessage;
 
   @override
-  void dispose() {
-    userProfileNotifier.removeListener(_onProfileChanged);
-    super.dispose();
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (_loadStarted) return;
+    _loadStarted = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) => _loadProfile());
   }
 
-  void _onProfileChanged() {
-    if (mounted) setState(() {});
+  Future<void> _loadProfile() async {
+    if (!mounted) return;
+    setState(() {
+      _isLoading = true;
+      _errorMessage = null;
+    });
+
+    try {
+      await AuthScope.of(context).fetchCurrentUser();
+      if (!mounted) return;
+      setState(() => _isLoading = false);
+    } catch (error) {
+      if (!mounted) return;
+      setState(() {
+        _isLoading = false;
+        _errorMessage = _safeErrorMessage(error);
+      });
+    }
   }
 
-  void _onEditTap() {
-    Navigator.push(
+  Future<void> _onEditTap(UserProfile profile) async {
+    await Navigator.push<void>(
       context,
       PageRouteBuilder(
         transitionDuration: const Duration(milliseconds: 320),
-        pageBuilder: (_, __, ___) => const EditProfileScreen(),
-        transitionsBuilder: (_, anim, __, child) => FadeTransition(
+        pageBuilder: (_, _, _) => EditProfileScreen(profile: profile),
+        transitionsBuilder: (_, anim, _, child) => FadeTransition(
           opacity: CurvedAnimation(parent: anim, curve: Curves.easeOut),
           child: SlideTransition(
-            position: Tween<Offset>(
-              begin: const Offset(0.04, 0),
-              end: Offset.zero,
-            ).animate(CurvedAnimation(
-                parent: anim, curve: Curves.easeOutCubic)),
+            position:
+                Tween<Offset>(
+                  begin: const Offset(0.04, 0),
+                  end: Offset.zero,
+                ).animate(
+                  CurvedAnimation(parent: anim, curve: Curves.easeOutCubic),
+                ),
             child: child,
           ),
         ),
@@ -57,9 +73,21 @@ class _ProfileScreenState extends State<ProfileScreen> {
     );
   }
 
+  String _safeErrorMessage(Object error) {
+    if (error is ApiException) {
+      if (error.statusCode == 401 || error.code == 'UNAUTHORIZED') {
+        return 'Your session has expired. Please log in again.';
+      }
+      return error.message;
+    }
+    return 'Unable to load your profile. Please try again.';
+  }
+
   @override
   Widget build(BuildContext context) {
-    final profile = userProfileNotifier.profile;
+    final auth = AuthScope.of(context);
+    final user = auth.user;
+    final profile = user == null ? null : UserProfile.fromAuthUser(user);
 
     return Scaffold(
       backgroundColor: AppColors.background,
@@ -67,69 +95,101 @@ class _ProfileScreenState extends State<ProfileScreen> {
         title: 'Profile',
         actions: [
           IconButton(
-            icon: const Icon(Icons.edit_outlined,
-                color: AppColors.headerText, size: 22),
-            onPressed: _onEditTap,
+            icon: const Icon(
+              Icons.edit_outlined,
+              color: AppColors.headerText,
+              size: 22,
+            ),
+            onPressed: profile == null || _isLoading
+                ? null
+                : () => _onEditTap(profile),
+            tooltip: 'Edit profile',
           ),
         ],
       ),
-      body: SingleChildScrollView(
-        physics: const BouncingScrollPhysics(),
-        padding: const EdgeInsets.fromLTRB(20, 32, 20, 32),
-        child: Column(
-          children: [
-            // ── Avatar + name ───────────────────────────────────────
-            ProfileAvatar(
-              avatarPath: profile.avatarPath,
-              size: 110,
-            ),
-            const SizedBox(height: 16),
-            Text(
-              profile.fullName,
-              style: AppTextStyles.h2.copyWith(color: AppColors.primary),
-              textAlign: TextAlign.center,
-            ),
+      body: _buildBody(profile),
+    );
+  }
 
-            const SizedBox(height: 28),
+  Widget _buildBody(UserProfile? profile) {
+    if (_isLoading) {
+      return const Center(
+        child: CircularProgressIndicator(color: AppColors.primary),
+      );
+    }
 
-            // ── Info card ────────────────────────────────────────────
-            Container(
-              decoration: BoxDecoration(
-                color: Colors.white,
-                borderRadius: BorderRadius.circular(16),
-                border: Border.all(color: AppColors.cardBorder),
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.black.withValues(alpha: 0.04),
-                    blurRadius: 8,
-                    offset: const Offset(0, 2),
-                  ),
-                ],
+    if (_errorMessage != null || profile == null) {
+      return Center(
+        child: Padding(
+          padding: const EdgeInsets.all(24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                _errorMessage ?? 'Unable to load your profile.',
+                style: AppTextStyles.bodySmall,
+                textAlign: TextAlign.center,
               ),
-              child: Column(
-                children: [
-                  ProfileInfoRow(
-                    icon: Icons.email_outlined,
-                    value: profile.email,
-                  ),
-                  ProfileInfoRow(
-                    icon: Icons.school_outlined,
-                    value: profile.program,
-                  ),
-                  ProfileInfoRow(
-                    icon: Icons.calendar_today_outlined,
-                    value: profile.yearLevel,
-                  ),
-                  ProfileInfoRow(
-                    icon: Icons.account_balance_outlined,
-                    value: profile.school,
-                    isLast: true,
-                  ),
-                ],
+              const SizedBox(height: 16),
+              FilledButton(
+                onPressed: _loadProfile,
+                child: const Text('Try Again'),
               ),
-            ),
-          ],
+            ],
+          ),
         ),
+      );
+    }
+
+    return SingleChildScrollView(
+      physics: const BouncingScrollPhysics(),
+      padding: const EdgeInsets.fromLTRB(20, 32, 20, 32),
+      child: Column(
+        children: [
+          const ProfileAvatar(size: 110),
+          const SizedBox(height: 16),
+          Text(
+            profile.fullName,
+            style: AppTextStyles.h2.copyWith(color: AppColors.primary),
+            textAlign: TextAlign.center,
+          ),
+          const SizedBox(height: 28),
+          Container(
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(16),
+              border: Border.all(color: AppColors.cardBorder),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withValues(alpha: 0.04),
+                  blurRadius: 8,
+                  offset: const Offset(0, 2),
+                ),
+              ],
+            ),
+            child: Column(
+              children: [
+                ProfileInfoRow(
+                  icon: Icons.email_outlined,
+                  value: profile.email,
+                ),
+                ProfileInfoRow(
+                  icon: Icons.school_outlined,
+                  value: profile.program,
+                ),
+                ProfileInfoRow(
+                  icon: Icons.calendar_today_outlined,
+                  value: profile.yearLevel,
+                ),
+                ProfileInfoRow(
+                  icon: Icons.account_balance_outlined,
+                  value: profile.school,
+                  isLast: true,
+                ),
+              ],
+            ),
+          ),
+        ],
       ),
     );
   }

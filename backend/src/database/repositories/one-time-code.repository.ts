@@ -12,6 +12,7 @@ export type SafeOneTimeCode = Omit<OneTimeCode, 'codeHash'>;
 export type SafeOneTimeCodeRecord = PersistedRecord<SafeOneTimeCode>;
 export type CreateOneTimeCodeInput = CreateRecord<OneTimeCode>;
 export type UpdateOneTimeCodeInput = UpdateRecord<OneTimeCode>;
+export type SensitiveOneTimeCodeRecord = PersistedRecord<OneTimeCode>;
 
 function safeOneTimeCode(value: unknown): SafeOneTimeCodeRecord {
   const { codeHash: _codeHash, ...safe } = value as Record<string, unknown>;
@@ -24,6 +25,119 @@ export class OneTimeCodeRepository {
   async create(input: CreateOneTimeCodeInput): Promise<SafeOneTimeCodeRecord> {
     const created = await this.model.create(input);
     return safeOneTimeCode(created.toObject());
+  }
+
+  async findLatestForUserAndType(
+    userId: Types.ObjectId,
+    type: OneTimeCode['type'],
+  ): Promise<SafeOneTimeCodeRecord | null> {
+    const found = await this.model
+      .findOne({ userId, type })
+      .select('-codeHash')
+      .sort({ createdAt: -1 })
+      .lean()
+      .exec();
+    return found === null ? null : safeOneTimeCode(found);
+  }
+
+  /** Authentication-only lookup. Callers must never return or log this record. */
+  async findLatestActiveWithHash(
+    userId: Types.ObjectId,
+    type: OneTimeCode['type'],
+    now: Date,
+    maximumAttempts: number,
+  ): Promise<SensitiveOneTimeCodeRecord | null> {
+    const found = await this.model
+      .findOne({
+        userId,
+        type,
+        consumedAt: { $exists: false },
+        expiresAt: { $gt: now },
+        attempts: { $lt: maximumAttempts },
+      })
+      .select('+codeHash')
+      .sort({ createdAt: -1 })
+      .lean()
+      .exec();
+    return found === null ? null : asPersistedRecord<OneTimeCode>(found);
+  }
+
+  async incrementAttempts(
+    userId: Types.ObjectId,
+    id: Types.ObjectId,
+    now: Date,
+    maximumAttempts: number,
+  ): Promise<boolean> {
+    const result = await this.model
+      .updateOne(
+        {
+          _id: id,
+          userId,
+          consumedAt: { $exists: false },
+          expiresAt: { $gt: now },
+          attempts: { $lt: maximumAttempts },
+        },
+        { $inc: { attempts: 1 } },
+      )
+      .exec();
+    return result.modifiedCount === 1;
+  }
+
+  async consume(
+    userId: Types.ObjectId,
+    id: Types.ObjectId,
+    now: Date,
+    maximumAttempts: number,
+  ): Promise<boolean> {
+    const result = await this.model
+      .updateOne(
+        {
+          _id: id,
+          userId,
+          consumedAt: { $exists: false },
+          expiresAt: { $gt: now },
+          attempts: { $lt: maximumAttempts },
+        },
+        { $set: { consumedAt: now } },
+      )
+      .exec();
+    return result.modifiedCount === 1;
+  }
+
+  async consumeActiveByHash(
+    type: OneTimeCode['type'],
+    codeHash: string,
+    now: Date,
+  ): Promise<SafeOneTimeCodeRecord | null> {
+    const consumed = await this.model
+      .findOneAndUpdate(
+        {
+          type,
+          codeHash,
+          consumedAt: { $exists: false },
+          expiresAt: { $gt: now },
+        },
+        { $set: { consumedAt: now } },
+        { returnDocument: 'after' },
+      )
+      .select('-codeHash')
+      .lean()
+      .exec();
+    return consumed === null ? null : safeOneTimeCode(consumed);
+  }
+
+  async invalidateActiveForUserAndType(
+    userId: Types.ObjectId,
+    type: OneTimeCode['type'],
+    invalidatedAt: Date,
+  ): Promise<number> {
+    const result = await this.model
+      .updateMany(
+        { userId, type, consumedAt: { $exists: false } },
+        { $set: { consumedAt: invalidatedAt } },
+      )
+      .exec();
+    return result.modifiedCount;
   }
 
   async findByIdForUser(

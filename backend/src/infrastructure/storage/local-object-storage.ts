@@ -16,7 +16,12 @@ export class LocalObjectStorage implements ObjectStorage {
   async put(key: string, contents: Readable): Promise<StoredObject> {
     const target = this.resolveKey(key);
     await mkdir(dirname(target), { recursive: true });
-    await pipeline(contents, createWriteStream(target, { flags: 'wx' }));
+    try {
+      await pipeline(contents, createWriteStream(target, { flags: 'wx' }));
+    } catch (error) {
+      await rm(target, { force: true });
+      throw error;
+    }
     const metadata = await stat(target);
     return { key, sizeBytes: metadata.size };
   }

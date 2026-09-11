@@ -5,6 +5,7 @@ import {
   documentCategorySchema,
   documentSchema,
   oneTimeCodeSchema,
+  portfolioSchema,
   reportTemplateSchema,
   sessionSchema,
   userSchema,
@@ -12,6 +13,7 @@ import {
   type Document,
   type DocumentCategory,
   type OneTimeCode,
+  type Portfolio,
   type ReportTemplate,
   type Session,
   type User,
@@ -21,6 +23,7 @@ export interface GradPortModels {
   readonly User: Model<User>;
   readonly Session: Model<Session>;
   readonly OneTimeCode: Model<OneTimeCode>;
+  readonly Portfolio: Model<Portfolio>;
   readonly DocumentCategory: Model<DocumentCategory>;
   readonly Document: Model<Document>;
   readonly ReportTemplate: Model<ReportTemplate>;
@@ -46,6 +49,12 @@ export function registerModels(connection: Connection): GradPortModels {
       'OneTimeCode',
       oneTimeCodeSchema,
       COLLECTION_NAMES.oneTimeCodes,
+    ),
+    Portfolio: modelFor(
+      connection,
+      'Portfolio',
+      portfolioSchema,
+      COLLECTION_NAMES.portfolios,
     ),
     DocumentCategory: modelFor(
       connection,

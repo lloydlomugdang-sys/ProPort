@@ -16,6 +16,11 @@ import type {
   ObjectStorage,
   StoredObject,
 } from '../../src/infrastructure/storage/object-storage.js';
+import type {
+  OcrEngine,
+  OcrExtraction,
+  OcrInput,
+} from '../../src/infrastructure/ocr/ocr-engine.js';
 
 class TestDatabase implements DatabaseConnection {
   status: DatabaseStatus = 'connected';
@@ -69,6 +74,12 @@ class TestEmail implements EmailSender {
   }
 }
 
+class TestOcr implements OcrEngine {
+  async extract(_input: OcrInput): Promise<OcrExtraction> {
+    return { rawText: 'Deterministic test text', engine: 'tesseract.js' };
+  }
+}
+
 export interface TestHealthOverrides {
   readonly database?: ServiceHealth;
   readonly storage?: ServiceHealth;
@@ -80,6 +91,7 @@ export function createTestServices(overrides: TestHealthOverrides = {}): AppServ
     database: new TestDatabase(overrides.database ?? { status: 'mock' }),
     storage: new TestStorage(overrides.storage ?? { status: 'local' }),
     email: new TestEmail(overrides.email ?? { status: 'console' }),
+    ocr: new TestOcr(),
   };
 }
 

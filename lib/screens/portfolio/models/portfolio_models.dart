@@ -1,9 +1,6 @@
-// LOCATION: lib/screens/portfolio/models/portfolio_models.dart
-//
-// Data models for the Generate Portfolio workflow.
-// Architecture is future-ready for MongoDB / OCR / PDF / DOCX integration.
+import 'portfolio_schedule.dart';
 
-/// Holds the user-entered portfolio title page information (Screen 1).
+/// Holds the user-entered portfolio title-page information.
 class PortfolioInfo {
   const PortfolioInfo({
     required this.fullName,
@@ -23,16 +20,35 @@ class PortfolioInfo {
   final String courseCode;
   final String semesterAndYear;
 
-  /// Convert to a map for future MongoDB / API submission.
+  String get formattedSchedule => PortfolioSchedule.displayValue(schedule);
+
+  factory PortfolioInfo.fromJson(Map<String, dynamic> json) {
+    String stringValue(String key) {
+      final value = json[key];
+      if (value is! String) throw const FormatException();
+      return value;
+    }
+
+    return PortfolioInfo(
+      fullName: stringValue('fullName'),
+      yearAndSection: stringValue('yearAndSection'),
+      schedule: stringValue('schedule'),
+      instructorName: stringValue('instructorName'),
+      course: stringValue('course'),
+      courseCode: stringValue('courseCode'),
+      semesterAndYear: stringValue('semesterAndYear'),
+    );
+  }
+
   Map<String, dynamic> toMap() => {
-        'fullName': fullName,
-        'yearAndSection': yearAndSection,
-        'schedule': schedule,
-        'instructorName': instructorName,
-        'course': course,
-        'courseCode': courseCode,
-        'semesterAndYear': semesterAndYear,
-      };
+    'fullName': fullName,
+    'yearAndSection': yearAndSection,
+    'schedule': schedule,
+    'instructorName': instructorName,
+    'course': course,
+    'courseCode': courseCode,
+    'semesterAndYear': semesterAndYear,
+  };
 
   PortfolioInfo copyWith({
     String? fullName,
@@ -42,24 +58,49 @@ class PortfolioInfo {
     String? course,
     String? courseCode,
     String? semesterAndYear,
-  }) =>
-      PortfolioInfo(
-        fullName: fullName ?? this.fullName,
-        yearAndSection: yearAndSection ?? this.yearAndSection,
-        schedule: schedule ?? this.schedule,
-        instructorName: instructorName ?? this.instructorName,
-        course: course ?? this.course,
-        courseCode: courseCode ?? this.courseCode,
-        semesterAndYear: semesterAndYear ?? this.semesterAndYear,
-      );
+  }) => PortfolioInfo(
+    fullName: fullName ?? this.fullName,
+    yearAndSection: yearAndSection ?? this.yearAndSection,
+    schedule: schedule ?? this.schedule,
+    instructorName: instructorName ?? this.instructorName,
+    course: course ?? this.course,
+    courseCode: courseCode ?? this.courseCode,
+    semesterAndYear: semesterAndYear ?? this.semesterAndYear,
+  );
 }
 
-/// Represents a single section row in the Portfolio Summary (Screen 2).
-class PortfolioSection {
-  const PortfolioSection({
-    required this.name,
-    required this.count,
+/// A persisted, authenticated-user-owned portfolio title page.
+class PortfolioRecord {
+  const PortfolioRecord({
+    required this.id,
+    required this.info,
+    required this.createdAt,
+    required this.updatedAt,
   });
+
+  final String id;
+  final PortfolioInfo info;
+  final DateTime createdAt;
+  final DateTime updatedAt;
+
+  factory PortfolioRecord.fromJson(Map<String, dynamic> json) {
+    final id = json['id'];
+    final createdAt = DateTime.tryParse(json['createdAt'] as String? ?? '');
+    final updatedAt = DateTime.tryParse(json['updatedAt'] as String? ?? '');
+    if (id is! String || id.isEmpty || createdAt == null || updatedAt == null) {
+      throw const FormatException();
+    }
+    return PortfolioRecord(
+      id: id,
+      info: PortfolioInfo.fromJson(json),
+      createdAt: createdAt,
+      updatedAt: updatedAt,
+    );
+  }
+}
+
+class PortfolioSection {
+  const PortfolioSection({required this.name, required this.count});
 
   final String name;
   final int count;
@@ -67,33 +108,28 @@ class PortfolioSection {
   int get totalItems => count;
 }
 
-/// Holds the full portfolio summary data (Screen 2).
-/// Replace mock data with real OCR / database counts when backend is ready.
 class PortfolioSummary {
-  const PortfolioSummary({
-    required this.sections,
-  });
+  const PortfolioSummary({required this.sections});
 
   final List<PortfolioSection> sections;
 
-  int get totalItems =>
-      sections.fold(0, (sum, s) => sum + s.count);
+  int get totalItems => sections.fold(0, (sum, section) => sum + section.count);
 
-  /// MOCK DATA — replace with real data from MongoDB / OCR results.
-  static PortfolioSummary get mock => const PortfolioSummary(
-        sections: [
-          PortfolioSection(name: 'Creative Title',     count: 5),
-          PortfolioSection(name: 'Curriculum Vitae',   count: 0),
-          PortfolioSection(name: 'Scholastic Record',  count: 8),
-          PortfolioSection(name: 'Certificates',       count: 11),
-          PortfolioSection(name: 'Accomplishments',    count: 30),
-          PortfolioSection(name: 'Other Achievements', count: 2),
-          PortfolioSection(name: 'College Report',     count: 8),
-        ],
-      );
+  /// Metadata CRUD cannot determine document counts, so the supported
+  /// sections remain visible with honest zero values until document CRUD.
+  static PortfolioSummary get empty => const PortfolioSummary(
+    sections: [
+      PortfolioSection(name: 'Creative Titles', count: 0),
+      PortfolioSection(name: 'Curriculum Vitae', count: 0),
+      PortfolioSection(name: 'Scholastic Record', count: 0),
+      PortfolioSection(name: 'Certificates', count: 0),
+      PortfolioSection(name: 'Accomplishments', count: 0),
+      PortfolioSection(name: 'Other Achievements', count: 0),
+      PortfolioSection(name: 'College Report', count: 0),
+    ],
+  );
 }
 
-/// Export format selection (Screen 3).
 enum ExportFormat { pdf, docx }
 
 extension ExportFormatExtension on ExportFormat {

@@ -1,8 +1,12 @@
 import 'package:flutter/material.dart';
+import '../../services/api_client.dart';
+import '../../services/auth_scope.dart';
 import 'login_screen.dart';
 
 class NewPasswordScreen extends StatefulWidget {
-  const NewPasswordScreen({super.key});
+  const NewPasswordScreen({super.key, required this.resetToken});
+
+  final String resetToken;
 
   @override
   State<NewPasswordScreen> createState() => _NewPasswordScreenState();
@@ -35,10 +39,7 @@ class _NewPasswordScreenState extends State<NewPasswordScreen>
       vsync: this,
       duration: const Duration(milliseconds: 500),
     );
-    _fadeAnim = CurvedAnimation(
-      parent: _animController,
-      curve: Curves.easeOut,
-    );
+    _fadeAnim = CurvedAnimation(parent: _animController, curve: Curves.easeOut);
     _slideAnim = Tween<Offset>(
       begin: const Offset(0, 0.08),
       end: Offset.zero,
@@ -57,41 +58,57 @@ class _NewPasswordScreenState extends State<NewPasswordScreen>
   Future<void> _handleSavePassword() async {
     if (!_formKey.currentState!.validate()) return;
     setState(() => _isLoading = true);
-    await Future.delayed(const Duration(milliseconds: 800));
-    if (!mounted) return;
-    setState(() => _isLoading = false);
+    try {
+      await AuthScope.of(context).completePasswordReset(
+        resetToken: widget.resetToken,
+        newPassword: _newPasswordController.text,
+      );
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Password reset successfully!'),
+          duration: Duration(seconds: 2),
+        ),
+      );
 
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text('Password reset successfully!'),
-        duration: Duration(seconds: 2),
-      ),
-    );
-
-    await Future.delayed(const Duration(milliseconds: 600));
-    if (!mounted) return;
-
-    Navigator.of(context).pushAndRemoveUntil(
-      PageRouteBuilder(
-        pageBuilder: (_, animation, __) => const LoginScreen(),
-        transitionsBuilder: (_, animation, __, child) {
-          return FadeTransition(
-            opacity: animation,
-            child: SlideTransition(
-              position: Tween<Offset>(
-                begin: const Offset(-1, 0),
-                end: Offset.zero,
-              ).animate(
-                CurvedAnimation(parent: animation, curve: Curves.easeOut),
+      await Future<void>.delayed(const Duration(milliseconds: 600));
+      if (!mounted) return;
+      Navigator.of(context).pushAndRemoveUntil(
+        PageRouteBuilder(
+          pageBuilder: (_, animation, __) => const LoginScreen(),
+          transitionsBuilder: (_, animation, __, child) {
+            return FadeTransition(
+              opacity: animation,
+              child: SlideTransition(
+                position:
+                    Tween<Offset>(
+                      begin: const Offset(-1, 0),
+                      end: Offset.zero,
+                    ).animate(
+                      CurvedAnimation(parent: animation, curve: Curves.easeOut),
+                    ),
+                child: child,
               ),
-              child: child,
-            ),
-          );
-        },
-        transitionDuration: const Duration(milliseconds: 400),
-      ),
-      (route) => false,
-    );
+            );
+          },
+          transitionDuration: const Duration(milliseconds: 400),
+        ),
+        (route) => false,
+      );
+    } on ApiException catch (error) {
+      _showError(error.message);
+    } catch (_) {
+      _showError('Unable to reset your password right now. Please try again.');
+    } finally {
+      if (mounted) setState(() => _isLoading = false);
+    }
+  }
+
+  void _showError(String message) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context)
+      ..clearSnackBars()
+      ..showSnackBar(SnackBar(content: Text(message)));
   }
 
   @override
@@ -109,164 +126,178 @@ class _NewPasswordScreenState extends State<NewPasswordScreen>
                 Padding(
                   padding: const EdgeInsets.only(left: 8, top: 8),
                   child: IconButton(
-                    icon: const Icon(Icons.arrow_back_ios_new,
-                        color: _darkTeal, size: 20),
+                    icon: const Icon(
+                      Icons.arrow_back_ios_new,
+                      color: _darkTeal,
+                      size: 20,
+                    ),
                     onPressed: () => Navigator.of(context).pop(),
                   ),
                 ),
                 Expanded(
-  child: Center(
-    child: SingleChildScrollView(
-      physics: const BouncingScrollPhysics(),
-      padding: const EdgeInsets.symmetric(horizontal: 28),
-      child: ConstrainedBox(
-        constraints: BoxConstraints(
-          minHeight:
-              MediaQuery.of(context).size.height -
-              MediaQuery.of(context).padding.top -
-              90,
-        ),
-        child: Form(
-          key: _formKey,
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              RichText(
-                text: const TextSpan(
-                  children: [
-                    TextSpan(
-                      text: 'New ',
-                      style: TextStyle(
-                        color: Color(0xFF1A4F72),
-                        fontWeight: FontWeight.w900,
-                        fontSize: 28,
-                      ),
-                    ),
-                    TextSpan(
-                      text: 'Password',
-                      style: TextStyle(
-                        color: Colors.black87,
-                        fontWeight: FontWeight.w900,
-                        fontSize: 28,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
+                  child: Center(
+                    child: SingleChildScrollView(
+                      physics: const BouncingScrollPhysics(),
+                      padding: const EdgeInsets.symmetric(horizontal: 28),
+                      child: ConstrainedBox(
+                        constraints: BoxConstraints(
+                          minHeight:
+                              MediaQuery.of(context).size.height -
+                              MediaQuery.of(context).padding.top -
+                              90,
+                        ),
+                        child: Form(
+                          key: _formKey,
+                          child: Column(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              RichText(
+                                text: const TextSpan(
+                                  children: [
+                                    TextSpan(
+                                      text: 'New ',
+                                      style: TextStyle(
+                                        color: Color(0xFF1A4F72),
+                                        fontWeight: FontWeight.w900,
+                                        fontSize: 28,
+                                      ),
+                                    ),
+                                    TextSpan(
+                                      text: 'Password',
+                                      style: TextStyle(
+                                        color: Colors.black87,
+                                        fontWeight: FontWeight.w900,
+                                        fontSize: 28,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
 
-              const SizedBox(height: 8),
+                              const SizedBox(height: 8),
 
-              const Text(
-                'Create a unique password.',
-                style: TextStyle(
-                  color: _subtitleColor,
-                  fontSize: 13.5,
-                  fontWeight: FontWeight.w500,
-                ),
-              ),
+                              const Text(
+                                'Create a unique password.',
+                                style: TextStyle(
+                                  color: _subtitleColor,
+                                  fontSize: 13.5,
+                                  fontWeight: FontWeight.w500,
+                                ),
+                              ),
 
-              const SizedBox(height: 40),
+                              const SizedBox(height: 40),
 
-              const Text(
-                'New password',
-                style: TextStyle(
-                  color: _darkTeal,
-                  fontSize: 13.5,
-                  fontWeight: FontWeight.w600,
-                ),
-              ),
+                              const Text(
+                                'New password',
+                                style: TextStyle(
+                                  color: _darkTeal,
+                                  fontSize: 13.5,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
 
-              const SizedBox(height: 8),
+                              const SizedBox(height: 8),
 
-              _buildPasswordField(
-                controller: _newPasswordController,
-                hintText: 'Create new password',
-                obscureText: _obscureNew,
-                onToggle: () =>
-                    setState(() => _obscureNew = !_obscureNew),
-                validator: (v) {
-                  if (v == null || v.isEmpty) {
-                    return 'Enter a new password';
-                  }
-                  if (v.length < 6) {
-                    return 'At least 6 characters required';
-                  }
-                  return null;
-                },
-              ),
+                              _buildPasswordField(
+                                controller: _newPasswordController,
+                                hintText: 'Create new password',
+                                obscureText: _obscureNew,
+                                onToggle: () =>
+                                    setState(() => _obscureNew = !_obscureNew),
+                                validator: (v) {
+                                  if (v == null || v.isEmpty) {
+                                    return 'Enter a new password';
+                                  }
+                                  if (v.length < 8) {
+                                    return 'At least 8 characters required';
+                                  }
+                                  if (v.length > 128) {
+                                    return 'No more than 128 characters allowed';
+                                  }
+                                  final hasUpper = RegExp(r'[A-Z]').hasMatch(v);
+                                  final hasLower = RegExp(r'[a-z]').hasMatch(v);
+                                  final hasDigit = RegExp(r'\d').hasMatch(v);
+                                  if (!hasUpper || !hasLower || !hasDigit) {
+                                    return 'Use uppercase, lowercase, and a number';
+                                  }
+                                  return null;
+                                },
+                              ),
 
-              const SizedBox(height: 20),
+                              const SizedBox(height: 20),
 
-              const Text(
-                'Confirm Password',
-                style: TextStyle(
-                  color: _darkTeal,
-                  fontSize: 13.5,
-                  fontWeight: FontWeight.w600,
-                ),
-              ),
+                              const Text(
+                                'Confirm Password',
+                                style: TextStyle(
+                                  color: _darkTeal,
+                                  fontSize: 13.5,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
 
-              const SizedBox(height: 8),
+                              const SizedBox(height: 8),
 
-              _buildPasswordField(
-                controller: _confirmPasswordController,
-                hintText: 'Re-enter new password',
-                obscureText: _obscureConfirm,
-                onToggle: () => setState(
-                  () => _obscureConfirm = !_obscureConfirm,
-                ),
-                validator: (v) {
-                  if (v == null || v.isEmpty) {
-                    return 'Confirm your password';
-                  }
-                  if (v != _newPasswordController.text) {
-                    return 'Passwords do not match';
-                  }
-                  return null;
-                },
-              ),
+                              _buildPasswordField(
+                                controller: _confirmPasswordController,
+                                hintText: 'Re-enter new password',
+                                obscureText: _obscureConfirm,
+                                onToggle: () => setState(
+                                  () => _obscureConfirm = !_obscureConfirm,
+                                ),
+                                validator: (v) {
+                                  if (v == null || v.isEmpty) {
+                                    return 'Confirm your password';
+                                  }
+                                  if (v != _newPasswordController.text) {
+                                    return 'Passwords do not match';
+                                  }
+                                  return null;
+                                },
+                              ),
 
-              const SizedBox(height: 36),
+                              const SizedBox(height: 36),
 
-              SizedBox(
-                width: double.infinity,
-                height: 48,
-                child: ElevatedButton(
-                  onPressed: _isLoading ? null : _handleSavePassword,
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: _accentColor,
-                    foregroundColor: Colors.white,
-                    elevation: 2,
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(10),
-                    ),
-                  ),
-                  child: _isLoading
-                      ? const SizedBox(
-                          height: 20,
-                          width: 20,
-                          child: CircularProgressIndicator(
-                            strokeWidth: 2,
-                            color: Colors.white,
-                          ),
-                        )
-                      : const Text(
-                          'Save Password',
-                          style: TextStyle(
-                            fontWeight: FontWeight.w700,
-                            fontSize: 15,
+                              SizedBox(
+                                width: double.infinity,
+                                height: 48,
+                                child: ElevatedButton(
+                                  onPressed: _isLoading
+                                      ? null
+                                      : _handleSavePassword,
+                                  style: ElevatedButton.styleFrom(
+                                    backgroundColor: _accentColor,
+                                    foregroundColor: Colors.white,
+                                    elevation: 2,
+                                    shape: RoundedRectangleBorder(
+                                      borderRadius: BorderRadius.circular(10),
+                                    ),
+                                  ),
+                                  child: _isLoading
+                                      ? const SizedBox(
+                                          height: 20,
+                                          width: 20,
+                                          child: CircularProgressIndicator(
+                                            strokeWidth: 2,
+                                            color: Colors.white,
+                                          ),
+                                        )
+                                      : const Text(
+                                          'Save Password',
+                                          style: TextStyle(
+                                            fontWeight: FontWeight.w700,
+                                            fontSize: 15,
+                                          ),
+                                        ),
+                                ),
+                              ),
+                            ],
                           ),
                         ),
+                      ),
+                    ),
+                  ),
                 ),
-              ),
-            ],
-          ),
-        ),
-      ),
-    ),
-  ),
-),
               ],
             ),
           ),
@@ -299,8 +330,10 @@ class _NewPasswordScreenState extends State<NewPasswordScreen>
           ),
           onPressed: onToggle,
         ),
-        contentPadding:
-            const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+        contentPadding: const EdgeInsets.symmetric(
+          horizontal: 16,
+          vertical: 14,
+        ),
         border: OutlineInputBorder(
           borderRadius: BorderRadius.circular(8),
           borderSide: const BorderSide(color: _fieldBorder, width: 1),

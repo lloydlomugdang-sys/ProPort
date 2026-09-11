@@ -4,7 +4,10 @@ import { errorResponse } from '../http/api-response.js';
 
 interface ValidationIssue {
   readonly instancePath?: string;
-  readonly params?: { readonly missingProperty?: string };
+  readonly params?: {
+    readonly missingProperty?: string;
+    readonly additionalProperty?: string;
+  };
   readonly message?: string;
 }
 
@@ -13,7 +16,11 @@ function validationFields(error: FastifyError): Readonly<Record<string, readonly
   const issues = (error.validation ?? []) as readonly ValidationIssue[];
 
   for (const issue of issues) {
-    const field = issue.params?.missingProperty ?? issue.instancePath?.replace(/^\//, '') ?? 'request';
+    const field =
+      issue.params?.missingProperty ??
+      issue.params?.additionalProperty ??
+      issue.instancePath?.replace(/^\//, '') ??
+      'request';
     const message = issue.message ?? 'is invalid';
     (fields[field] ??= []).push(message);
   }
@@ -41,6 +48,9 @@ export function registerErrorHandling(app: FastifyInstance): void {
     if (error instanceof AppError) {
       if (error.statusCode >= 500) {
         request.log.error({ err: error }, 'Request failed');
+      }
+      if (error.headers !== undefined) {
+        void reply.headers(error.headers);
       }
       void reply.status(error.statusCode).send(
         errorResponse(error.code, error.message, request.id, {

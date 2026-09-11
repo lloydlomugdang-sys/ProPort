@@ -1,17 +1,19 @@
-// LOCATION: lib/screens/profile/edit_profile_screen.dart
-
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
-import 'package:image_picker/image_picker.dart';
+
 import '../../constants/app_colors.dart';
 import '../../constants/app_text_styles.dart';
+import '../../services/api_client.dart';
+import '../../services/auth_scope.dart';
 import '../../widgets/grad_app_bar.dart';
 import 'models/user_profile_model.dart';
 import 'widgets/profile_avatar.dart';
 import 'widgets/profile_info_row.dart';
 
 class EditProfileScreen extends StatefulWidget {
-  const EditProfileScreen({super.key});
+  const EditProfileScreen({super.key, required this.profile});
+
+  final UserProfile profile;
 
   @override
   State<EditProfileScreen> createState() => _EditProfileScreenState();
@@ -19,43 +21,36 @@ class EditProfileScreen extends StatefulWidget {
 
 class _EditProfileScreenState extends State<EditProfileScreen>
     with SingleTickerProviderStateMixin {
-  // Local editable copy of the profile
-  late String _fullName;
-  late String _email;
+  late String _firstName;
+  late String _lastName;
   late String _program;
   late String _yearLevel;
   late String _school;
-  String? _avatarPath;
 
   bool _hasChanges = false;
-  bool _isSaving   = false;
+  bool _isSaving = false;
 
   late final AnimationController _entranceCtrl;
-  late final Animation<double>   _fadeAnim;
+  late final Animation<double> _fadeAnim;
+
+  String get _fullName => '$_firstName $_lastName'.trim();
 
   @override
   void initState() {
     super.initState();
-
-    final p   = userProfileNotifier.profile;
-    _fullName  = p.fullName;
-    _email     = p.email;
-    _program   = p.program;
-    _yearLevel = p.yearLevel;
-    _school    = p.school;
-    _avatarPath = p.avatarPath;
+    _firstName = widget.profile.firstName;
+    _lastName = widget.profile.lastName;
+    _program = widget.profile.program;
+    _yearLevel = widget.profile.yearLevel;
+    _school = widget.profile.school;
 
     _entranceCtrl = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 350),
     );
-    CurvedAnimation(
-      parent: _entranceCtrl,
-      curve: Curves.easeOut,
-    );
     _fadeAnim = CurvedAnimation(
       parent: _entranceCtrl,
-      curve: const Interval(0.0, 0.8, curve: Curves.easeOut),
+      curve: const Interval(0, 0.8, curve: Curves.easeOut),
     );
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) _entranceCtrl.forward();
@@ -68,153 +63,249 @@ class _EditProfileScreenState extends State<EditProfileScreen>
     super.dispose();
   }
 
-  // ─── Avatar picker ────────────────────────────────────────────────────────
-  Future<void> _onAvatarTap() async {
-    try {
-      final picker = ImagePicker();
-      final result = await picker.pickImage(
-        source: ImageSource.gallery,
-        imageQuality: 85,
-      );
-      if (result != null && mounted) {
-        setState(() {
-          _avatarPath  = result.path;
-          _hasChanges  = true;
-        });
-      }
-    } catch (_) {
-      if (!mounted) return;
-      _showInfo(
-        'Image Picker',
-        'Image picker integration will be connected in the next implementation phase.',
-      );
+  Future<void> _editName() async {
+    final firstNameController = TextEditingController(text: _firstName);
+    final lastNameController = TextEditingController(text: _lastName);
+    String? validationMessage;
+
+    final result = await showDialog<(String, String)>(
+      context: context,
+      builder: (_) => StatefulBuilder(
+        builder: (context, setDialogState) => AlertDialog(
+          backgroundColor: Colors.white,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(20),
+          ),
+          title: Text('Full Name', style: AppTextStyles.h3),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              _dialogTextField(
+                controller: firstNameController,
+                label: 'First Name',
+                keyboardType: TextInputType.name,
+              ),
+              const SizedBox(height: 12),
+              _dialogTextField(
+                controller: lastNameController,
+                label: 'Last Name',
+                keyboardType: TextInputType.name,
+              ),
+              if (validationMessage != null) ...[
+                const SizedBox(height: 10),
+                Text(
+                  validationMessage!,
+                  style: AppTextStyles.bodySmall.copyWith(color: Colors.red),
+                ),
+              ],
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: Text(
+                'Cancel',
+                style: AppTextStyles.labelLarge.copyWith(
+                  color: AppColors.textSecondary,
+                ),
+              ),
+            ),
+            TextButton(
+              onPressed: () {
+                final firstName = firstNameController.text.trim();
+                final lastName = lastNameController.text.trim();
+                if (!_validName(firstName) || !_validName(lastName)) {
+                  setDialogState(() {
+                    validationMessage =
+                        'First and last name must each contain 2-100 characters.';
+                  });
+                  return;
+                }
+                Navigator.pop(context, (firstName, lastName));
+              },
+              child: Text(
+                'Save',
+                style: AppTextStyles.labelLarge.copyWith(
+                  color: AppColors.primary,
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+
+    Future<void>.delayed(const Duration(milliseconds: 300), () {
+      firstNameController.dispose();
+      lastNameController.dispose();
+    });
+    if (result == null || (result.$1 == _firstName && result.$2 == _lastName)) {
+      return;
     }
+    setState(() {
+      _firstName = result.$1;
+      _lastName = result.$2;
+      _hasChanges = true;
+    });
   }
 
-  // ─── Inline field editor ──────────────────────────────────────────────────
   Future<void> _editField({
     required String title,
     required String currentValue,
+    required int maxLength,
     required ValueChanged<String> onSaved,
-    TextInputType keyboardType = TextInputType.text,
   }) async {
-    final ctrl = TextEditingController(text: currentValue);
+    final controller = TextEditingController(text: currentValue);
     final result = await showDialog<String>(
       context: context,
       builder: (_) => AlertDialog(
         backgroundColor: Colors.white,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
         title: Text(title, style: AppTextStyles.h3),
-        content: Container(
-          decoration: BoxDecoration(
-            color: AppColors.background,
-            borderRadius: BorderRadius.circular(10),
-            border: Border.all(color: AppColors.inputBorder),
-          ),
-          child: TextField(
-            controller: ctrl,
-            autofocus: true,
-            keyboardType: keyboardType,
-            style: GoogleFonts.poppins(
-                fontSize: 14, color: AppColors.textPrimary),
-            decoration: InputDecoration(
-              contentPadding: const EdgeInsets.symmetric(
-                  horizontal: 14, vertical: 13),
-              border: InputBorder.none,
-              hintStyle: GoogleFonts.poppins(
-                  fontSize: 14, color: AppColors.textMuted),
-            ),
-          ),
+        content: _dialogTextField(
+          controller: controller,
+          label: title,
+          maxLength: maxLength,
         ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context),
-            child: Text('Cancel',
-                style: AppTextStyles.labelLarge
-                    .copyWith(color: AppColors.textSecondary)),
+            child: Text(
+              'Cancel',
+              style: AppTextStyles.labelLarge.copyWith(
+                color: AppColors.textSecondary,
+              ),
+            ),
           ),
           TextButton(
-            onPressed: () => Navigator.pop(context, ctrl.text.trim()),
-            child: Text('Save',
-                style: AppTextStyles.labelLarge
-                    .copyWith(color: AppColors.primary)),
+            onPressed: () => Navigator.pop(context, controller.text.trim()),
+            child: Text(
+              'Save',
+              style: AppTextStyles.labelLarge.copyWith(
+                color: AppColors.primary,
+              ),
+            ),
           ),
         ],
       ),
     );
 
-    ctrl.dispose();
-
-    if (result != null && result.isNotEmpty && result != currentValue) {
-      setState(() {
-        onSaved(result);
-        _hasChanges = true;
-      });
-    }
+    Future<void>.delayed(const Duration(milliseconds: 300), controller.dispose);
+    if (result == null || result == currentValue) return;
+    setState(() {
+      onSaved(result);
+      _hasChanges = true;
+    });
   }
 
-  // ─── Save all changes ─────────────────────────────────────────────────────
+  Widget _dialogTextField({
+    required TextEditingController controller,
+    required String label,
+    TextInputType keyboardType = TextInputType.text,
+    int? maxLength,
+  }) {
+    return Container(
+      decoration: BoxDecoration(
+        color: AppColors.background,
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: AppColors.inputBorder),
+      ),
+      child: TextField(
+        controller: controller,
+        autofocus: true,
+        keyboardType: keyboardType,
+        maxLength: maxLength,
+        style: GoogleFonts.poppins(fontSize: 14, color: AppColors.textPrimary),
+        decoration: InputDecoration(
+          labelText: label,
+          counterText: '',
+          contentPadding: const EdgeInsets.symmetric(
+            horizontal: 14,
+            vertical: 13,
+          ),
+          border: InputBorder.none,
+          hintStyle: GoogleFonts.poppins(
+            fontSize: 14,
+            color: AppColors.textMuted,
+          ),
+        ),
+      ),
+    );
+  }
+
+  bool _validName(String value) => value.length >= 2 && value.length <= 100;
+
   Future<void> _onSave() async {
+    if (_isSaving) return;
     if (!_hasChanges) {
       Navigator.pop(context);
       return;
     }
 
+    if (!_validName(_firstName) || !_validName(_lastName)) {
+      _showSnackBar(
+        'First and last name must each contain 2-100 characters.',
+        isError: true,
+      );
+      return;
+    }
+
     setState(() => _isSaving = true);
-    await Future.delayed(const Duration(milliseconds: 400));
-    if (!mounted) return;
-
-    // Update the in-memory notifier — listeners (ProfileScreen) rebuild
-    // TODO: replace with MongoDB / API call
-    userProfileNotifier.updateProfile(UserProfile(
-      fullName:   _fullName,
-      email:      _email,
-      program:    _program,
-      yearLevel:  _yearLevel,
-      school:     _school,
-      avatarPath: _avatarPath,
-    ));
-
-    setState(() => _isSaving = false);
-
-    if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-      content: Text('Profile updated (Development Mode)',
-          style: GoogleFonts.poppins(fontSize: 13, color: Colors.white)),
-      backgroundColor: AppColors.success,
-      behavior: SnackBarBehavior.floating,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-      margin: const EdgeInsets.fromLTRB(16, 0, 16, 16),
-      duration: const Duration(seconds: 2),
-    ));
-
-    Navigator.pop(context);
+    try {
+      await AuthScope.of(context).updateCurrentUserProfile(
+        firstName: _firstName,
+        lastName: _lastName,
+        program: _program,
+        yearLevel: _yearLevel,
+        school: _school,
+      );
+      if (!mounted) return;
+      setState(() {
+        _isSaving = false;
+        _hasChanges = false;
+      });
+      _showSnackBar('Profile updated successfully.');
+      Navigator.pop(context);
+    } catch (error) {
+      if (!mounted) return;
+      setState(() => _isSaving = false);
+      _showSnackBar(_safeErrorMessage(error), isError: true);
+    }
   }
 
-  // ─── Helpers ──────────────────────────────────────────────────────────────
-  void _showInfo(String title, String content) {
-    showDialog(
-      context: context,
-      builder: (_) => AlertDialog(
-        backgroundColor: Colors.white,
-        shape:
-            RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-        title: Text(title, style: AppTextStyles.h3),
-        content: Text(content,
-            style: AppTextStyles.bodySmall.copyWith(height: 1.6)),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: Text('OK',
-                style: AppTextStyles.labelLarge
-                    .copyWith(color: AppColors.primary)),
-          ),
-        ],
+  String _safeErrorMessage(Object error) {
+    if (error is ApiException) {
+      final fieldValue = error.fields.values.isEmpty
+          ? null
+          : error.fields.values.first;
+      if (fieldValue is List && fieldValue.isNotEmpty) {
+        return fieldValue.first.toString();
+      }
+      if (fieldValue is String && fieldValue.isNotEmpty) return fieldValue;
+      if (error.statusCode == 401 || error.code == 'UNAUTHORIZED') {
+        return 'Your session has expired. Please log in again.';
+      }
+      return error.message;
+    }
+    return 'Unable to update your profile. Please try again.';
+  }
+
+  void _showSnackBar(String message, {bool isError = false}) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          message,
+          style: GoogleFonts.poppins(fontSize: 13, color: Colors.white),
+        ),
+        backgroundColor: isError ? Colors.red.shade700 : AppColors.success,
+        behavior: SnackBarBehavior.floating,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+        margin: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+        duration: const Duration(seconds: 2),
       ),
     );
   }
 
-  // ─── Build ────────────────────────────────────────────────────────────────
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -230,16 +321,18 @@ class _EditProfileScreenState extends State<EditProfileScreen>
                     height: 20,
                     child: CircularProgressIndicator(
                       strokeWidth: 2.5,
-                      valueColor:
-                          AlwaysStoppedAnimation<Color>(Colors.white),
+                      valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
                     ),
                   ),
                 )
               : IconButton(
-                  icon: const Icon(Icons.edit_outlined,
-                      color: AppColors.headerText, size: 22),
+                  icon: const Icon(
+                    Icons.edit_outlined,
+                    color: AppColors.headerText,
+                    size: 22,
+                  ),
                   onPressed: _onSave,
-                  tooltip: 'Save',
+                  tooltip: 'Save profile',
                 ),
         ],
       ),
@@ -250,33 +343,17 @@ class _EditProfileScreenState extends State<EditProfileScreen>
           padding: const EdgeInsets.fromLTRB(20, 32, 20, 32),
           child: Column(
             children: [
-              // ── Avatar (tappable) ────────────────────────────────
-              ProfileAvatar(
-                avatarPath: _avatarPath,
-                size: 110,
-                showEditBadge: true,
-                onTap: _onAvatarTap,
-              ),
+              const ProfileAvatar(size: 110),
               const SizedBox(height: 16),
-
-              // Full name (tappable)
               GestureDetector(
-                onTap: () => _editField(
-                  title: 'Full Name',
-                  currentValue: _fullName,
-                  onSaved: (v) => _fullName = v,
-                  keyboardType: TextInputType.name,
-                ),
+                onTap: _editName,
                 child: Text(
                   _fullName,
                   style: AppTextStyles.h2.copyWith(color: AppColors.primary),
                   textAlign: TextAlign.center,
                 ),
               ),
-
               const SizedBox(height: 28),
-
-              // ── Editable info card ───────────────────────────────
               Container(
                 decoration: BoxDecoration(
                   color: Colors.white,
@@ -292,15 +369,9 @@ class _EditProfileScreenState extends State<EditProfileScreen>
                 ),
                 child: Column(
                   children: [
-                    EditableInfoRow(
+                    ProfileInfoRow(
                       icon: Icons.email_outlined,
-                      value: _email,
-                      onEdit: () => _editField(
-                        title: 'Email',
-                        currentValue: _email,
-                        onSaved: (v) => _email = v,
-                        keyboardType: TextInputType.emailAddress,
-                      ),
+                      value: widget.profile.email,
                     ),
                     EditableInfoRow(
                       icon: Icons.school_outlined,
@@ -308,7 +379,8 @@ class _EditProfileScreenState extends State<EditProfileScreen>
                       onEdit: () => _editField(
                         title: 'Program',
                         currentValue: _program,
-                        onSaved: (v) => _program = v,
+                        maxLength: 200,
+                        onSaved: (value) => _program = value,
                       ),
                     ),
                     EditableInfoRow(
@@ -317,7 +389,8 @@ class _EditProfileScreenState extends State<EditProfileScreen>
                       onEdit: () => _editField(
                         title: 'Year Level',
                         currentValue: _yearLevel,
-                        onSaved: (v) => _yearLevel = v,
+                        maxLength: 50,
+                        onSaved: (value) => _yearLevel = value,
                       ),
                     ),
                     EditableInfoRow(
@@ -327,16 +400,14 @@ class _EditProfileScreenState extends State<EditProfileScreen>
                       onEdit: () => _editField(
                         title: 'School',
                         currentValue: _school,
-                        onSaved: (v) => _school = v,
+                        maxLength: 200,
+                        onSaved: (value) => _school = value,
                       ),
                     ),
                   ],
                 ),
               ),
-
               const SizedBox(height: 28),
-
-              // ── Save button ──────────────────────────────────────
               SizedBox(
                 width: double.infinity,
                 height: 52,
@@ -347,7 +418,8 @@ class _EditProfileScreenState extends State<EditProfileScreen>
                     foregroundColor: Colors.white,
                     elevation: 0,
                     shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(12)),
+                      borderRadius: BorderRadius.circular(12),
+                    ),
                   ),
                   child: _isSaving
                       ? const SizedBox(
@@ -356,14 +428,17 @@ class _EditProfileScreenState extends State<EditProfileScreen>
                           child: CircularProgressIndicator(
                             strokeWidth: 2.5,
                             valueColor: AlwaysStoppedAnimation<Color>(
-                                Colors.white),
+                              Colors.white,
+                            ),
                           ),
                         )
-                      : Text('Save Changes',
+                      : Text(
+                          'Save Changes',
                           style: GoogleFonts.poppins(
                             fontSize: 15,
                             fontWeight: FontWeight.w600,
-                          )),
+                          ),
+                        ),
                 ),
               ),
             ],
