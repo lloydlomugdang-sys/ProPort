@@ -272,6 +272,7 @@ const png = Buffer.from(
 
 describe.sequential('authenticated document API with disposable storage and MongoDB', () => {
   let app: FastifyInstance | undefined;
+  let limitedApp: FastifyInstance | undefined;
   let disposable: DisposableMongoDatabase | undefined;
   let storageRoot: string | undefined;
   let storage: TrackingStorage;
@@ -302,10 +303,22 @@ describe.sequential('authenticated document API with disposable storage and Mong
     await app.ready();
     firstUser = await registerVerifiedUser(app, 'document.one@example.edu', emailSender);
     secondUser = await registerVerifiedUser(app, 'document.two@example.edu', emailSender);
+    limitedApp = await buildApp({
+      config: loadConfig({
+        NODE_ENV: 'test',
+        LOG_LEVEL: 'silent',
+        DOCUMENT_UPLOAD_RATE_LIMIT_MAX: '1',
+        DOCUMENT_OCR_RATE_LIMIT_MAX: '1',
+      }),
+      services,
+      connectDatabase: false,
+    });
+    await limitedApp.ready();
   }, 120_000);
 
   afterAll(async () => {
     if (disposable !== undefined) await disposable.stop();
+    if (limitedApp !== undefined) await limitedApp.close();
     if (app !== undefined) await app.close();
     if (storageRoot !== undefined) await rm(storageRoot, { recursive: true, force: true });
   }, 120_000);
@@ -843,5 +856,47 @@ describe.sequential('authenticated document API with disposable storage and Mong
         .collection(COLLECTION_NAMES.documents)
         .findOne({ _id: new Types.ObjectId(id) }),
     ).toBeNull();
+  });
+
+  it('rate-limits upload and OCR per authenticated user with standard errors', async () => {
+    const upload = multipartUpload(
+      { ...documentFields, title: 'Rate limit fixture' },
+      { name: 'rate-limit.pdf', mimeType: 'application/pdf', contents: pdf },
+    );
+    const firstUpload = await limitedApp!.inject({
+      method: 'POST',
+      url: '/api/v1/documents',
+      headers: { ...bearer(firstUser.accessToken), ...upload.headers },
+      payload: upload.payload,
+    });
+    expect(firstUpload.statusCode).toBe(201);
+    const documentId = firstUpload.json<{ readonly data: { readonly document: DocumentBody } }>()
+      .data.document.id;
+
+    const secondUpload = await limitedApp!.inject({
+      method: 'POST',
+      url: '/api/v1/documents',
+      headers: { ...bearer(firstUser.accessToken), ...upload.headers },
+      payload: upload.payload,
+    });
+    expectError(secondUpload, 429, 'RATE_LIMITED');
+    expect(secondUpload.headers['retry-after']).toBeDefined();
+
+    const firstOcr = await limitedApp!.inject({
+      method: 'POST',
+      url: `/api/v1/documents/${documentId}/ocr`,
+      headers: bearer(firstUser.accessToken),
+      payload: {},
+    });
+    expect(firstOcr.statusCode).toBe(200);
+
+    const secondOcr = await limitedApp!.inject({
+      method: 'POST',
+      url: `/api/v1/documents/${documentId}/ocr`,
+      headers: bearer(firstUser.accessToken),
+      payload: {},
+    });
+    expectError(secondOcr, 429, 'RATE_LIMITED');
+    expect(secondOcr.headers['retry-after']).toBeDefined();
   });
 });

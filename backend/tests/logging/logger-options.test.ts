@@ -19,6 +19,13 @@ describe('logger redaction', () => {
         '*.SMTP_USER',
         '*.smtpCredentials',
         '*.emailProviderCredentials',
+        '*.brevoApiKey',
+        '*.BREVO_API_KEY',
+        '*.r2AccessKeyId',
+        '*.r2SecretAccessKey',
+        '*.R2_ACCESS_KEY_ID',
+        '*.R2_SECRET_ACCESS_KEY',
+        '*.objectKey',
         '*.rawText',
         '*.reviewedText',
         '*.contents',
@@ -27,6 +34,9 @@ describe('logger redaction', () => {
         '*.auth.user',
         'config.smtp.pass',
         'config.smtp.user',
+        'config.brevo.apiKey',
+        'config.r2.accessKeyId',
+        'config.r2.secretAccessKey',
       ]),
     );
   });

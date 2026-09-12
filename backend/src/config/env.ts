@@ -1,5 +1,6 @@
 import type {
   AppConfig,
+  BrevoConfig,
   DatabaseAccessMode,
   DatabaseConfig,
   DatabaseDriver,
@@ -7,6 +8,7 @@ import type {
   EmailDriver,
   LogLevel,
   NodeEnvironment,
+  R2Config,
   SmtpConfig,
   StorageDriver,
 } from './env.types.js';
@@ -19,8 +21,8 @@ const LOG_LEVELS = ['fatal', 'error', 'warn', 'info', 'debug', 'trace', 'silent'
 const DATABASE_DRIVERS = ['mock', 'mongodb'] as const;
 const DATABASE_ENVIRONMENTS = ['development', 'test'] as const;
 const DATABASE_ACCESS_MODES = ['runtime', 'maintenance'] as const;
-const STORAGE_DRIVERS = ['local'] as const;
-const EMAIL_DRIVERS = ['console', 'smtp'] as const;
+const STORAGE_DRIVERS = ['local', 'r2'] as const;
+const EMAIL_DRIVERS = ['console', 'smtp', 'brevo'] as const;
 const TEST_JWT_SECRET = 'gradport-test-jwt-secret-not-for-production';
 const TEST_CODE_PEPPER = 'gradport-test-code-pepper-not-for-production';
 
@@ -116,6 +118,88 @@ function parseSmtpConfig(environment: Environment, issues: string[]): SmtpConfig
     pass,
     from,
   });
+}
+
+function requiredDriverValue(
+  value: string | undefined,
+  name: string,
+  driverName: string,
+  issues: string[],
+  options: { readonly preserveWhitespace?: boolean } = {},
+): string {
+  const trimmed = value?.trim();
+  if (trimmed === undefined || trimmed.length === 0) {
+    issues.push(`${name} is required when ${driverName}`);
+    return '';
+  }
+  return options.preserveWhitespace ? value! : trimmed;
+}
+
+function parseR2Config(environment: Environment, issues: string[]): R2Config {
+  const endpoint = requiredDriverValue(
+    environment.R2_ENDPOINT,
+    'R2_ENDPOINT',
+    'STORAGE_DRIVER=r2',
+    issues,
+  );
+  const accessKeyId = requiredDriverValue(
+    environment.R2_ACCESS_KEY_ID,
+    'R2_ACCESS_KEY_ID',
+    'STORAGE_DRIVER=r2',
+    issues,
+  );
+  const secretAccessKey = requiredDriverValue(
+    environment.R2_SECRET_ACCESS_KEY,
+    'R2_SECRET_ACCESS_KEY',
+    'STORAGE_DRIVER=r2',
+    issues,
+    { preserveWhitespace: true },
+  );
+  const bucket = requiredDriverValue(
+    environment.R2_BUCKET,
+    'R2_BUCKET',
+    'STORAGE_DRIVER=r2',
+    issues,
+  );
+  const region = environment.R2_REGION?.trim() || 'auto';
+
+  if (endpoint.length > 0) {
+    const uri = URL.parse(endpoint);
+    if (uri === null || uri.protocol !== 'https:' || uri.username || uri.password) {
+      issues.push('R2_ENDPOINT must be an HTTPS URL without embedded credentials');
+    }
+  }
+
+  return Object.freeze({ endpoint, accessKeyId, secretAccessKey, bucket, region });
+}
+
+function parseBrevoConfig(environment: Environment, issues: string[]): BrevoConfig {
+  const apiKey = requiredDriverValue(
+    environment.BREVO_API_KEY,
+    'BREVO_API_KEY',
+    'EMAIL_DRIVER=brevo',
+    issues,
+    { preserveWhitespace: true },
+  );
+  const fromEmail = requiredDriverValue(
+    environment.BREVO_FROM_EMAIL,
+    'BREVO_FROM_EMAIL',
+    'EMAIL_DRIVER=brevo',
+    issues,
+  );
+  const fromName = requiredDriverValue(
+    environment.BREVO_FROM_NAME,
+    'BREVO_FROM_NAME',
+    'EMAIL_DRIVER=brevo',
+    issues,
+  );
+  if (
+    fromEmail.length > 0 &&
+    !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(fromEmail)
+  ) {
+    issues.push('BREVO_FROM_EMAIL must be a valid email address');
+  }
+  return Object.freeze({ apiKey, fromEmail, fromName });
 }
 
 function isIpOrCidr(value: string): boolean {
@@ -333,6 +417,9 @@ export function loadConfig(environment: Environment = process.env): AppConfig {
     issues,
   );
   const smtp = emailDriver === 'smtp' ? parseSmtpConfig(environment, issues) : undefined;
+  const brevo =
+    emailDriver === 'brevo' ? parseBrevoConfig(environment, issues) : undefined;
+  const r2 = storageDriver === 'r2' ? parseR2Config(environment, issues) : undefined;
   const authJwtSecret = validateSecret(
     optionalNonEmpty(environment.AUTH_JWT_SECRET),
     'AUTH_JWT_SECRET',
@@ -345,7 +432,7 @@ export function loadConfig(environment: Environment = process.env): AppConfig {
     nodeEnv,
     issues,
   );
-  const host = environment.HOST?.trim() || '127.0.0.1';
+  const host = environment.HOST?.trim() || (nodeEnv === 'production' ? '0.0.0.0' : '127.0.0.1');
   const localStoragePath = environment.LOCAL_STORAGE_PATH?.trim() || '.local-data/storage';
   const port = parseInteger(environment.PORT ?? '3000', 'PORT', 1, 65_535, issues);
   const readyCheckTimeoutMs = parseInteger(
@@ -397,10 +484,43 @@ export function loadConfig(environment: Environment = process.env): AppConfig {
     20,
     issues,
   );
+  const ocrMaxConcurrentJobs = parseInteger(
+    environment.OCR_MAX_CONCURRENT_JOBS ?? (nodeEnv === 'production' ? '1' : '2'),
+    'OCR_MAX_CONCURRENT_JOBS',
+    1,
+    2,
+    issues,
+  );
+  const documentUploadRateLimitMax = parseInteger(
+    environment.DOCUMENT_UPLOAD_RATE_LIMIT_MAX ?? (nodeEnv === 'test' ? '10000' : '10'),
+    'DOCUMENT_UPLOAD_RATE_LIMIT_MAX',
+    1,
+    10_000,
+    issues,
+  );
+  const documentOcrRateLimitMax = parseInteger(
+    environment.DOCUMENT_OCR_RATE_LIMIT_MAX ?? (nodeEnv === 'test' ? '10000' : '5'),
+    'DOCUMENT_OCR_RATE_LIMIT_MAX',
+    1,
+    10_000,
+    issues,
+  );
   const trustProxy = parseTrustProxy(environment.TRUST_PROXY, issues);
 
   if (nodeEnv === 'production' && consoleEmailPreview) {
     issues.push('CONSOLE_EMAIL_PREVIEW must be false in production');
+  }
+  if (nodeEnv === 'production' && databaseConfig.databaseDriver !== 'mongodb') {
+    issues.push('DATABASE_DRIVER must be mongodb in production');
+  }
+  if (nodeEnv === 'production' && storageDriver !== 'r2') {
+    issues.push('STORAGE_DRIVER must be r2 in production');
+  }
+  if (nodeEnv === 'production' && emailDriver !== 'brevo') {
+    issues.push('EMAIL_DRIVER must be brevo in production');
+  }
+  if (nodeEnv === 'production' && host !== '0.0.0.0') {
+    issues.push('HOST must be 0.0.0.0 in production');
   }
 
   assertValidConfiguration(issues);
@@ -412,9 +532,11 @@ export function loadConfig(environment: Environment = process.env): AppConfig {
     logLevel,
     storageDriver,
     localStoragePath,
+    ...(r2 === undefined ? {} : { r2 }),
     emailDriver,
     consoleEmailPreview,
     ...(smtp === undefined ? {} : { smtp }),
+    ...(brevo === undefined ? {} : { brevo }),
     authJwtSecret,
     authJwtIssuer: environment.AUTH_JWT_ISSUER?.trim() || 'gradport-api',
     authJwtAudience: environment.AUTH_JWT_AUDIENCE?.trim() || 'gradport-mobile',
@@ -425,6 +547,9 @@ export function loadConfig(environment: Environment = process.env): AppConfig {
     authResetGrantTtlSeconds,
     authCodeResendCooldownSeconds,
     authCodeMaxAttempts,
+    ocrMaxConcurrentJobs,
+    documentUploadRateLimitMax,
+    documentOcrRateLimitMax,
     trustProxy,
     readyCheckTimeoutMs,
   });

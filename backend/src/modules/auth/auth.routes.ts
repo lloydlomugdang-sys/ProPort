@@ -2,7 +2,7 @@ import fastifyJwt from '@fastify/jwt';
 import rateLimit from '@fastify/rate-limit';
 import type { FastifyInstance, FastifyReply } from 'fastify';
 import { AppError } from '../../common/errors/app-error.js';
-import { errorResponse, successResponse } from '../../common/http/api-response.js';
+import { successResponse } from '../../common/http/api-response.js';
 import type { AppConfig } from '../../config/env.types.js';
 import type { AppServices } from '../../infrastructure/create-services.js';
 import {
@@ -137,9 +137,10 @@ export async function registerAuthRoutes(
   });
   await app.register(rateLimit, {
     global: false,
+    hook: 'preHandler',
     cache: 10_000,
-    errorResponseBuilder: (request) =>
-      errorResponse('RATE_LIMITED', 'Too many requests. Please try again later.', request.id),
+    errorResponseBuilder: () =>
+      new AppError(429, 'RATE_LIMITED', 'Too many requests. Please try again later.'),
   });
 
   const auth = new AuthService(

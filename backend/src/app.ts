@@ -51,7 +51,7 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
   await registerAuthRoutes(app, { config: options.config, services });
   await registerCurrentUserRoutes(app, services);
   await registerPortfolioRoutes(app, services);
-  await registerDocumentRoutes(app, services);
+  await registerDocumentRoutes(app, { config: options.config, services });
 
   if (options.connectDatabase !== false) {
     try {

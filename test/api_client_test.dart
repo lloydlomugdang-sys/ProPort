@@ -290,6 +290,7 @@ void main() {
       'http://api.gradport.example',
       'https://localhost:3000',
       'https://127.0.0.1:3000',
+      'https://10.0.2.2:3000',
       'https://app.localhost',
     ]) {
       test('rejects $invalidUrl', () {

@@ -2,7 +2,7 @@
 
 This directory contains GradPort's Fastify and MongoDB backend. It includes the persistence foundation and the versioned authentication, current-user, portfolio, and document APIs used by the Flutter Android and iOS clients.
 
-Authenticated PDF/JPEG/PNG uploads use private local object storage in development. Local OCR and embedded PDF text extraction are available for uploaded documents; document generation, cloud object storage, and deployment remain later work.
+Authenticated PDF/JPEG/PNG uploads use private local object storage in development and private Cloudflare R2 storage in production. Local OCR and embedded PDF text extraction read through the same storage abstraction.
 
 ## Requirements
 
@@ -71,7 +71,7 @@ Access tokens are HS256 JWTs valid for 15 minutes. Opaque refresh tokens are val
 
 MongoDB stores account records, session/code records, category and report definitions, college-report answers, and document metadata. A document record contains an owner, category/folder, file name, MIME type, file kind, extension, size, checksum, and private `objectKey` reference. After extraction, its nested `ocr` record stores the processing status, immutable extracted `rawText`, user-editable `reviewedText`, engine name, and timestamps.
 
-MongoDB must never contain uploaded file bytes, `Buffer` payloads, Base64 data, data URLs, GridFS identifiers, GridFS buckets, or file chunks. The repository and schema layers reject these values. Actual files are stored beneath the configured `LOCAL_STORAGE_PATH` by the development `ObjectStorage` adapter; generated object keys, not filesystem paths, are stored in MongoDB or exposed internally. The content endpoint and `DocumentService.openContent()` remain the file-read boundary. A cloud adapter can replace local storage without changing the document or OCR APIs.
+MongoDB must never contain uploaded file bytes, `Buffer` payloads, Base64 data, data URLs, GridFS identifiers, GridFS buckets, or file chunks. The repository and schema layers reject these values. Actual files are stored beneath `LOCAL_STORAGE_PATH` by the development adapter or in a private Cloudflare R2 bucket by the production adapter. Generated object keys, not filesystem paths, are stored in MongoDB and remain internal. The content endpoint and `DocumentService.openContent()` remain the file-read boundary, so document and OCR APIs do not depend on the selected storage driver.
 
 ## Document text extraction
 
@@ -193,6 +193,16 @@ For a Gmail sending account, use `smtp.gmail.com` with either port 465/secure tr
 
 SMTP mode never logs message contents, OTPs, SMTP credentials, or provider error details. Startup fails with a sanitized configuration error if a required SMTP setting is missing or malformed. `/ready` verifies SMTP connectivity/authentication without sending an email and reports the existing `email` readiness check as `up` or `down`. Delivery failures use the existing `EMAIL_UNAVAILABLE` response; forgot-password responses remain enumeration-safe.
 
+For Render, use Brevo's HTTPS transactional-email API because free web services do not provide a dependable SMTP-port path. Set `EMAIL_DRIVER=brevo` and provide a verified sender:
+
+```text
+BREVO_API_KEY=<deployment secret>
+BREVO_FROM_EMAIL=<verified sender address>
+BREVO_FROM_NAME=GradPort
+```
+
+The Brevo adapter sends the same text and HTML verification/reset messages through `EmailSender`; it does not change code generation, hashing, expiry, cooldowns, attempts, or API responses. `/ready` validates the API credential through Brevo's account endpoint without sending mail. Provider errors are reduced to the existing safe `EMAIL_UNAVAILABLE` behavior, and neither API keys nor OTP contents are logged.
+
 The files are loaded only by explicit Atlas/database npm commands. Never pass a URI on a command line, print it, or add it to tracked documentation.
 
 ## Migrations and seeds
@@ -247,6 +257,114 @@ Integration tests start a disposable, loopback-only MongoDB 8.0.29 replica set. 
 
 Never trust arbitrary `Forwarded` or `X-Forwarded-For` headers. Fastify's `request.ip` and all IP rate-limit keys are reliable only after the real proxy chain is restricted correctly. If the API is horizontally scaled, configure the rate-limit plugin with a shared production store so limits apply across every replica; the current local fixed-window account limiter is process-local.
 
+For the current single Render web-service topology, set `TRUST_PROXY=1`. This trusts only the immediate Render proxy hop; it does not unconditionally trust the full forwarded chain. Reconfirm the hop count with a controlled deployment test if another CDN or proxy is added. Keep `TRUST_PROXY=false` everywhere the API receives direct traffic.
+
+Existing authentication limits remain: registration 5/hour/IP, login 10/15 minutes/IP plus 5 failed attempts/15 minutes/normalized email, verification/reset delivery 10/hour/IP plus 3/hour/normalized email, and refresh 30/minute/IP. Cloud deployment adds authenticated per-user limits of 10 document uploads/minute and 5 OCR starts/minute. Normal GET traffic is not globally throttled, OTP attempt limits and resend cooldowns remain unchanged, and each document still has its atomic OCR lease.
+
+## Render + R2 + Brevo demo deployment
+
+Use these Render web-service settings:
+
+```text
+Service type: Web Service
+Name: gradport-api
+Region: Singapore
+Branch: main
+Root Directory: backend
+Build Command: npm ci && npm run build
+Start Command: npm start
+Compute: Free
+Health Check Path: /ready
+Auto-Deploy: On Commit
+```
+
+Production configuration defaults `HOST` to `0.0.0.0` and reads Render's injected `PORT`; do not hardcode either a service URL or port. Local development continues to default to `127.0.0.1:3000`. `npm start` runs the built `dist/src/server.js` output.
+
+Set the following Render environment variables. Values marked secret belong only in Render's secret environment-variable store. Do not copy them into GitHub, Flutter, source files, or logs.
+
+```text
+NODE_ENV=production
+LOG_LEVEL=info
+
+DATABASE_DRIVER=mongodb
+DATABASE_ENVIRONMENT=development
+DATABASE_ACCESS_MODE=runtime
+MONGODB_URI=<secret: least-privilege runtime user URI>
+MONGODB_DB_NAME=gradport_dev
+MONGODB_SERVER_SELECTION_TIMEOUT_MS=10000
+MONGODB_CONNECT_TIMEOUT_MS=10000
+MONGODB_MAX_POOL_SIZE=10
+
+AUTH_JWT_SECRET=<secret: independent random value, at least 32 bytes>
+AUTH_JWT_ISSUER=gradport-api
+AUTH_JWT_AUDIENCE=gradport-mobile
+AUTH_CODE_PEPPER=<secret: different random value, at least 32 bytes>
+AUTH_ACCESS_TOKEN_TTL_SECONDS=900
+AUTH_REFRESH_TOKEN_TTL_SECONDS=2592000
+AUTH_CODE_TTL_SECONDS=600
+AUTH_RESET_GRANT_TTL_SECONDS=600
+AUTH_CODE_RESEND_COOLDOWN_SECONDS=60
+AUTH_CODE_MAX_ATTEMPTS=5
+
+EMAIL_DRIVER=brevo
+CONSOLE_EMAIL_PREVIEW=false
+BREVO_API_KEY=<secret>
+BREVO_FROM_EMAIL=<verified sender address>
+BREVO_FROM_NAME=GradPort
+
+STORAGE_DRIVER=r2
+R2_ENDPOINT=<HTTPS S3 endpoint for the R2 account>
+R2_ACCESS_KEY_ID=<secret>
+R2_SECRET_ACCESS_KEY=<secret>
+R2_BUCKET=<private bucket name>
+R2_REGION=auto
+
+TRUST_PROXY=1
+READY_CHECK_TIMEOUT_MS=5000
+OCR_MAX_CONCURRENT_JOBS=1
+DOCUMENT_UPLOAD_RATE_LIMIT_MAX=10
+DOCUMENT_OCR_RATE_LIMIT_MAX=5
+```
+
+Render supplies `PORT` automatically, and production supplies the safe `0.0.0.0` host default, so neither needs a dashboard override. Production startup rejects a mock database, local storage, console/SMTP email, a loopback-only bind, missing auth secrets, and incomplete R2/Brevo configuration.
+
+Create a private R2 bucket and an Object Read & Write API token scoped only to that bucket. Use the S3 endpoint shown by Cloudflare, the generated access-key pair, and region `auto`. Do not enable public bucket access. The adapter uses `PutObject`, `GetObject`, `HeadObject`, `DeleteObject`, and `HeadBucket`; tests inject a fake transport and never contact Cloudflare. Failed metadata persistence still deletes the uploaded object, document deletion still deletes its object, and MongoDB continues to store no file bytes.
+
+Before starting Render, create the service and copy its complete outbound CIDR list from **Connect → Outbound**. Add only those ranges to the Atlas Network Access list, validate `/ready`, then remove any temporary `0.0.0.0/0` entry. Render must use the existing least-privilege runtime database user, never the temporary maintenance account. Do not run migrations as part of deployment; migrations 001 and 002 remain unchanged.
+
+The English Tesseract trained data and PDF.js character-map/font assets are production dependencies under `node_modules`, so `npm ci` installs them during Render's build and OCR performs no language-data download at runtime. Production runs one local OCR job at a time for the Free plan's 0.1 CPU/512 MB limit. The existing 15 MiB file, 25 megapixel image, 100-page PDF, 200,000-character text, 45-second extraction, 90-second lease, and scanned-PDF limitation remain unchanged. Expect cold starts and slower image OCR on Free compute; upgrade the instance if demo latency or memory pressure is unacceptable.
+
+### Manual cloud acceptance
+
+After the first successful deploy:
+
+1. Open `GET https://<service>.onrender.com/ready` and confirm database, storage, and email are all `up`.
+2. Register a new disposable demo user and receive its verification OTP through Brevo.
+3. Verify, log in, load/edit the current-user profile, and create/edit a portfolio.
+4. Upload one small PDF and one small JPEG/PNG; confirm both remain available after a Render restart/redeploy.
+5. Run OCR on the image and a text-based PDF, edit/save reviewed text, reload it, and confirm a scanned PDF returns `SCANNED_PDF_OCR_NOT_SUPPORTED`.
+6. Restart/reopen the Android app, confirm refresh-token restoration, then log out and log back in.
+7. Inspect Render logs for only safe request IDs/statuses—never OTPs, document text, object keys, or provider credentials.
+
+### Android demo APK
+
+The release manifest allows Internet access and rejects cleartext HTTP; only the debug manifest permits local cleartext development. Flutter release configuration also rejects missing, HTTP, localhost, `127.0.0.1`, and `10.0.2.2` API URLs.
+
+Build one universal APK from the repository root after replacing the URL placeholder with the deployed Render HTTPS origin:
+
+```powershell
+flutter build apk --release --dart-define=API_BASE_URL=https://<service>.onrender.com
+```
+
+The artifact is `build/app/outputs/flutter-apk/app-release.apk`. If `android/key.properties` is absent, the build retains the existing debug-signing fallback so the demo APK remains installable. To create a privately release-signed APK, run the following from the repository root and answer `keytool`'s prompts locally:
+
+```powershell
+keytool -genkeypair -v -keystore android/gradport-upload-keystore.jks -keyalg RSA -keysize 2048 -validity 10000 -alias <private-alias>
+Copy-Item android/key.properties.example android/key.properties
+```
+
+Fill in the four ignored `android/key.properties` values, rebuild, and securely back up the keystore and credentials. Keystores, properties, aliases, and passwords must never be committed. The current `com.example.proport_app` application ID is acceptable only for direct demo sideloading and must be replaced with the final owned identifier before Play Store release; `version: 2.0.0+1` supplies the current version name/code.
+
 ## Deferred work
 
-Private R2 storage, scanned-PDF raster OCR, PDF/DOCX generation, cloud deployment, production SMTP credential provisioning, and production database provisioning remain deferred. Document upload and OCR read through `ObjectStorage`; replacing the local adapter with R2 does not require a document API redesign. The console and SMTP implementations share the existing `EmailSender` interface, so changing providers later does not require an authentication API redesign.
+Scanned-PDF raster OCR, PDF/DOCX generation, final Play Store/App Store identifiers and signing, production monitoring, and paid-instance capacity planning remain deferred. Local/R2 storage and console/SMTP/Brevo email share the existing abstractions, so those later tasks do not require API or Flutter-flow redesign.

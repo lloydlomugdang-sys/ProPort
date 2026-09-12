@@ -283,6 +283,7 @@ class ApiClient {
       final host = uri.host.toLowerCase();
       if (host == 'localhost' ||
           host == '::1' ||
+          host == '10.0.2.2' ||
           host.startsWith('127.') ||
           host.endsWith('.localhost')) {
         throw StateError(

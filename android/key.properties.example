@@ -1,0 +1,5 @@
+# Copy to key.properties and keep the real file and keystore untracked.
+storePassword=<release-keystore-password>
+keyPassword=<release-key-password>
+keyAlias=<release-key-alias>
+storeFile=../gradport-upload-keystore.jks

@@ -2,6 +2,7 @@ import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { Types } from 'mongoose';
 import { AppError } from '../../common/errors/app-error.js';
 import { successResponse } from '../../common/http/api-response.js';
+import type { AppConfig } from '../../config/env.types.js';
 import type { AppServices } from '../../infrastructure/create-services.js';
 import { CurrentUserService, type CurrentUserIdentity } from '../users/user.service.js';
 import {
@@ -157,8 +158,9 @@ function contentDisposition(fileName: string): string {
 
 export async function registerDocumentRoutes(
   app: FastifyInstance,
-  services: AppServices,
+  options: { readonly config: AppConfig; readonly services: AppServices },
 ): Promise<void> {
+  const { services } = options;
   const currentUsers = new CurrentUserService(services.database);
   const documents = new DocumentService(services.database, services.storage, services.ocr);
   const identities = new WeakMap<FastifyRequest, CurrentUserIdentity>();
@@ -209,6 +211,14 @@ export async function registerDocumentRoutes(
     '/api/v1/documents',
     {
       onRequest: requireCurrentUser,
+      config: {
+        rateLimit: {
+          max: options.config.documentUploadRateLimitMax,
+          timeWindow: '1 minute',
+          groupId: 'documents-upload-user',
+          keyGenerator: (request) => ownerIdFor(request).toString(),
+        },
+      },
       schema: {
         querystring: documentQuerySchema,
         response: { 201: documentResponseSchema },
@@ -280,6 +290,14 @@ export async function registerDocumentRoutes(
     '/api/v1/documents/:documentId/ocr',
     {
       onRequest: requireCurrentUser,
+      config: {
+        rateLimit: {
+          max: options.config.documentOcrRateLimitMax,
+          timeWindow: '1 minute',
+          groupId: 'documents-ocr-user',
+          keyGenerator: (request) => ownerIdFor(request).toString(),
+        },
+      },
       schema: {
         params: documentPathParamsSchema,
         querystring: documentQuerySchema,
