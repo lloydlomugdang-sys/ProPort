@@ -1,17 +1,18 @@
 import {
   DeleteObjectCommand,
   GetObjectCommand,
-  HeadBucketCommand,
   HeadObjectCommand,
   PutObjectCommand,
   S3Client,
 } from '@aws-sdk/client-s3';
+import { randomUUID } from 'node:crypto';
 import { Readable } from 'node:stream';
 import type { ServiceHealth } from '../../common/types/service-health.js';
 import type { R2Config } from '../../config/env.types.js';
 import type { ObjectStorage, StoredObject } from './object-storage.js';
 
 const MAX_OBJECT_BYTES = 15 * 1024 * 1024;
+const HEALTHCHECK_BODY = Buffer.from('ok', 'utf8');
 
 interface R2ObjectInput {
   readonly bucket: string;
@@ -27,7 +28,6 @@ export interface R2StorageTransport {
   getObject(input: R2ObjectInput): Promise<Readable>;
   deleteObject(input: R2ObjectInput): Promise<void>;
   objectExists(input: R2ObjectInput): Promise<boolean>;
-  bucketExists(bucket: string): Promise<void>;
 }
 
 function isNotFound(error: unknown): boolean {
@@ -91,9 +91,6 @@ function createR2StorageTransport(config: R2Config): R2StorageTransport {
         throw error;
       }
     },
-    async bucketExists(bucket) {
-      await client.send(new HeadBucketCommand({ Bucket: bucket }));
-    },
   };
 }
 
@@ -156,11 +153,31 @@ export class R2ObjectStorage implements ObjectStorage {
   }
 
   async healthCheck(): Promise<ServiceHealth> {
+    const input = {
+      bucket: this.config.bucket,
+      key: `_healthcheck/${randomUUID()}.txt`,
+    };
+    let uploaded = false;
+    let healthy: boolean;
+
     try {
-      await this.transport.bucketExists(this.config.bucket);
-      return { status: 'up', detail: 'Cloud object storage is available.' };
+      await this.transport.putObject({ ...input, body: HEALTHCHECK_BODY });
+      uploaded = true;
+      healthy = await this.transport.objectExists(input);
     } catch {
-      return { status: 'down', detail: 'Cloud object storage is unavailable.' };
+      healthy = false;
+    } finally {
+      if (uploaded) {
+        try {
+          await this.transport.deleteObject(input);
+        } catch {
+          healthy = false;
+        }
+      }
     }
+
+    return healthy
+      ? { status: 'up', detail: 'Cloud object storage is available.' }
+      : { status: 'down', detail: 'Cloud object storage is unavailable.' };
   }
 }

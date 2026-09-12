@@ -16,10 +16,19 @@ const R2_CONFIG: R2Config = {
 
 class FakeR2Transport implements R2StorageTransport {
   readonly objects = new Map<string, Buffer>();
-  healthError: Error | undefined;
+  readonly operations: Array<{
+    readonly type: 'put' | 'head' | 'delete';
+    readonly key: string;
+    readonly body?: Buffer;
+  }> = [];
+  putError: Error | undefined;
+  headError: Error | undefined;
+  deleteError: Error | undefined;
 
   async putObject(input: { readonly bucket: string; readonly key: string; readonly body: Buffer }) {
     expect(input.bucket).toBe(R2_CONFIG.bucket);
+    this.operations.push({ type: 'put', key: input.key, body: Buffer.from(input.body) });
+    if (this.putError !== undefined) throw this.putError;
     this.objects.set(input.key, Buffer.from(input.body));
   }
 
@@ -30,16 +39,17 @@ class FakeR2Transport implements R2StorageTransport {
   }
 
   async deleteObject(input: { readonly bucket: string; readonly key: string }) {
+    expect(input.bucket).toBe(R2_CONFIG.bucket);
+    this.operations.push({ type: 'delete', key: input.key });
+    if (this.deleteError !== undefined) throw this.deleteError;
     this.objects.delete(input.key);
   }
 
   async objectExists(input: { readonly bucket: string; readonly key: string }) {
+    expect(input.bucket).toBe(R2_CONFIG.bucket);
+    this.operations.push({ type: 'head', key: input.key });
+    if (this.headError !== undefined) throw this.headError;
     return this.objects.has(input.key);
-  }
-
-  async bucketExists(bucket: string) {
-    expect(bucket).toBe(R2_CONFIG.bucket);
-    if (this.healthError !== undefined) throw this.healthError;
   }
 }
 
@@ -79,7 +89,7 @@ describe('R2ObjectStorage', () => {
     },
   );
 
-  it('reports sanitized cloud-storage readiness without exposing configuration', async () => {
+  it('probes cloud-storage readiness with a unique temporary object and cleans it up', async () => {
     const transport = new FakeR2Transport();
     const storage = new R2ObjectStorage(R2_CONFIG, transport);
     await expect(storage.healthCheck()).resolves.toEqual({
@@ -87,14 +97,44 @@ describe('R2ObjectStorage', () => {
       detail: 'Cloud object storage is available.',
     });
 
-    transport.healthError = new Error('provider detail containing private endpoint');
+    expect(transport.operations.map(({ type }) => type)).toEqual(['put', 'head', 'delete']);
+    const [put, head, remove] = transport.operations;
+    expect(put?.key).toMatch(/^_healthcheck\/[0-9a-f-]+\.txt$/);
+    expect(put?.body?.toString('utf8')).toBe('ok');
+    expect(head?.key).toBe(put?.key);
+    expect(remove?.key).toBe(put?.key);
+    expect(transport.objects.size).toBe(0);
+
+    await storage.healthCheck();
+    expect(transport.operations[3]?.key).not.toBe(put?.key);
+  });
+
+  it('attempts cleanup and reports sanitized readiness when the object HEAD fails', async () => {
+    const transport = new FakeR2Transport();
+    const storage = new R2ObjectStorage(R2_CONFIG, transport);
+    transport.headError = new Error('provider detail containing private endpoint');
+
     const health = await storage.healthCheck();
     expect(health).toEqual({
       status: 'down',
       detail: 'Cloud object storage is unavailable.',
     });
+    expect(transport.operations.map(({ type }) => type)).toEqual(['put', 'head', 'delete']);
+    expect(transport.objects.size).toBe(0);
     expect(JSON.stringify(health)).not.toContain(R2_CONFIG.endpoint);
     expect(JSON.stringify(health)).not.toContain(R2_CONFIG.accessKeyId);
     expect(JSON.stringify(health)).not.toContain(R2_CONFIG.secretAccessKey);
+  });
+
+  it('reports readiness as down when temporary-object cleanup fails', async () => {
+    const transport = new FakeR2Transport();
+    const storage = new R2ObjectStorage(R2_CONFIG, transport);
+    transport.deleteError = new Error('delete denied');
+
+    await expect(storage.healthCheck()).resolves.toEqual({
+      status: 'down',
+      detail: 'Cloud object storage is unavailable.',
+    });
+    expect(transport.operations.map(({ type }) => type)).toEqual(['put', 'head', 'delete']);
   });
 });
