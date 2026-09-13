@@ -478,6 +478,54 @@ describe.sequential('authenticated document API with disposable storage and Mong
     );
   });
 
+  it('previews OCR with suggestions without persisting guessed metadata or objects', async () => {
+    const beforeCount = await disposable!.connection.db!.collection(COLLECTION_NAMES.documents).countDocuments();
+    const beforeKeys = storage.keys.size;
+    const rawText = 'Certificate of Completion\nCourse: Digital Records Management\nIssued on Sep 14, 2026';
+    ocrEngine.nextRawText = rawText;
+    const upload = multipartUpload({}, { name: 'course.png', mimeType: 'image/png', contents: png });
+    const response = await app!.inject({
+      method: 'POST', url: '/api/v1/documents/ocr-preview',
+      headers: { ...bearer(firstUser.accessToken), ...upload.headers }, payload: upload.payload,
+    });
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toMatchObject({ data: { ocr: {
+      status: 'ready', rawText, reviewedText: rawText,
+      metadataSuggestions: {
+        categoryKey: 'certificates', folderKey: 'trainings',
+        title: 'Digital Records Management', documentDate: '2026-09-14',
+      },
+    } }, meta: { requestId: response.headers['x-request-id'] } });
+    expect(JSON.stringify(response.json())).not.toContain('reflection');
+    expect(await disposable!.connection.db!.collection(COLLECTION_NAMES.documents).countDocuments()).toBe(beforeCount);
+    expect(storage.keys.size).toBe(beforeKeys);
+  });
+
+  it('authenticates preview and rejects client ownership/text fields and invalid files', async () => {
+    const upload = multipartUpload({}, { name: 'course.png', mimeType: 'image/png', contents: png });
+    expectError(await app!.inject({
+      method: 'POST', url: '/api/v1/documents/ocr-preview',
+      headers: upload.headers, payload: upload.payload,
+    }), 401, 'UNAUTHORIZED');
+    for (const field of ['ownerId', 'documentId', 'reviewedText']) {
+      const invalid = multipartUpload({ [field]: secondUser.userId }, { name: 'course.png', mimeType: 'image/png', contents: png });
+      expectError(await app!.inject({
+        method: 'POST', url: '/api/v1/documents/ocr-preview',
+        headers: { ...bearer(firstUser.accessToken), ...invalid.headers }, payload: invalid.payload,
+      }), 400, 'VALIDATION_ERROR');
+    }
+    const invalid = multipartUpload({}, { name: 'fake.png', mimeType: 'image/png', contents: Buffer.from('not an image') });
+    expectError(await app!.inject({
+      method: 'POST', url: '/api/v1/documents/ocr-preview',
+      headers: { ...bearer(firstUser.accessToken), ...invalid.headers }, payload: invalid.payload,
+    }), 415, 'UNSUPPORTED_FILE_TYPE');
+    ocrEngine.nextFailure = new OcrEngineError('timeout');
+    expectError(await app!.inject({
+      method: 'POST', url: '/api/v1/documents/ocr-preview',
+      headers: { ...bearer(firstUser.accessToken), ...upload.headers }, payload: upload.payload,
+    }), 504, 'OCR_TIMEOUT');
+  });
+
   it('lists, summarizes, retrieves, and streams only safe owned data', async () => {
     const list = await app!.inject({
       method: 'GET',
@@ -615,6 +663,26 @@ describe.sequential('authenticated document API with disposable storage and Mong
     await expect(
       restartedService.getOcr(new Types.ObjectId(firstUser.userId), pngId!),
     ).resolves.toMatchObject({ status: 'ready', reviewedText: editedText });
+  });
+
+  it('suggests from saved reviewed text while preserving raw OCR and existing document metadata', async () => {
+    const id = uploadedIds[0]!;
+    const before = await app!.inject({ method: 'GET', url: `/api/v1/documents/${id}`, headers: bearer(firstUser.accessToken) });
+    const response = await app!.inject({
+      method: 'PATCH', url: `/api/v1/documents/${id}/ocr`, headers: bearer(firstUser.accessToken),
+      payload: { reviewedText: 'Certificate of Attendance\nparticipated in the seminar: Safe Digital Records\nDated 14/09/2026' },
+    });
+    expect(response.statusCode).toBe(200);
+    const expected = { data: { ocr: {
+      rawText: 'Embedded PDF text from a deterministic fixture.',
+      metadataSuggestions: { categoryKey: 'certificates', folderKey: 'seminars', title: 'Safe Digital Records', documentDate: '2026-09-14' },
+    } } };
+    expect(response.json()).toMatchObject(expected);
+    const get = await app!.inject({ method: 'GET', url: `/api/v1/documents/${id}/ocr`, headers: bearer(firstUser.accessToken) });
+    expect(get.json()).toMatchObject(expected);
+    const after = await app!.inject({ method: 'GET', url: `/api/v1/documents/${id}`, headers: bearer(firstUser.accessToken) });
+    expect(after.json().data.document.title).toBe(before.json().data.document.title);
+    expect(after.json().data.document.reflection).toBe(before.json().data.document.reflection);
   });
 
   it('rejects raw-text mutation and isolates every OCR operation by owner', async () => {
@@ -898,5 +966,10 @@ describe.sequential('authenticated document API with disposable storage and Mong
     });
     expectError(secondOcr, 429, 'RATE_LIMITED');
     expect(secondOcr.headers['retry-after']).toBeDefined();
+    const preview = multipartUpload({}, { name: 'rate-limit.pdf', mimeType: 'application/pdf', contents: pdf });
+    expectError(await limitedApp!.inject({
+      method: 'POST', url: '/api/v1/documents/ocr-preview',
+      headers: { ...bearer(firstUser.accessToken), ...preview.headers }, payload: preview.payload,
+    }), 429, 'RATE_LIMITED');
   });
 });

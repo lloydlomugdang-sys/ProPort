@@ -30,8 +30,12 @@ class DatePickerField extends StatelessWidget {
     final picked = await showDatePicker(
       context: context,
       initialDate: selectedDate ?? DateTime.now(),
-      firstDate: DateTime(2000),
-      lastDate: DateTime(2100),
+      firstDate: selectedDate != null && selectedDate!.isBefore(DateTime(2000))
+          ? selectedDate!
+          : DateTime(2000),
+      lastDate: selectedDate != null && selectedDate!.isAfter(DateTime(2100))
+          ? selectedDate!
+          : DateTime(2100),
       builder: (context, child) {
         return Theme(
           data: Theme.of(context).copyWith(

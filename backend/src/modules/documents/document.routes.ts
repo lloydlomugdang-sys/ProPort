@@ -18,6 +18,7 @@ import {
 import {
   DocumentService,
   MAX_DOCUMENT_FILE_SIZE_BYTES,
+  type DocumentFileInput,
   type DocumentUploadInput,
 } from './document.service.js';
 
@@ -84,7 +85,7 @@ function mapMultipartError(error: unknown): AppError {
   );
 }
 
-async function parseUpload(request: FastifyRequest): Promise<DocumentUploadInput> {
+async function parseFileParts(request: FastifyRequest, allowedFields: ReadonlySet<string>) {
   if (!request.isMultipart()) {
     throw new AppError(
       415,
@@ -124,7 +125,7 @@ async function parseUpload(request: FastifyRequest): Promise<DocumentUploadInput
       if (part.fieldnameTruncated || part.valueTruncated) {
         throw uploadValidation('request', 'contains an overlong multipart field');
       }
-      if (!UPLOAD_FIELDS.has(part.fieldname)) {
+      if (!allowedFields.has(part.fieldname)) {
         throw uploadValidation(part.fieldname, 'is not supported');
       }
       if (fields[part.fieldname] !== undefined || typeof part.value !== 'string') {
@@ -138,6 +139,16 @@ async function parseUpload(request: FastifyRequest): Promise<DocumentUploadInput
   }
 
   if (file === undefined) throw uploadValidation('file', 'is required');
+  const input: DocumentFileInput = {
+    originalFileName: file.filename,
+    mimeType: file.mimetype,
+    contents: file.contents,
+  };
+  return { fields, file: input };
+}
+
+async function parseUpload(request: FastifyRequest): Promise<DocumentUploadInput> {
+  const { fields, file } = await parseFileParts(request, UPLOAD_FIELDS);
   return {
     categoryKey: requiredField(fields, 'categoryKey'),
     folderKey: requiredField(fields, 'folderKey'),
@@ -145,9 +156,7 @@ async function parseUpload(request: FastifyRequest): Promise<DocumentUploadInput
     documentDate: requiredField(fields, 'documentDate'),
     ...(fields.description === undefined ? {} : { description: fields.description }),
     ...(fields.reflection === undefined ? {} : { reflection: fields.reflection }),
-    originalFileName: file.filename,
-    mimeType: file.mimetype,
-    contents: file.contents,
+    ...file,
   };
 }
 
@@ -181,6 +190,14 @@ export async function registerDocumentRoutes(
     if (identity === undefined) throw UNAUTHORIZED;
     return identity.userId;
   }
+
+  // Reuse one limiter/store for previews and stored-document extraction so
+  // switching endpoints cannot double the existing per-user OCR allowance.
+  const limitOcr = app.rateLimit({
+    max: options.config.documentOcrRateLimitMax,
+    timeWindow: '1 minute',
+    keyGenerator: (request) => ownerIdFor(request).toString(),
+  });
 
   app.get(
     '/api/v1/documents/categories',
@@ -227,6 +244,22 @@ export async function registerDocumentRoutes(
     async (request, reply) => {
       const document = await documents.upload(ownerIdFor(request), await parseUpload(request));
       return reply.status(201).send(successResponse({ document }, request.id));
+    },
+  );
+
+  app.post(
+    '/api/v1/documents/ocr-preview',
+    {
+      onRequest: [requireCurrentUser, limitOcr],
+      config: { rateLimit: false },
+      schema: {
+        querystring: documentQuerySchema,
+        response: { 200: documentOcrResponseSchema },
+      },
+    },
+    async (request) => {
+      const { file } = await parseFileParts(request, new Set());
+      return successResponse({ ocr: await documents.previewOcr(file) }, request.id);
     },
   );
 
@@ -289,15 +322,8 @@ export async function registerDocumentRoutes(
   app.post<{ Params: DocumentParams }>(
     '/api/v1/documents/:documentId/ocr',
     {
-      onRequest: requireCurrentUser,
-      config: {
-        rateLimit: {
-          max: options.config.documentOcrRateLimitMax,
-          timeWindow: '1 minute',
-          groupId: 'documents-ocr-user',
-          keyGenerator: (request) => ownerIdFor(request).toString(),
-        },
-      },
+      onRequest: [requireCurrentUser, limitOcr],
+      config: { rateLimit: false },
       schema: {
         params: documentPathParamsSchema,
         querystring: documentQuerySchema,

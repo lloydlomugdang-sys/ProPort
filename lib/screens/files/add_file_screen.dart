@@ -44,6 +44,10 @@ class _AddFileScreenState extends State<AddFileScreen>
   final _reflectionCtrl = TextEditingController();
 
   bool _isSubmitting = false;
+  bool _isSuggesting = false;
+  DocumentMetadataSuggestions? _suggestions;
+  String? _suggestionMessage;
+  int _previewOperation = 0;
 
   // ─── Entrance animation ───────────────────────────────────────────────────
   late final AnimationController _entranceCtrl;
@@ -101,6 +105,7 @@ class _AddFileScreenState extends State<AddFileScreen>
 
   // ─── Upload handler ───────────────────────────────────────────────────────
   Future<void> _onUploadTap() async {
+    if (_isSubmitting) return;
     try {
       final selected = await _filePicker.pickDocument();
       if (selected == null || !mounted) return;
@@ -112,7 +117,13 @@ class _AddFileScreenState extends State<AddFileScreen>
         _showSnack('The selected file exceeds the 15 MB upload limit.');
         return;
       }
-      setState(() => _pickedFile = selected);
+      setState(() {
+        _pickedFile = selected;
+        _previewOperation++;
+        _isSuggesting = false;
+        _suggestions = null;
+        _suggestionMessage = null;
+      });
     } catch (_) {
       if (!mounted) return;
       _showSnack('Unable to read the selected file. Please try another file.');
@@ -121,6 +132,7 @@ class _AddFileScreenState extends State<AddFileScreen>
 
   // ─── Validation + submit ──────────────────────────────────────────────────
   Future<void> _onAddFile() async {
+    if (_isSubmitting) return;
     final file = _pickedFile;
     if (file == null) {
       _showSnack('Please select a PDF, JPG, JPEG, or PNG file.');
@@ -157,7 +169,11 @@ class _AddFileScreenState extends State<AddFileScreen>
       return;
     }
 
-    setState(() => _isSubmitting = true);
+    setState(() {
+      _isSubmitting = true;
+      _isSuggesting = false;
+    });
+    _previewOperation++;
     try {
       await service.upload(
         file: file,
@@ -192,6 +208,81 @@ class _AddFileScreenState extends State<AddFileScreen>
     } finally {
       if (mounted) setState(() => _isSubmitting = false);
     }
+  }
+
+  Future<void> _suggestDetails() async {
+    final file = _pickedFile;
+    if (file == null || _isSuggesting || _isSubmitting) return;
+    final operation = ++_previewOperation;
+    final service = DocumentScope.of(context);
+    setState(() {
+      _isSuggesting = true;
+      _suggestionMessage = null;
+    });
+    try {
+      final result = await service.previewOcr(file);
+      if (!mounted || operation != _previewOperation) return;
+      final suggestions = result.isReady ? result.metadataSuggestions : null;
+      setState(() {
+        _suggestions = suggestions;
+        _suggestionMessage = suggestions == null || suggestions.isEmpty
+            ? 'No reliable details found. You can enter them manually.'
+            : 'Suggested from OCR — review before adding your file.';
+      });
+      if (suggestions != null) _applySuggestions();
+    } on ApiException catch (error) {
+      if (mounted && operation == _previewOperation) {
+        setState(() => _suggestionMessage = error.message);
+      }
+    } catch (_) {
+      if (mounted && operation == _previewOperation) {
+        setState(
+          () => _suggestionMessage =
+              'Unable to suggest details. You can still add your file manually.',
+        );
+      }
+    } finally {
+      if (mounted && operation == _previewOperation) {
+        setState(() => _isSuggesting = false);
+      }
+    }
+  }
+
+  void _applySuggestions({bool replace = false}) {
+    final suggestions = _suggestions;
+    if (suggestions == null || _isSubmitting) return;
+    final categories = DocumentScope.of(context).categories;
+    setState(() {
+      final suggestedCategory = categories
+          .where((category) => category.key == suggestions.categoryKey)
+          .firstOrNull;
+      if (suggestedCategory != null && (replace || _selectedContent == null)) {
+        if (_selectedContent != suggestedCategory.name) _selectedFolder = null;
+        _selectedContent = suggestedCategory.name;
+      }
+      final category = _selectedCategory(categories);
+      if (category != null &&
+          category.key == suggestions.categoryKey &&
+          (replace || _selectedFolder == null)) {
+        final folder = category.folders
+            .where((folder) => folder.key == suggestions.folderKey)
+            .firstOrNull;
+        if (folder != null) _selectedFolder = folder.name;
+      }
+      if (suggestions.title != null &&
+          (replace || _titleCtrl.text.trim().isEmpty)) {
+        _titleCtrl.text = suggestions.title!;
+      }
+      if (suggestions.documentDate != null &&
+          (replace || _selectedDate == null)) {
+        _selectedDate = suggestions.documentDate;
+      }
+      if (suggestions.description != null &&
+          (replace || _descriptionCtrl.text.trim().isEmpty)) {
+        _descriptionCtrl.text = suggestions.description!;
+        _descriptionEnabled = true;
+      }
+    });
   }
 
   // ─── Helpers ──────────────────────────────────────────────────────────────
@@ -237,6 +328,41 @@ class _AddFileScreenState extends State<AddFileScreen>
                 Text('1. Upload file', style: AppTextStyles.h4),
                 const SizedBox(height: 10),
                 UploadCard(onTap: _onUploadTap, fileName: _pickedFile?.name),
+
+                if (_pickedFile != null) ...[
+                  TextButton.icon(
+                    onPressed: _isSuggesting || _isSubmitting
+                        ? null
+                        : _suggestDetails,
+                    icon: _isSuggesting
+                        ? const SizedBox(
+                            width: 16,
+                            height: 16,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          )
+                        : const Icon(Icons.text_snippet_outlined, size: 18),
+                    label: Text(
+                      _isSuggesting
+                          ? 'Reading file…'
+                          : 'Suggest details from OCR',
+                    ),
+                  ),
+                  if (_suggestionMessage != null)
+                    Text(
+                      _suggestionMessage!,
+                      style: GoogleFonts.poppins(
+                        fontSize: 12,
+                        color: AppColors.textMuted,
+                      ),
+                    ),
+                  if (_suggestions != null && !_suggestions!.isEmpty)
+                    TextButton(
+                      onPressed: _isSubmitting
+                          ? null
+                          : () => _applySuggestions(replace: true),
+                      child: const Text('Apply OCR suggestions'),
+                    ),
+                ],
 
                 const SizedBox(height: 24),
 

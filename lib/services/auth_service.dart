@@ -213,6 +213,7 @@ class AuthService extends ChangeNotifier {
     required String fileName,
     required String mimeType,
     required Uint8List fileBytes,
+    Duration? requestTimeout,
   }) {
     return _authenticatedRequest(
       (accessToken) => _apiClient.postMultipart(
@@ -222,6 +223,7 @@ class AuthService extends ChangeNotifier {
         fileName: fileName,
         mimeType: mimeType,
         fileBytes: fileBytes,
+        requestTimeout: requestTimeout,
       ),
     );
   }

@@ -16,6 +16,7 @@ import {
   type OcrEngineName,
 } from '../../infrastructure/ocr/ocr-engine.js';
 import type { ObjectStorage } from '../../infrastructure/storage/object-storage.js';
+import { suggestDocumentMetadata, type MetadataSuggestions } from './metadata-suggestion.service.js';
 
 export const MAX_DOCUMENT_FILE_SIZE_BYTES = 15 * 1024 * 1024;
 
@@ -52,16 +53,19 @@ const SUPPORTED_FILE_TYPES: readonly SupportedFileType[] = [
   },
 ] as const;
 
-export interface DocumentUploadInput {
+export interface DocumentFileInput {
+  readonly originalFileName: string;
+  readonly mimeType: string;
+  readonly contents: Buffer;
+}
+
+export interface DocumentUploadInput extends DocumentFileInput {
   readonly categoryKey: string;
   readonly folderKey: string;
   readonly title: string;
   readonly documentDate: string;
   readonly description?: string;
   readonly reflection?: string;
-  readonly originalFileName: string;
-  readonly mimeType: string;
-  readonly contents: Buffer;
 }
 
 export interface PublicDocument {
@@ -108,6 +112,7 @@ export interface PublicDocumentOcr {
   readonly engine?: OcrEngineName;
   readonly processedAt?: string;
   readonly updatedAt?: string;
+  readonly metadataSuggestions?: MetadataSuggestions;
 }
 
 const NOT_FOUND = new AppError(
@@ -415,7 +420,28 @@ export class DocumentService {
   }
 
   async getOcr(ownerId: Types.ObjectId, documentId: string): Promise<PublicDocumentOcr> {
-    return publicOcr(await this.ownedDocument(ownerId, documentId));
+    return this.withSuggestions(publicOcr(await this.ownedDocument(ownerId, documentId)));
+  }
+
+  // Pre-upload OCR is transient: no document, object, or guessed metadata is persisted.
+  async previewOcr(input: DocumentFileInput): Promise<PublicDocumentOcr> {
+    if (input.contents.length === 0) throw validationError('file', 'must not be empty');
+    if (input.contents.length > MAX_DOCUMENT_FILE_SIZE_BYTES) {
+      throw new AppError(413, 'FILE_TOO_LARGE', 'The file exceeds the 15 MB upload limit.');
+    }
+    const type = fileTypeFor(sanitizedFileName(input.originalFileName), input.mimeType, input.contents);
+    try {
+      const extracted = await this.extractContents({ ...type, contents: input.contents });
+      return this.withSuggestions({
+        status: 'ready',
+        rawText: extracted.rawText,
+        reviewedText: extracted.rawText,
+        engine: extracted.engine,
+      });
+    } catch (error) {
+      if (error instanceof AppError) throw error;
+      throw mappedOcrError(error);
+    }
   }
 
   async extractOcr(ownerId: Types.ObjectId, documentId: string): Promise<PublicDocumentOcr> {
@@ -458,17 +484,11 @@ export class DocumentService {
     try {
       const stream = await this.storage.get(document.objectKey);
       const contents = await readableToBoundedBuffer(stream, MAX_DOCUMENT_FILE_SIZE_BYTES);
-      const extracted = await this.ocrEngine.extract({
+      const extracted = await this.extractContents({
         contents,
         mimeType: document.mimeType,
         fileKind: document.fileKind,
       });
-      if (extracted.rawText.length === 0) {
-        throw new AppError(422, 'OCR_NO_TEXT_FOUND', 'No readable text was found.');
-      }
-      if (extracted.rawText.length > OCR_MAX_TEXT_LENGTH) {
-        throw new AppError(422, 'OCR_TEXT_TOO_LARGE', 'The extracted text is too large to save.');
-      }
       const completed = await repositories.documents.completeOcr(
         ownerId,
         document._id,
@@ -480,7 +500,7 @@ export class DocumentService {
         },
       );
       if (completed === null) throw ocrUnavailable();
-      return publicOcr(completed);
+      return this.withSuggestions(publicOcr(completed));
     } catch (error) {
       try {
         await repositories.documents.failOcr(
@@ -528,7 +548,30 @@ export class DocumentService {
         'Extract text before saving reviewed text.',
       );
     }
-    return publicOcr(updated);
+    return this.withSuggestions(publicOcr(updated));
+  }
+
+  private async extractContents(input: Parameters<OcrEngine['extract']>[0]) {
+    const extracted = await this.ocrEngine.extract(input);
+    if (extracted.rawText.length === 0) {
+      throw new AppError(422, 'OCR_NO_TEXT_FOUND', 'No readable text was found.');
+    }
+    if (extracted.rawText.length > OCR_MAX_TEXT_LENGTH) {
+      throw new AppError(422, 'OCR_TEXT_TOO_LARGE', 'The extracted text is too large to save.');
+    }
+    return extracted;
+  }
+
+  private async withSuggestions(ocr: PublicDocumentOcr): Promise<PublicDocumentOcr> {
+    if (ocr.status !== 'ready') return ocr;
+    let categories: readonly PublicDocumentCategory[] = [];
+    try {
+      categories = await this.listCategories();
+    } catch {
+      // An unavailable category list must not discard successful OCR. Text fields
+      // remain useful; no category or folder will be invented as a fallback.
+    }
+    return { ...ocr, metadataSuggestions: suggestDocumentMetadata(ocr, categories) };
   }
 
   async delete(ownerId: Types.ObjectId, documentId: string): Promise<void> {

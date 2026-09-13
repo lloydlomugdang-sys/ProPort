@@ -142,6 +142,26 @@ class DocumentService extends ChangeNotifier {
     return result;
   }
 
+  Future<DocumentOcrResult> previewOcr(PickedDocument file) async {
+    final authGeneration = _authGeneration;
+    final response = await _authService.authenticatedPostMultipart(
+      '$_documentsPath/ocr-preview',
+      fields: const {},
+      fileName: file.name,
+      mimeType: file.mimeType,
+      fileBytes: file.bytes,
+      requestTimeout: ocrRequestTimeout,
+    );
+    if (authGeneration != _authGeneration) {
+      throw const ApiException(
+        code: 'UNAUTHORIZED',
+        message: 'Your session has changed. Please try again.',
+        statusCode: 401,
+      );
+    }
+    return _parseOcr(_dataOf(response)['ocr']);
+  }
+
   Future<DocumentOcrResult> extractText(String documentId) async {
     if (_extractingDocumentIds.contains(documentId)) {
       throw const ApiException(

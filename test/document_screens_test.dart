@@ -6,6 +6,8 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:proport_app/screens/files/add_file_screen.dart';
 import 'package:proport_app/screens/files/files_screen.dart';
 import 'package:proport_app/screens/files/view_files_screen.dart';
+import 'package:proport_app/screens/files/widgets/optional_field.dart';
+import 'package:proport_app/screens/files/widgets/date_picker_field.dart';
 import 'package:proport_app/services/api_client.dart';
 import 'package:proport_app/services/auth_service.dart';
 import 'package:proport_app/services/document_models.dart';
@@ -275,6 +277,309 @@ void main() {
     },
   );
 
+  testWidgets(
+    'OCR fills blank fields with editable suggestions and leaves reflection blank',
+    (tester) async {
+      final service = _ScreenDocumentService(ocr: _suggestedOcr());
+      await _openSuggestionForm(tester, service);
+      await tester.tap(find.text('Suggest details from OCR'));
+      await tester.pumpAndSettle();
+
+      expect(
+        find.text('Suggested from OCR — review before adding your file.'),
+        findsOneWidget,
+      );
+      expect(
+        tester
+            .widget<DropdownButton<String>>(
+              find.byType(DropdownButton<String>).first,
+            )
+            .value,
+        'Certificates',
+      );
+      expect(
+        tester
+            .widget<DropdownButton<String>>(
+              find.byType(DropdownButton<String>).last,
+            )
+            .value,
+        'Seminars',
+      );
+      expect(
+        tester
+            .widget<DatePickerField>(find.byType(DatePickerField))
+            .selectedDate,
+        DateTime(2026, 9, 14),
+      );
+      expect(
+        tester.widget<TextField>(find.byType(TextField).first).controller!.text,
+        'Digital Records Management',
+      );
+      final optional = tester
+          .widgetList<OptionalField>(find.byType(OptionalField))
+          .toList();
+      expect(
+        optional[0].controller.text,
+        'Certificate of Completion for Digital Records Management.',
+      );
+      expect(optional[0].isEnabled, isTrue);
+      expect(optional[1].controller.text, isEmpty);
+      expect(optional[1].isEnabled, isFalse);
+
+      await tester.ensureVisible(find.byType(TextField).first);
+      await tester.enterText(find.byType(TextField).first, 'My edited title');
+      await tester.ensureVisible(find.text('Add File'));
+      await tester.tap(find.text('Add File'));
+      await tester.pump();
+      expect(service.uploadedTitle, 'My edited title');
+      expect(service.uploadedDate, DateTime(2026, 9, 14));
+      expect(
+        service.uploadedDescription,
+        contains('Digital Records Management'),
+      );
+      expect(service.uploadedReflection, isNull);
+      service.disposeWithAuth();
+    },
+  );
+
+  testWidgets(
+    'OCR preserves edits made while processing; explicit Apply can replace metadata only',
+    (tester) async {
+      final pending = Completer<DocumentOcrResult>();
+      final service = _ScreenDocumentService(extraction: pending);
+      await _openSuggestionForm(tester, service);
+      await tester.tap(find.text('Suggest details from OCR'));
+      await tester.pump();
+      expect(find.text('Reading file…'), findsOneWidget);
+      await tester.ensureVisible(find.byType(TextField).first);
+      await tester.enterText(find.byType(TextField).first, 'My personal title');
+      final dateField = tester.widget<DatePickerField>(
+        find.byType(DatePickerField),
+      );
+      dateField.onDateSelected(DateTime(2025, 3, 4));
+      final optional = tester
+          .widgetList<OptionalField>(find.byType(OptionalField))
+          .toList();
+      optional[0].controller.text = 'My description';
+      optional[1].controller.text = 'My reflection';
+      optional[1].onToggle();
+      pending.complete(_suggestedOcr());
+      await tester.pumpAndSettle();
+      expect(
+        tester.widget<TextField>(find.byType(TextField).first).controller!.text,
+        'My personal title',
+      );
+      expect(optional[0].controller.text, 'My description');
+      expect(
+        tester
+            .widget<DatePickerField>(find.byType(DatePickerField))
+            .selectedDate,
+        DateTime(2025, 3, 4),
+      );
+      expect(optional[1].controller.text, 'My reflection');
+
+      await tester.ensureVisible(find.text('Apply OCR suggestions'));
+      await tester.tap(find.text('Apply OCR suggestions'));
+      await tester.pumpAndSettle();
+      expect(
+        tester.widget<TextField>(find.byType(TextField).first).controller!.text,
+        'Digital Records Management',
+      );
+      expect(
+        optional[0].controller.text,
+        contains('Certificate of Completion'),
+      );
+      expect(optional[1].controller.text, 'My reflection');
+      expect(
+        tester
+            .widget<DatePickerField>(find.byType(DatePickerField))
+            .selectedDate,
+        DateTime(2026, 9, 14),
+      );
+      service.disposeWithAuth();
+    },
+  );
+
+  testWidgets(
+    'unknown category/folder suggestions are not added to dropdowns; partial title is useful',
+    (tester) async {
+      final service = _ScreenDocumentService(
+        ocr: const DocumentOcrResult(
+          status: DocumentOcrStatus.ready,
+          metadataSuggestions: DocumentMetadataSuggestions(
+            categoryKey: 'invented',
+            folderKey: 'invented',
+            title: 'Only a detected title',
+          ),
+        ),
+      );
+      await _openSuggestionForm(tester, service);
+      await tester.tap(find.text('Suggest details from OCR'));
+      await tester.pumpAndSettle();
+      expect(
+        tester
+            .widget<DropdownButton<String>>(
+              find.byType(DropdownButton<String>).first,
+            )
+            .value,
+        isNull,
+      );
+      expect(
+        tester
+            .widget<DropdownButton<String>>(
+              find.byType(DropdownButton<String>).last,
+            )
+            .value,
+        isNull,
+      );
+      expect(
+        tester
+            .widget<DatePickerField>(find.byType(DatePickerField))
+            .selectedDate,
+        isNull,
+      );
+      expect(
+        tester.widget<TextField>(find.byType(TextField).first).controller!.text,
+        'Only a detected title',
+      );
+      service.disposeWithAuth();
+    },
+  );
+
+  testWidgets(
+    'automatic suggestions preserve an explicitly selected content and folder',
+    (tester) async {
+      final service = _ScreenDocumentService(ocr: _suggestedOcr());
+      await _openSuggestionForm(tester, service);
+      tester
+          .widget<DropdownButton<String>>(
+            find.byType(DropdownButton<String>).first,
+          )
+          .onChanged!('Accomplishments');
+      await tester.pump();
+      tester
+          .widget<DropdownButton<String>>(
+            find.byType(DropdownButton<String>).last,
+          )
+          .onChanged!('Projects');
+      await tester.pump();
+      await tester.tap(find.text('Suggest details from OCR'));
+      await tester.pumpAndSettle();
+      expect(
+        tester
+            .widget<DropdownButton<String>>(
+              find.byType(DropdownButton<String>).first,
+            )
+            .value,
+        'Accomplishments',
+      );
+      expect(
+        tester
+            .widget<DropdownButton<String>>(
+              find.byType(DropdownButton<String>).last,
+            )
+            .value,
+        'Projects',
+      );
+      await tester.ensureVisible(find.text('Apply OCR suggestions'));
+      await tester.tap(find.text('Apply OCR suggestions'));
+      await tester.pumpAndSettle();
+      expect(
+        tester
+            .widget<DropdownButton<String>>(
+              find.byType(DropdownButton<String>).first,
+            )
+            .value,
+        'Certificates',
+      );
+      expect(
+        tester
+            .widget<DropdownButton<String>>(
+              find.byType(DropdownButton<String>).last,
+            )
+            .value,
+        'Seminars',
+      );
+      service.disposeWithAuth();
+    },
+  );
+
+  testWidgets(
+    'empty suggestions leave all fields empty without fake defaults',
+    (tester) async {
+      final service = _ScreenDocumentService(
+        ocr: const DocumentOcrResult(
+          status: DocumentOcrStatus.ready,
+          metadataSuggestions: DocumentMetadataSuggestions(),
+        ),
+      );
+      await _openSuggestionForm(tester, service);
+      await tester.tap(find.text('Suggest details from OCR'));
+      await tester.pumpAndSettle();
+      expect(
+        find.text('No reliable details found. You can enter them manually.'),
+        findsOneWidget,
+      );
+      expect(find.text('Apply OCR suggestions'), findsNothing);
+      expect(
+        tester.widget<TextField>(find.byType(TextField).first).controller!.text,
+        isEmpty,
+      );
+      expect(
+        tester
+            .widget<DatePickerField>(find.byType(DatePickerField))
+            .selectedDate,
+        isNull,
+      );
+      service.disposeWithAuth();
+    },
+  );
+
+  testWidgets('OCR failure allows manual upload with safe error feedback', (
+    tester,
+  ) async {
+    final service = _ScreenDocumentService(
+      extractionFailure: const ApiException(
+        code: 'OCR_TIMEOUT',
+        message:
+            'Text extraction took too long. Please try a smaller document.',
+        statusCode: 504,
+      ),
+    );
+    await _openSuggestionForm(tester, service);
+    await tester.tap(find.text('Suggest details from OCR'));
+    await tester.pumpAndSettle();
+    expect(
+      find.textContaining('Text extraction took too long.'),
+      findsOneWidget,
+    );
+    await _completeUploadForm(tester, pick: false);
+    await tester.tap(find.text('Add File'));
+    await tester.pump();
+    expect(service.uploadedTitle, 'Demo Certificate');
+    service.disposeWithAuth();
+  });
+
+  testWidgets('changing the picked file discards a stale preview response', (
+    tester,
+  ) async {
+    final pending = Completer<DocumentOcrResult>();
+    final service = _ScreenDocumentService(extraction: pending);
+    await _openSuggestionForm(tester, service);
+    await tester.tap(find.text('Suggest details from OCR'));
+    await tester.pump();
+    await tester.tap(find.text('demo.pdf'));
+    await tester.pump();
+    pending.complete(_suggestedOcr());
+    await tester.pumpAndSettle();
+    expect(
+      tester.widget<TextField>(find.byType(TextField).first).controller!.text,
+      isEmpty,
+    );
+    expect(find.text('Apply OCR suggestions'), findsNothing);
+    service.disposeWithAuth();
+  });
+
   testWidgets('Add File rejects unsupported and oversized picker results', (
     tester,
   ) async {
@@ -332,15 +637,49 @@ Widget _viewFiles() => const ViewFilesScreen(
   folderName: 'Seminars',
 );
 
+DocumentOcrResult _suggestedOcr() => DocumentOcrResult(
+  status: DocumentOcrStatus.ready,
+  metadataSuggestions: DocumentMetadataSuggestions(
+    categoryKey: 'certificates',
+    folderKey: 'seminars',
+    title: 'Digital Records Management',
+    documentDate: DateTime(2026, 9, 14),
+    description: 'Certificate of Completion for Digital Records Management.',
+  ),
+);
+
+Future<void> _openSuggestionForm(
+  WidgetTester tester,
+  DocumentService service,
+) async {
+  final picker = _FakePicker(
+    PickedDocument(
+      name: 'demo.pdf',
+      mimeType: 'application/pdf',
+      bytes: Uint8List.fromList('%PDF-test'.codeUnits),
+    ),
+  );
+  await tester.pumpWidget(_app(service, AddFileScreen(filePicker: picker)));
+  await tester.pumpAndSettle();
+  await tester.tap(find.text('Tap to upload file'));
+  await tester.pumpAndSettle();
+}
+
 Widget _app(DocumentService service, Widget child) => DocumentScope(
   documentService: service,
   child: MaterialApp(home: child),
 );
 
-Future<void> _completeUploadForm(WidgetTester tester) async {
-  await tester.tap(find.text('Tap to upload file'));
-  await tester.pump();
+Future<void> _completeUploadForm(
+  WidgetTester tester, {
+  bool pick = true,
+}) async {
+  if (pick) {
+    await tester.tap(find.text('Tap to upload file'));
+    await tester.pump();
+  }
 
+  await tester.ensureVisible(find.byType(DropdownButton<String>).first);
   await tester.tap(find.byType(DropdownButton<String>).first);
   await tester.pumpAndSettle();
   await tester.tap(find.text('Certificates').last);
@@ -351,7 +690,9 @@ Future<void> _completeUploadForm(WidgetTester tester) async {
   await tester.tap(find.text('Seminars').last);
   await tester.pumpAndSettle();
 
+  await tester.ensureVisible(find.byType(TextField).first);
   await tester.enterText(find.byType(TextField).first, 'Demo Certificate');
+  await tester.ensureVisible(find.text('MM/DD/YYYY'));
   await tester.tap(find.text('MM/DD/YYYY'));
   await tester.pumpAndSettle();
   await tester.tap(find.text('OK'));
@@ -414,6 +755,11 @@ class _ScreenDocumentService extends DocumentService {
       name: 'Certificates',
       folders: [DocumentFolder(key: 'seminars', name: 'Seminars')],
     ),
+    DocumentCategory(
+      key: 'accomplishments',
+      name: 'Accomplishments',
+      folders: [DocumentFolder(key: 'projects', name: 'Projects')],
+    ),
   ];
 
   final _NoopAuthService _auth;
@@ -431,6 +777,8 @@ class _ScreenDocumentService extends DocumentService {
   String? uploadedFolderKey;
   String? uploadedTitle;
   DateTime? uploadedDate;
+  String? uploadedDescription;
+  String? uploadedReflection;
 
   @override
   List<DocumentCategory> get categories => _categories;
@@ -473,6 +821,8 @@ class _ScreenDocumentService extends DocumentService {
     uploadedFolderKey = folderKey;
     uploadedTitle = title;
     uploadedDate = documentDate;
+    uploadedDescription = description;
+    uploadedReflection = reflection;
     final created = _document(fileName: file.name);
     _documents = [created, ..._documents];
     _summary = _summary.adding(created);
@@ -494,6 +844,13 @@ class _ScreenDocumentService extends DocumentService {
 
   @override
   Future<DocumentOcrResult> loadOcr(String documentId) async => _ocr;
+
+  @override
+  Future<DocumentOcrResult> previewOcr(PickedDocument file) async {
+    final failure = extractionFailure;
+    if (failure != null) throw failure;
+    return extraction == null ? _ocr : await extraction!.future;
+  }
 
   @override
   Future<DocumentOcrResult> extractText(String documentId) async {

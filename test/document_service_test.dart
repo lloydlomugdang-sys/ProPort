@@ -11,6 +11,64 @@ import 'package:proport_app/services/secure_token_store.dart';
 
 void main() {
   test(
+    'previews authenticated file bytes with OCR timeout without adding a document',
+    () async {
+      final auth = _DocumentAuthService();
+      final service = DocumentService(authService: auth);
+      auth.ocrResponse = _envelope({
+        'ocr': {
+          'status': 'ready',
+          'rawText': 'OCR fixture',
+          'metadataSuggestions': {
+            'categoryKey': 'certificates',
+            'folderKey': 'trainings',
+            'title': 'Digital Records Management',
+            'documentDate': '2026-09-14',
+            'description':
+                'Certificate of Completion for Digital Records Management.',
+          },
+        },
+      });
+      final file = PickedDocument(
+        name: 'course.png',
+        mimeType: 'image/png',
+        bytes: Uint8List.fromList([137, 80, 78, 71]),
+      );
+      final result = await service.previewOcr(file);
+      expect(result.metadataSuggestions?.title, 'Digital Records Management');
+      expect(result.metadataSuggestions?.documentDate, DateTime(2026, 9, 14));
+      expect(auth.uploadPath, '/api/v1/documents/ocr-preview');
+      expect(auth.uploadFields, isEmpty);
+      expect(auth.uploadBytes, same(file.bytes));
+      expect(auth.ocrPostTimeout, DocumentService.ocrRequestTimeout);
+      expect(service.documents, isEmpty);
+      expect(service.summary.totalCount, 0);
+      service.dispose();
+      auth.dispose();
+    },
+  );
+
+  test(
+    'rejects malformed suggestion dates and supports older OCR responses',
+    () {
+      for (final date in ['2026-02-30', '09/14/2026', '2026-9-14', 'garbage']) {
+        expect(
+          () => DocumentMetadataSuggestions.fromJson({'documentDate': date}),
+          throwsFormatException,
+        );
+      }
+      expect(
+        DocumentOcrResult.fromJson({
+          'status': 'ready',
+          'rawText': 'Legacy response',
+        }).metadataSuggestions,
+        isNull,
+      );
+      expect(DocumentMetadataSuggestions.fromJson({}).isEmpty, isTrue);
+    },
+  );
+
+  test(
     'client upload policy accepts only matching PDF/JPEG/PNG names and MIME types',
     () {
       PickedDocument picked(String name, String mimeType) =>
@@ -317,12 +375,17 @@ class _DocumentAuthService extends AuthService {
     required String fileName,
     required String mimeType,
     required Uint8List fileBytes,
+    Duration? requestTimeout,
   }) async {
     uploadPath = path;
     uploadFields = Map.of(fields);
     uploadFileName = fileName;
     uploadMimeType = mimeType;
     uploadBytes = fileBytes;
+    if (path.endsWith('/ocr-preview')) {
+      ocrPostTimeout = requestTimeout;
+      return ocrResponse;
+    }
     return uploadResponse ?? _envelope({'document': _documentJson()});
   }
 

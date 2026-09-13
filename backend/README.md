@@ -58,6 +58,7 @@ POST   /api/v1/documents
 GET    /api/v1/documents/:documentId
 GET    /api/v1/documents/:documentId/content
 GET    /api/v1/documents/:documentId/ocr
+POST   /api/v1/documents/ocr-preview
 POST   /api/v1/documents/:documentId/ocr
 PATCH  /api/v1/documents/:documentId/ocr
 DELETE /api/v1/documents/:documentId
@@ -82,6 +83,12 @@ PDF.js extracts embedded text from PDFs without rendering pages. PDFs are limite
 OCR starts synchronously with `POST /api/v1/documents/:documentId/ocr`. An atomic, expiring processing lease prevents duplicate concurrent work for the same document. `GET` reloads the persisted result and `PATCH` accepts only `reviewedText`; clients cannot replace `rawText` or ownership/security fields. Every operation derives ownership from the access token and returns the same safe document-not-found response for another user's ID. File contents and extracted text are never written to application logs.
 
 Existing document records require no data migration: a missing `ocr` field is returned as `not_processed`, and OCR adds no index. Existing runtime `find`/`update` permissions on `documents` are sufficient.
+
+Add a File can request `POST /api/v1/documents/ocr-preview` with one multipart `file` and no text fields. This authenticated preview uses the existing file validation, OCR engine and limits, shares the per-user OCR rate limit, and persists neither an object nor a document. It returns the standard `{data:{ocr:{status:"ready",rawText,reviewedText,engine,metadataSuggestions}},meta:{requestId}}` envelope. Existing owner-scoped OCR GET/POST/PATCH responses also include `metadataSuggestions` when ready, computed from `reviewedText` (including an intentionally empty review), falling back to `rawText` only when no review exists.
+
+Metadata parsing uses deterministic text rules only, with no new model, external API, or package. Optional suggestion fields are `categoryKey`, `folderKey`, `title`, `documentDate` (`YYYY-MM-DD`), and `description`; Reflection is never generated. Certificates map only to the active `certificates` / **Certificates** category, with `trainings` / **Trainings** for course/training/workshop text or `seminars` / **Seminars** for seminar/webinar text when those folders exist. Explicit subject markers identify titles, and description text uses only the detected certificate type, subject and explicitly named issuing/conducting organization. Missing, impossible, conflicting, or ambiguous MM/DD versus DD/MM dates are omitted. No current date or filename is substituted.
+
+Flutter's **Suggest details from OCR** fills empty fields; **Apply OCR suggestions** explicitly replaces supported metadata fields. Reflection and other user edits remain unchanged by automatic prefilling. Every suggestion stays editable. Preview failure does not prevent manual upload, and previews do not save OCR text: stored-file extraction/review continues through the existing OCR endpoints. No schema, seed, index or permission change is needed.
 
 Normal repository results never contain `passwordHash`, `refreshTokenHash`, or `codeHash`, including create and update results. Purpose-specific authentication lookups are narrow and their sensitive records must never cross the service boundary.
 

@@ -2,6 +2,47 @@ import 'dart:typed_data';
 
 enum DocumentOcrStatus { notProcessed, processing, ready, failed }
 
+class DocumentMetadataSuggestions {
+  const DocumentMetadataSuggestions({
+    this.categoryKey,
+    this.folderKey,
+    this.title,
+    this.documentDate,
+    this.description,
+  });
+
+  final String? categoryKey;
+  final String? folderKey;
+  final String? title;
+  final DateTime? documentDate;
+  final String? description;
+
+  bool get isEmpty =>
+      categoryKey == null &&
+      folderKey == null &&
+      title == null &&
+      documentDate == null &&
+      description == null;
+
+  factory DocumentMetadataSuggestions.fromJson(Map<String, dynamic> json) {
+    final date = _optionalString(json, 'documentDate');
+    final parsed = date == null ? null : DateTime.tryParse(date);
+    if (date != null &&
+        (parsed == null ||
+            !RegExp(r'^\d{4}-\d{2}-\d{2}$').hasMatch(date) ||
+            parsed.toIso8601String().substring(0, 10) != date)) {
+      throw const FormatException();
+    }
+    return DocumentMetadataSuggestions(
+      categoryKey: _optionalString(json, 'categoryKey'),
+      folderKey: _optionalString(json, 'folderKey'),
+      title: _optionalString(json, 'title'),
+      documentDate: parsed,
+      description: _optionalString(json, 'description'),
+    );
+  }
+}
+
 class DocumentOcrResult {
   const DocumentOcrResult({
     required this.status,
@@ -10,6 +51,7 @@ class DocumentOcrResult {
     this.engine,
     this.processedAt,
     this.updatedAt,
+    this.metadataSuggestions,
   });
 
   final DocumentOcrStatus status;
@@ -18,6 +60,7 @@ class DocumentOcrResult {
   final String? engine;
   final DateTime? processedAt;
   final DateTime? updatedAt;
+  final DocumentMetadataSuggestions? metadataSuggestions;
 
   bool get isReady => status == DocumentOcrStatus.ready;
 
@@ -31,6 +74,10 @@ class DocumentOcrResult {
     };
     final processedAt = _optionalDateTime(json, 'processedAt');
     final updatedAt = _optionalDateTime(json, 'updatedAt');
+    final suggestions = json['metadataSuggestions'];
+    if (suggestions != null && suggestions is! Map<String, dynamic>) {
+      throw const FormatException();
+    }
     return DocumentOcrResult(
       status: status,
       rawText: _optionalString(json, 'rawText'),
@@ -38,6 +85,11 @@ class DocumentOcrResult {
       engine: _optionalString(json, 'engine'),
       processedAt: processedAt,
       updatedAt: updatedAt,
+      metadataSuggestions: suggestions == null
+          ? null
+          : DocumentMetadataSuggestions.fromJson(
+              suggestions as Map<String, dynamic>,
+            ),
     );
   }
 }
