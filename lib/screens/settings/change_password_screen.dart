@@ -5,30 +5,34 @@ import 'package:google_fonts/google_fonts.dart';
 import '../../constants/app_colors.dart';
 import '../../widgets/grad_app_bar.dart';
 import '../auth/login_screen.dart';
+import '../auth/forgot_password_screen.dart';
+import '../auth/widgets/auth_form_feedback.dart';
+import '../../services/auth_scope.dart';
+import '../../services/form_validation.dart';
 import 'widgets/password_field.dart';
 
 /// Change Password screen — matches wireframe exactly.
 /// Dark teal card with 3 password fields + Forgot Password link.
-/// DEVELOPMENT MODE — no backend connected yet.
 class ChangePasswordScreen extends StatefulWidget {
   const ChangePasswordScreen({super.key});
 
   @override
-  State<ChangePasswordScreen> createState() =>
-      _ChangePasswordScreenState();
+  State<ChangePasswordScreen> createState() => _ChangePasswordScreenState();
 }
 
 class _ChangePasswordScreenState extends State<ChangePasswordScreen>
-    with SingleTickerProviderStateMixin {
-  final _currentCtrl  = TextEditingController();
-  final _newCtrl      = TextEditingController();
-  final _confirmCtrl  = TextEditingController();
+    with
+        SingleTickerProviderStateMixin,
+        AuthFormFeedback<ChangePasswordScreen> {
+  final _currentCtrl = TextEditingController();
+  final _newCtrl = TextEditingController();
+  final _confirmCtrl = TextEditingController();
 
   bool _isSaving = false;
 
   late final AnimationController _entranceCtrl;
-  late final Animation<double>   _fadeAnim;
-  late final Animation<Offset>   _slideAnim;
+  late final Animation<double> _fadeAnim;
+  late final Animation<Offset> _slideAnim;
 
   @override
   void initState() {
@@ -41,13 +45,10 @@ class _ChangePasswordScreenState extends State<ChangePasswordScreen>
       parent: _entranceCtrl,
       curve: const Interval(0.0, 0.7, curve: Curves.easeOut),
     );
-    _slideAnim = Tween<Offset>(
-      begin: const Offset(0, 0.06),
-      end: Offset.zero,
-    ).animate(CurvedAnimation(
-      parent: _entranceCtrl,
-      curve: Curves.easeOutCubic,
-    ));
+    _slideAnim = Tween<Offset>(begin: const Offset(0, 0.06), end: Offset.zero)
+        .animate(
+          CurvedAnimation(parent: _entranceCtrl, curve: Curves.easeOutCubic),
+        );
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) _entranceCtrl.forward();
     });
@@ -62,11 +63,12 @@ class _ChangePasswordScreenState extends State<ChangePasswordScreen>
     super.dispose();
   }
 
-  // ─── Validation + mock save ───────────────────────────────────────────────
+  // Validate locally; report success only after the server commits the change.
   Future<void> _onSave() async {
-    final current = _currentCtrl.text.trim();
-    final newPw   = _newCtrl.text.trim();
-    final confirm = _confirmCtrl.text.trim();
+    if (_isSaving || isRateLimited) return;
+    final current = _currentCtrl.text;
+    final newPw = _newCtrl.text;
+    final confirm = _confirmCtrl.text;
 
     if (current.isEmpty) {
       _showError('Current Password is required.');
@@ -76,8 +78,9 @@ class _ChangePasswordScreenState extends State<ChangePasswordScreen>
       _showError('New Password is required.');
       return;
     }
-    if (newPw.length < 8) {
-      _showError('New Password must be at least 8 characters.');
+    final passwordError = newPasswordError(newPw);
+    if (passwordError != null) {
+      _showError(passwordError);
       return;
     }
     if (confirm.isEmpty) {
@@ -90,73 +93,64 @@ class _ChangePasswordScreenState extends State<ChangePasswordScreen>
     }
 
     setState(() => _isSaving = true);
-    // DEVELOPMENT MODE — mock delay; replace with real auth service later
-    await Future.delayed(const Duration(milliseconds: 700));
-    if (!mounted) return;
-    setState(() => _isSaving = false);
-
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(
-          'Password updated successfully (Development Mode)',
-          style: GoogleFonts.poppins(fontSize: 13, color: Colors.white),
+    try {
+      await AuthScope.of(
+        context,
+      ).changePassword(currentPassword: current, newPassword: newPw);
+      if (!mounted) return;
+      Navigator.of(context).pushAndRemoveUntil(
+        MaterialPageRoute<void>(
+          builder: (_) => const LoginScreen(
+            initialMessage:
+                'Password updated. Please log in with your new password.',
+          ),
         ),
-        backgroundColor: AppColors.success,
-        behavior: SnackBarBehavior.floating,
-        shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(10)),
-        margin: const EdgeInsets.fromLTRB(16, 0, 16, 16),
-        duration: const Duration(seconds: 3),
-      ),
-    );
-
-    Navigator.pop(context);
+        (_) => false,
+      );
+    } catch (error) {
+      if (mounted) _showError(handleFormError(error));
+    } finally {
+      if (mounted) setState(() => _isSaving = false);
+    }
   }
 
   void _onForgotPassword() {
-    showDialog(
-      context: context,
-      builder: (_) => AlertDialog(
-        backgroundColor: Colors.white,
-        shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(20)),
-        title: Text('Forgot Password',
-            style: GoogleFonts.poppins(
-                fontSize: 17,
-                fontWeight: FontWeight.w600,
-                color: AppColors.textPrimary)),
-        content: Text(
-          'This feature will be implemented with authentication services in a future phase.',
-          style: GoogleFonts.poppins(
-              fontSize: 14,
-              color: AppColors.textSecondary,
-              height: 1.5),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: Text('OK',
-                style: GoogleFonts.poppins(
-                    fontSize: 14,
-                    fontWeight: FontWeight.w600,
-                    color: AppColors.primary)),
-          ),
-        ],
-      ),
+    if (_isSaving) return;
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(builder: (_) => const ForgotPasswordScreen()),
+    );
+  }
+
+  Future<void> _logout() async {
+    if (_isSaving) return;
+    setState(() => _isSaving = true);
+    try {
+      await AuthScope.of(context).logout();
+    } catch (_) {
+      // Local tokens are cleared by AuthService even when revocation is offline.
+    }
+    if (!mounted) return;
+    Navigator.of(context).pushAndRemoveUntil(
+      MaterialPageRoute<void>(builder: (_) => const LoginScreen()),
+      (_) => false,
     );
   }
 
   void _showError(String msg) {
     ScaffoldMessenger.of(context).clearSnackBars();
-    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-      content: Text(msg,
-          style: GoogleFonts.poppins(fontSize: 13, color: Colors.white)),
-      backgroundColor: AppColors.primary,
-      behavior: SnackBarBehavior.floating,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-      margin: const EdgeInsets.fromLTRB(16, 0, 16, 16),
-      duration: const Duration(seconds: 3),
-    ));
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          msg,
+          style: GoogleFonts.poppins(fontSize: 13, color: Colors.white),
+        ),
+        backgroundColor: AppColors.primary,
+        behavior: SnackBarBehavior.floating,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+        margin: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+        duration: const Duration(seconds: 3),
+      ),
+    );
   }
 
   // ─── Build ────────────────────────────────────────────────────────────────
@@ -180,24 +174,26 @@ class _ChangePasswordScreenState extends State<ChangePasswordScreen>
                     children: [
                       // ── Title ──────────────────────────────────
                       RichText(
-                        text: TextSpan(children: [
-                          TextSpan(
-                            text: 'Change ',
-                            style: GoogleFonts.poppins(
-                              fontSize: 22,
-                              fontWeight: FontWeight.w700,
-                              color: AppColors.primary,
+                        text: TextSpan(
+                          children: [
+                            TextSpan(
+                              text: 'Change ',
+                              style: GoogleFonts.poppins(
+                                fontSize: 22,
+                                fontWeight: FontWeight.w700,
+                                color: AppColors.primary,
+                              ),
                             ),
-                          ),
-                          TextSpan(
-                            text: 'Password',
-                            style: GoogleFonts.poppins(
-                              fontSize: 22,
-                              fontWeight: FontWeight.w400,
-                              color: AppColors.neutral,
+                            TextSpan(
+                              text: 'Password',
+                              style: GoogleFonts.poppins(
+                                fontSize: 22,
+                                fontWeight: FontWeight.w400,
+                                color: AppColors.neutral,
+                              ),
                             ),
-                          ),
-                        ]),
+                          ],
+                        ),
                       ),
 
                       const SizedBox(height: 24),
@@ -211,8 +207,7 @@ class _ChangePasswordScreenState extends State<ChangePasswordScreen>
                           borderRadius: BorderRadius.circular(16),
                           boxShadow: [
                             BoxShadow(
-                              color: AppColors.primary
-                                  .withValues(alpha: 0.30),
+                              color: AppColors.primary.withValues(alpha: 0.30),
                               blurRadius: 20,
                               offset: const Offset(0, 8),
                             ),
@@ -278,7 +273,11 @@ class _ChangePasswordScreenState extends State<ChangePasswordScreen>
 
                       // ── Save button ────────────────────────────
                       _SaveButton(
-                          isLoading: _isSaving, onPressed: _onSave),
+                        isLoading: _isSaving,
+                        enabled: !isRateLimited,
+                        onPressed: _onSave,
+                      ),
+                      AuthRetryNotice(seconds: retrySeconds),
                     ],
                   ),
                 ),
@@ -287,21 +286,11 @@ class _ChangePasswordScreenState extends State<ChangePasswordScreen>
           ),
 
           // ── Log out button — pinned above bottom nav ───────────
-          Padding(
-            padding: const EdgeInsets.fromLTRB(20, 8, 20, 16),
-            child: _OutlineLogoutButton(
-              onTap: () => Navigator.pushAndRemoveUntil(
-                context,
-                PageRouteBuilder(
-                  transitionDuration: const Duration(milliseconds: 400),
-                  pageBuilder: (_, __, ___) => const LoginScreen(),
-                  transitionsBuilder: (_, anim, __, child) =>
-                      FadeTransition(opacity: anim, child: child),
-                ),
-                (route) => false,
-              ),
+          if (MediaQuery.viewInsetsOf(context).bottom == 0)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(20, 8, 20, 16),
+              child: _OutlineLogoutButton(onTap: _logout),
             ),
-          ),
         ],
       ),
     );
@@ -310,9 +299,14 @@ class _ChangePasswordScreenState extends State<ChangePasswordScreen>
 
 // ─── Save button ──────────────────────────────────────────────────────────────
 class _SaveButton extends StatefulWidget {
-  const _SaveButton({required this.onPressed, this.isLoading = false});
+  const _SaveButton({
+    required this.onPressed,
+    this.isLoading = false,
+    this.enabled = true,
+  });
   final VoidCallback onPressed;
   final bool isLoading;
+  final bool enabled;
 
   @override
   State<_SaveButton> createState() => _SaveButtonState();
@@ -331,9 +325,10 @@ class _SaveButtonState extends State<_SaveButton>
       duration: const Duration(milliseconds: 80),
       reverseDuration: const Duration(milliseconds: 160),
     );
-    _scale = Tween<double>(begin: 1.0, end: 0.97).animate(
-      CurvedAnimation(parent: _ctrl, curve: Curves.easeIn),
-    );
+    _scale = Tween<double>(
+      begin: 1.0,
+      end: 0.97,
+    ).animate(CurvedAnimation(parent: _ctrl, curve: Curves.easeIn));
   }
 
   @override
@@ -345,10 +340,10 @@ class _SaveButtonState extends State<_SaveButton>
   @override
   Widget build(BuildContext context) {
     return GestureDetector(
-      onTapDown:   (_) => _ctrl.forward(),
-      onTapUp:     (_) => _ctrl.reverse(),
-      onTapCancel: ()  => _ctrl.reverse(),
-      onTap: widget.isLoading ? null : widget.onPressed,
+      onTapDown: (_) => _ctrl.forward(),
+      onTapUp: (_) => _ctrl.reverse(),
+      onTapCancel: () => _ctrl.reverse(),
+      onTap: widget.isLoading || !widget.enabled ? null : widget.onPressed,
       child: AnimatedBuilder(
         animation: _scale,
         builder: (_, child) =>
@@ -374,8 +369,7 @@ class _SaveButtonState extends State<_SaveButton>
                     height: 22,
                     child: CircularProgressIndicator(
                       strokeWidth: 2.5,
-                      valueColor:
-                          AlwaysStoppedAnimation<Color>(Colors.white),
+                      valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
                     ),
                   )
                 : Text(
@@ -413,8 +407,7 @@ class _OutlineLogoutButton extends StatelessWidget {
         child: Row(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            const Icon(Icons.logout_rounded,
-                color: AppColors.danger, size: 18),
+            const Icon(Icons.logout_rounded, color: AppColors.danger, size: 18),
             const SizedBox(width: 8),
             Text(
               'Log out',

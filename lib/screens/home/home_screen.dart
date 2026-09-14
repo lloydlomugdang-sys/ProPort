@@ -1,7 +1,6 @@
 // LOCATION: lib/screens/home/home_screen.dart
 
 import 'package:flutter/material.dart';
-import 'package:google_fonts/google_fonts.dart';
 import '../../constants/app_colors.dart';
 import '../../constants/app_text_styles.dart';
 import '../../services/auth_models.dart';
@@ -15,6 +14,8 @@ import '../../widgets/file_count_row.dart';
 import '../../widgets/stat_card.dart';
 import '../../widgets/primary_button.dart';
 import '../portfolio/portfolio_list_screen.dart';
+import '../portfolio/portfolio_info_screen.dart';
+import '../files/files_screen.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -127,7 +128,7 @@ class _HomeScreenState extends State<HomeScreen>
                   height: 54,
                 ),
                 TextButton(
-                  onPressed: _onGeneratePortfolio,
+                  onPressed: () => _onGeneratePortfolio(showHistory: true),
                   child: const Text('My Portfolios'),
                 ),
               ],
@@ -139,13 +140,19 @@ class _HomeScreenState extends State<HomeScreen>
   }
 
   // ── Navigate to the Generate Portfolio workflow ───────────────────────────
-  void _onGeneratePortfolio() {
+  void _onGeneratePortfolio({bool showHistory = false}) {
     Navigator.push(
       context,
       PageRouteBuilder(
-        settings: const RouteSettings(name: PortfolioListScreen.routeName),
+        settings: RouteSettings(
+          name: showHistory
+              ? PortfolioListScreen.routeName
+              : '/generate-portfolio',
+        ),
         transitionDuration: const Duration(milliseconds: 380),
-        pageBuilder: (_, _, _) => const PortfolioListScreen(),
+        pageBuilder: (_, _, _) => showHistory
+            ? const PortfolioListScreen()
+            : const PortfolioInfoScreen(),
         transitionsBuilder: (_, anim, _, child) => FadeTransition(
           opacity: CurvedAnimation(parent: anim, curve: Curves.easeOut),
           child: SlideTransition(
@@ -232,18 +239,22 @@ class _HomeScreenState extends State<HomeScreen>
                       ),
                       const SizedBox(height: 2),
                       Text(
-                        program!.isEmpty ? 'Program not provided' : program,
+                        program!.isEmpty ? 'Program not set' : program,
                         style: AppTextStyles.bodySmall,
                       ),
                       const SizedBox(height: 1),
                       Text(
-                        yearLevel!.isEmpty
-                            ? 'Year level not provided'
-                            : yearLevel,
+                        yearLevel!.isEmpty ? 'Year level not set' : yearLevel,
                         style: AppTextStyles.labelSmall.copyWith(
                           color: AppColors.primary,
                           fontWeight: FontWeight.w600,
                         ),
+                      ),
+                      Text(
+                        user.school.trim().isEmpty
+                            ? 'School not set'
+                            : user.school.trim(),
+                        style: AppTextStyles.bodySmall,
                       ),
                     ],
                   ),
@@ -291,7 +302,7 @@ class _HomeScreenState extends State<HomeScreen>
               TrackerRow(
                 label: item.label,
                 status: item.status,
-                onTap: () => _showSnack('Opened: ${item.label}'),
+                onTap: () => _openCategory(item.label),
               ),
               if (idx < trackerItems.length - 1)
                 const Divider(height: 1, color: AppColors.divider),
@@ -341,7 +352,7 @@ class _HomeScreenState extends State<HomeScreen>
               FileCountRow(
                 label: item.label,
                 count: item.count,
-                onTap: () => _showSnack('Opened: ${item.label}'),
+                onTap: () => _openCategory(item.label),
               ),
               if (idx < uploadedFiles.length - 1)
                 const Divider(height: 1, color: AppColors.divider),
@@ -352,18 +363,23 @@ class _HomeScreenState extends State<HomeScreen>
     );
   }
 
-  void _showSnack(String msg) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(
-          msg,
-          style: GoogleFonts.poppins(fontSize: 13, color: Colors.white),
+  void _openCategory(String label) {
+    const categories = {
+      'Curriculum Vitae': 'curriculum-vitae',
+      'Scholastic Record': 'scholastic-record',
+      'Certificates': 'certificates',
+      'Accomplishments': 'accomplishments',
+      'Other Achievements': 'other-achievements',
+      'College Report': 'college-report',
+    };
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => FilesScreen(
+          initialCategoryKey: categories[label],
+          initialFolderKey: label == 'Creative Titles'
+              ? 'creative-title'
+              : null,
         ),
-        backgroundColor: AppColors.primary,
-        behavior: SnackBarBehavior.floating,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-        margin: const EdgeInsets.fromLTRB(16, 0, 16, 16),
-        duration: const Duration(seconds: 1),
       ),
     );
   }

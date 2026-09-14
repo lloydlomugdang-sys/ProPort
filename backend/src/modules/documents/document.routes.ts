@@ -259,7 +259,7 @@ export async function registerDocumentRoutes(
     },
     async (request) => {
       const { file } = await parseFileParts(request, new Set());
-      return successResponse({ ocr: await documents.previewOcr(file) }, request.id);
+      return successResponse({ ocr: await documents.previewOcr(file, request.id) }, request.id);
     },
   );
 

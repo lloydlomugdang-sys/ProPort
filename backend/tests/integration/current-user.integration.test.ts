@@ -184,7 +184,7 @@ describe('authenticated current-user API with disposable MongoDB', () => {
       lastName: 'Student',
       program: '',
       yearLevel: '',
-      school: '',
+      school: 'New Era University',
       status: 'active',
     });
     expect(body.meta.requestId).toBe(response.headers['x-request-id']);

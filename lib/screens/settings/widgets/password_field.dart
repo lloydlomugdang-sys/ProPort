@@ -70,11 +70,14 @@ class _PasswordFieldState extends State<PasswordField> {
                 color: const Color(0xFF8FAAB5),
               ),
               contentPadding: const EdgeInsets.symmetric(
-                  horizontal: 14, vertical: 13),
+                horizontal: 14,
+                vertical: 13,
+              ),
               border: InputBorder.none,
               enabledBorder: InputBorder.none,
               focusedBorder: InputBorder.none,
               suffixIcon: IconButton(
+                tooltip: _hidden ? 'Show password' : 'Hide password',
                 icon: Icon(
                   _hidden
                       ? Icons.visibility_off_outlined

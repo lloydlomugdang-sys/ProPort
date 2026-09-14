@@ -3,37 +3,35 @@
 import 'package:flutter/material.dart';
 import '../../constants/app_colors.dart';
 import '../../constants/app_text_styles.dart';
+import '../../services/document_models.dart';
+import '../../services/document_service.dart';
 import '../../widgets/grad_app_bar.dart';
 import '../../widgets/primary_button.dart';
 import 'models/portfolio_models.dart';
 import 'portfolio_list_screen.dart';
+import 'portfolio_export_screen.dart';
+import 'widgets/portfolio_documents_builder.dart';
 
 /// Read-only preview of saved portfolio information.
 /// Styled to resemble the first page of an academic PDF document rather
 /// than a Canva-style editor — this is a static, print-like preview.
 ///
-/// Displays saved title-page information. Document export is not implemented.
+/// Displays the saved title page and current authenticated document details.
 class PortfolioPreviewScreen extends StatelessWidget {
   const PortfolioPreviewScreen({
     super.key,
     required this.portfolioInfo,
-    PortfolioSummary? summary,
-    this.exportFormat = ExportFormat.pdf,
-  }) : summary = summary ?? const PortfolioSummary(sections: []);
+    this.exportFormat,
+  });
 
   final PortfolioInfo portfolioInfo;
-  final PortfolioSummary summary;
 
-  /// Reserved for the legacy export screen; no export or download is performed.
-  final ExportFormat exportFormat;
+  /// Format of the file created immediately before opening this preview.
+  final ExportFormat? exportFormat;
 
   // ─── Actions ────────────────────────────────────────────────────────────
   @override
   Widget build(BuildContext context) {
-    final sections = summary.sections.isNotEmpty
-        ? summary.sections
-        : PortfolioSummary.empty.sections;
-
     return Scaffold(
       backgroundColor: AppColors.background,
       appBar: GradBackAppBar(
@@ -52,7 +50,7 @@ class PortfolioPreviewScreen extends StatelessWidget {
                     constraints: const BoxConstraints(maxWidth: 440),
                     child: _PreviewSheet(
                       portfolioInfo: portfolioInfo,
-                      sections: sections,
+                      exportFormat: exportFormat,
                     ),
                   ),
                 ),
@@ -60,6 +58,18 @@ class PortfolioPreviewScreen extends StatelessWidget {
             ),
 
             // ── Bottom actions ─────────────────────────────────────────
+            if (exportFormat == null)
+              TextButton.icon(
+                icon: const Icon(Icons.file_download_outlined),
+                label: const Text('Export Portfolio'),
+                onPressed: () => Navigator.push<void>(
+                  context,
+                  MaterialPageRoute(
+                    builder: (_) =>
+                        PortfolioExportScreen(portfolioInfo: portfolioInfo),
+                  ),
+                ),
+              ),
             _buildBottomActions(context),
           ],
         ),
@@ -89,7 +99,7 @@ class PortfolioPreviewScreen extends StatelessWidget {
             Expanded(
               flex: 2,
               child: PrimaryButton(
-                label: 'Back to My Portfolios',
+                label: 'My Portfolios',
                 onPressed: () => PortfolioListScreen.returnToList(context),
               ),
             ),
@@ -102,10 +112,10 @@ class PortfolioPreviewScreen extends StatelessWidget {
 
 // ─── A4-like preview sheet ───────────────────────────────────────────────
 class _PreviewSheet extends StatelessWidget {
-  const _PreviewSheet({required this.portfolioInfo, required this.sections});
+  const _PreviewSheet({required this.portfolioInfo, this.exportFormat});
 
   final PortfolioInfo portfolioInfo;
-  final List<PortfolioSection> sections;
+  final ExportFormat? exportFormat;
 
   @override
   Widget build(BuildContext context) {
@@ -137,7 +147,21 @@ class _PreviewSheet extends StatelessWidget {
           const SizedBox(height: 20),
           _buildStudentInfoSection(),
           const SizedBox(height: 24),
-          _buildSectionsIncluded(),
+          PortfolioDocumentsBuilder(
+            builder: (documents) {
+              final summary = PortfolioSummary.fromDocumentSummary(
+                documents.summary,
+              );
+              return Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  _buildSectionsIncluded(summary.sections),
+                  const SizedBox(height: 24),
+                  _buildDocuments(documents, summary),
+                ],
+              );
+            },
+          ),
           const SizedBox(height: 24),
           _buildFooterNote(),
         ],
@@ -208,7 +232,7 @@ class _PreviewSheet extends StatelessWidget {
   }
 
   // ── Sections included table ───────────────────────────────────────────
-  Widget _buildSectionsIncluded() {
+  Widget _buildSectionsIncluded(List<PortfolioSection> sections) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -265,6 +289,100 @@ class _PreviewSheet extends StatelessWidget {
     );
   }
 
+  Widget _buildDocuments(DocumentService service, PortfolioSummary summary) {
+    final documents = service.documents;
+    final groups = <String>{
+      ...summary.sections.map((section) => section.name),
+      ...documents.map(PortfolioSummary.sectionFor),
+    };
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Text(
+          'Document Details',
+          style: AppTextStyles.sectionHeader.copyWith(color: AppColors.primary),
+        ),
+        const SizedBox(height: 12),
+        if (documents.isEmpty)
+          Text(
+            'No stored documents to include yet.',
+            style: AppTextStyles.bodySmall,
+          ),
+        if (documents.length < summary.totalItems)
+          Text(
+            'Showing ${documents.length} of ${summary.totalItems} documents returned by the current list. Section counts include all stored documents.',
+            style: AppTextStyles.bodySmall,
+          ),
+        for (final group in groups)
+          if (documents.any(
+            (document) => PortfolioSummary.sectionFor(document) == group,
+          )) ...[
+            Text(
+              group,
+              style: AppTextStyles.h4.copyWith(color: AppColors.primary),
+            ),
+            const SizedBox(height: 8),
+            for (final document in documents.where(
+              (document) => PortfolioSummary.sectionFor(document) == group,
+            ))
+              _buildDocumentDetails(document, service.categories),
+          ],
+      ],
+    );
+  }
+
+  Widget _buildDocumentDetails(
+    DocumentRecord document,
+    List<DocumentCategory> categories,
+  ) {
+    final category = categories
+        .where((value) => value.key == document.categoryKey)
+        .firstOrNull;
+    final folder = category?.folders
+        .where((value) => value.key == document.folderKey)
+        .firstOrNull;
+    return Container(
+      key: ValueKey('preview-document-${document.id}'),
+      margin: const EdgeInsets.only(bottom: 16),
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        border: Border.all(color: AppColors.cardBorder),
+        borderRadius: BorderRadius.circular(10),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            document.title,
+            style: AppTextStyles.bodyMedium.copyWith(
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+          const SizedBox(height: 6),
+          Text(
+            '${category?.name ?? document.categoryKey} / ${folder?.name ?? document.folderKey}',
+            style: AppTextStyles.labelSmall,
+          ),
+          Text(
+            document.documentDate.toIso8601String().substring(0, 10),
+            style: AppTextStyles.labelMedium,
+          ),
+          Text(document.originalFileName, style: AppTextStyles.labelSmall),
+          if (document.description?.trim().isNotEmpty ?? false) ...[
+            const SizedBox(height: 8),
+            Text('Description', style: AppTextStyles.labelMedium),
+            Text(document.description!, style: AppTextStyles.bodySmall),
+          ],
+          if (document.reflection?.trim().isNotEmpty ?? false) ...[
+            const SizedBox(height: 8),
+            Text('Reflection', style: AppTextStyles.labelMedium),
+            Text(document.reflection!, style: AppTextStyles.bodySmall),
+          ],
+        ],
+      ),
+    );
+  }
+
   // ── Footer note ───────────────────────────────────────────────────────
   Widget _buildFooterNote() {
     return Column(
@@ -272,10 +390,15 @@ class _PreviewSheet extends StatelessWidget {
         _buildDivider(),
         const SizedBox(height: 14),
         Text(
-          'Saved portfolio information. PDF/DOCX export is not available yet.',
+          'Title page saved in My Portfolios. This preview uses your current document details; original uploaded file pages are not shown.',
           textAlign: TextAlign.center,
           style: AppTextStyles.labelSmall.copyWith(fontStyle: FontStyle.italic),
         ),
+        if (exportFormat != null)
+          Text(
+            'Generated format: ${exportFormat!.label}',
+            style: AppTextStyles.labelSmall,
+          ),
       ],
     );
   }

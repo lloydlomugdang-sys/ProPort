@@ -11,7 +11,13 @@ import '../../widgets/search_bar_field.dart';
 import 'view_files_screen.dart';
 
 class FilesScreen extends StatefulWidget {
-  const FilesScreen({super.key});
+  const FilesScreen({
+    super.key,
+    this.initialCategoryKey,
+    this.initialFolderKey,
+  });
+  final String? initialCategoryKey;
+  final String? initialFolderKey;
 
   @override
   State<FilesScreen> createState() => _FilesScreenState();
@@ -84,6 +90,21 @@ class _FilesScreenState extends State<FilesScreen> {
   @override
   Widget build(BuildContext context) {
     final service = DocumentScope.of(context);
+    final categoryKey = widget.initialCategoryKey;
+    if (categoryKey != null || widget.initialFolderKey != null) {
+      final matches = service.categories.where(
+        (item) => item.key == categoryKey,
+      );
+      return ViewFilesScreen(
+        categoryKey: categoryKey,
+        folderKey: widget.initialFolderKey,
+        categoryName: categoryKey == null
+            ? 'Creative Titles'
+            : matches.isEmpty
+            ? 'Files'
+            : matches.first.name,
+      );
+    }
     final categories = _filtered(service.categories);
 
     return Scaffold(

@@ -24,9 +24,8 @@ class GradAppBar extends StatelessWidget implements PreferredSizeWidget {
   final double elevation;
 
   @override
-  Size get preferredSize => Size.fromHeight(
-        kToolbarHeight + (bottom?.preferredSize.height ?? 0),
-      );
+  Size get preferredSize =>
+      Size.fromHeight(kToolbarHeight + (bottom?.preferredSize.height ?? 0));
 
   @override
   Widget build(BuildContext context) {
@@ -38,6 +37,7 @@ class GradAppBar extends StatelessWidget implements PreferredSizeWidget {
       systemOverlayStyle: SystemUiOverlayStyle.light,
       title: Text(title, style: AppTextStyles.appBarTitle),
       leading: leading,
+      automaticallyImplyLeading: false,
       actions: actions,
       bottom: bottom,
     );
@@ -69,6 +69,7 @@ class GradBackAppBar extends StatelessWidget implements PreferredSizeWidget {
       systemOverlayStyle: SystemUiOverlayStyle.light,
       title: Text(title, style: AppTextStyles.appBarTitle),
       leading: IconButton(
+        tooltip: MaterialLocalizations.of(context).backButtonTooltip,
         icon: const Icon(Icons.arrow_back_ios_new, size: 20),
         color: AppColors.headerText,
         onPressed: onBack ?? () => Navigator.of(context).pop(),

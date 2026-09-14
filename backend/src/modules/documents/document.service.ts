@@ -427,7 +427,7 @@ export class DocumentService {
   }
 
   // Pre-upload OCR is transient: no document, object, or guessed metadata is persisted.
-  async previewOcr(input: DocumentFileInput): Promise<PublicDocumentOcr> {
+  async previewOcr(input: DocumentFileInput, requestId?: string): Promise<PublicDocumentOcr> {
     if (input.contents.length === 0) throw validationError('file', 'must not be empty');
     if (input.contents.length > MAX_DOCUMENT_FILE_SIZE_BYTES) {
       throw new AppError(413, 'FILE_TOO_LARGE', 'The file exceeds the 15 MB upload limit.');
@@ -440,7 +440,7 @@ export class DocumentService {
         rawText: extracted.rawText,
         reviewedText: extracted.rawText,
         engine: extracted.engine,
-      }, true);
+      }, true, requestId);
     } catch (error) {
       if (error instanceof AppError) throw error;
       throw mappedOcrError(error);
@@ -565,7 +565,7 @@ export class DocumentService {
     return extracted;
   }
 
-  private async withSuggestions(ocr: PublicDocumentOcr, analyze = false): Promise<PublicDocumentOcr> {
+  private async withSuggestions(ocr: PublicDocumentOcr, analyze = false, requestId?: string): Promise<PublicDocumentOcr> {
     if (ocr.status !== 'ready') return ocr;
     let categories: readonly PublicDocumentCategory[] = [];
     try {
@@ -575,7 +575,7 @@ export class DocumentService {
       // remain useful; no category or folder will be invented as a fallback.
     }
     // Paid AI analysis is only invoked by the authenticated, rate-limited preview.
-    if (analyze) return { ...ocr, ...await this.metadata.recommend(ocr, categories) };
+    if (analyze) return { ...ocr, ...await this.metadata.recommend(ocr, categories, requestId) };
     return { ...ocr, metadataSuggestions: suggestDocumentMetadata(ocr, categories) };
   }
 

@@ -1,4 +1,5 @@
 import { userResponseSchema } from '../auth/auth.schemas.js';
+import { profileOptionsSchema } from './profile-options.js';
 
 export const currentUserPatchBodySchema = {
   type: 'object',
@@ -19,4 +20,14 @@ export const currentUserQuerySchema = {
   additionalProperties: false,
 } as const;
 
-export const currentUserResponseSchema = userResponseSchema;
+export const currentUserResponseSchema = {
+  ...userResponseSchema,
+  properties: {
+    ...userResponseSchema.properties,
+    data: {
+      ...userResponseSchema.properties.data,
+      required: ['user', 'profileOptions'],
+      properties: { ...userResponseSchema.properties.data.properties, profileOptions: profileOptionsSchema },
+    },
+  },
+} as const;

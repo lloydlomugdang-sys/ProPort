@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../constants/app_colors.dart';
 import '../../constants/app_text_styles.dart';
-import '../../services/api_client.dart';
+import '../auth/widgets/auth_form_feedback.dart';
 import '../../services/auth_scope.dart';
 import '../../widgets/grad_app_bar.dart';
 import 'edit_profile_screen.dart';
@@ -74,13 +74,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
   }
 
   String _safeErrorMessage(Object error) {
-    if (error is ApiException) {
-      if (error.statusCode == 401 || error.code == 'UNAUTHORIZED') {
-        return 'Your session has expired. Please log in again.';
-      }
-      return error.message;
-    }
-    return 'Unable to load your profile. Please try again.';
+    return authFormError(error);
   }
 
   @override

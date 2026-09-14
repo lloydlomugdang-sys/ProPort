@@ -3,7 +3,9 @@ import 'package:google_fonts/google_fonts.dart';
 
 import '../../constants/app_colors.dart';
 import '../../constants/app_text_styles.dart';
-import '../../services/api_client.dart';
+import '../../services/form_validation.dart';
+import '../../services/profile_options.dart';
+import '../auth/widgets/auth_form_feedback.dart';
 import '../../services/auth_scope.dart';
 import '../../widgets/grad_app_bar.dart';
 import 'models/user_profile_model.dart';
@@ -20,7 +22,7 @@ class EditProfileScreen extends StatefulWidget {
 }
 
 class _EditProfileScreenState extends State<EditProfileScreen>
-    with SingleTickerProviderStateMixin {
+    with SingleTickerProviderStateMixin, AuthFormFeedback<EditProfileScreen> {
   late String _firstName;
   late String _lastName;
   late String _program;
@@ -29,6 +31,35 @@ class _EditProfileScreenState extends State<EditProfileScreen>
 
   bool _hasChanges = false;
   bool _isSaving = false;
+  bool _optionsRequested = false;
+  ProfileOptions? _options;
+  String? _optionsError;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (!_optionsRequested) {
+      _optionsRequested = true;
+      _loadOptions();
+    }
+  }
+
+  Future<void> _loadOptions() async {
+    try {
+      final options = await AuthScope.of(context).fetchProfileOptions();
+      if (!mounted) return;
+      setState(() {
+        _options = options;
+        _optionsError = null;
+        if (_school.trim().isEmpty) {
+          _school = options.school;
+          _hasChanges = true;
+        }
+      });
+    } catch (error) {
+      if (mounted) setState(() => _optionsError = authFormError(error));
+    }
+  }
 
   late final AnimationController _entranceCtrl;
   late final Animation<double> _fadeAnim;
@@ -40,9 +71,9 @@ class _EditProfileScreenState extends State<EditProfileScreen>
     super.initState();
     _firstName = widget.profile.firstName;
     _lastName = widget.profile.lastName;
-    _program = widget.profile.program;
-    _yearLevel = widget.profile.yearLevel;
-    _school = widget.profile.school;
+    _program = widget.profile.program.trim();
+    _yearLevel = widget.profile.yearLevel.trim();
+    _school = widget.profile.school.trim();
 
     _entranceCtrl = AnimationController(
       vsync: this,
@@ -64,6 +95,7 @@ class _EditProfileScreenState extends State<EditProfileScreen>
   }
 
   Future<void> _editName() async {
+    if (_isSaving) return;
     final firstNameController = TextEditingController(text: _firstName);
     final lastNameController = TextEditingController(text: _lastName);
     String? validationMessage;
@@ -72,6 +104,7 @@ class _EditProfileScreenState extends State<EditProfileScreen>
       context: context,
       builder: (_) => StatefulBuilder(
         builder: (context, setDialogState) => AlertDialog(
+          scrollable: true,
           backgroundColor: Colors.white,
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(20),
@@ -114,10 +147,11 @@ class _EditProfileScreenState extends State<EditProfileScreen>
               onPressed: () {
                 final firstName = firstNameController.text.trim();
                 final lastName = lastNameController.text.trim();
-                if (!_validName(firstName) || !_validName(lastName)) {
+                final error =
+                    personalNameError(firstName) ?? personalNameError(lastName);
+                if (error != null) {
                   setDialogState(() {
-                    validationMessage =
-                        'First and last name must each contain 2-100 characters.';
+                    validationMessage = error;
                   });
                   return;
                 }
@@ -139,7 +173,9 @@ class _EditProfileScreenState extends State<EditProfileScreen>
       firstNameController.dispose();
       lastNameController.dispose();
     });
-    if (result == null || (result.$1 == _firstName && result.$2 == _lastName)) {
+    if (!mounted ||
+        result == null ||
+        (result.$1 == _firstName && result.$2 == _lastName)) {
       return;
     }
     setState(() {
@@ -149,53 +185,45 @@ class _EditProfileScreenState extends State<EditProfileScreen>
     });
   }
 
-  Future<void> _editField({
-    required String title,
-    required String currentValue,
-    required int maxLength,
-    required ValueChanged<String> onSaved,
-  }) async {
-    final controller = TextEditingController(text: currentValue);
-    final result = await showDialog<String>(
-      context: context,
-      builder: (_) => AlertDialog(
-        backgroundColor: Colors.white,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-        title: Text(title, style: AppTextStyles.h3),
-        content: _dialogTextField(
-          controller: controller,
-          label: title,
-          maxLength: maxLength,
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: Text(
-              'Cancel',
-              style: AppTextStyles.labelLarge.copyWith(
-                color: AppColors.textSecondary,
+  Widget _selection({
+    required String label,
+    required String value,
+    required List<String> options,
+    required ValueChanged<String> onChanged,
+  }) {
+    // Preserve an existing legacy value, but do not offer it as a new choice.
+    final values = <String>{'', ...options, if (value.isNotEmpty) value};
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+      child: DropdownButtonFormField<String>(
+        key: ValueKey(label),
+        initialValue: value,
+        isExpanded: true,
+        decoration: InputDecoration(labelText: label),
+        items: values
+            .map(
+              (item) => DropdownMenuItem(
+                value: item,
+                enabled: item.isEmpty || options.contains(item),
+                child: Text(
+                  item.isEmpty ? '$label not set' : item,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                ),
               ),
-            ),
-          ),
-          TextButton(
-            onPressed: () => Navigator.pop(context, controller.text.trim()),
-            child: Text(
-              'Save',
-              style: AppTextStyles.labelLarge.copyWith(
-                color: AppColors.primary,
-              ),
-            ),
-          ),
-        ],
+            )
+            .toList(),
+        onChanged: _isSaving || _options == null
+            ? null
+            : (selected) {
+                if (selected == null) return;
+                setState(() {
+                  onChanged(selected);
+                  _hasChanges = true;
+                });
+              },
       ),
     );
-
-    Future<void>.delayed(const Duration(milliseconds: 300), controller.dispose);
-    if (result == null || result == currentValue) return;
-    setState(() {
-      onSaved(result);
-      _hasChanges = true;
-    });
   }
 
   Widget _dialogTextField({
@@ -233,20 +261,17 @@ class _EditProfileScreenState extends State<EditProfileScreen>
     );
   }
 
-  bool _validName(String value) => value.length >= 2 && value.length <= 100;
-
   Future<void> _onSave() async {
-    if (_isSaving) return;
+    if (_isSaving || isRateLimited || _options == null) return;
     if (!_hasChanges) {
       Navigator.pop(context);
       return;
     }
 
-    if (!_validName(_firstName) || !_validName(_lastName)) {
-      _showSnackBar(
-        'First and last name must each contain 2-100 characters.',
-        isError: true,
-      );
+    final nameError =
+        personalNameError(_firstName) ?? personalNameError(_lastName);
+    if (nameError != null) {
+      _showSnackBar(nameError, isError: true);
       return;
     }
 
@@ -269,25 +294,8 @@ class _EditProfileScreenState extends State<EditProfileScreen>
     } catch (error) {
       if (!mounted) return;
       setState(() => _isSaving = false);
-      _showSnackBar(_safeErrorMessage(error), isError: true);
+      _showSnackBar(handleFormError(error), isError: true);
     }
-  }
-
-  String _safeErrorMessage(Object error) {
-    if (error is ApiException) {
-      final fieldValue = error.fields.values.isEmpty
-          ? null
-          : error.fields.values.first;
-      if (fieldValue is List && fieldValue.isNotEmpty) {
-        return fieldValue.first.toString();
-      }
-      if (fieldValue is String && fieldValue.isNotEmpty) return fieldValue;
-      if (error.statusCode == 401 || error.code == 'UNAUTHORIZED') {
-        return 'Your session has expired. Please log in again.';
-      }
-      return error.message;
-    }
-    return 'Unable to update your profile. Please try again.';
   }
 
   void _showSnackBar(String message, {bool isError = false}) {
@@ -310,7 +318,7 @@ class _EditProfileScreenState extends State<EditProfileScreen>
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: AppColors.background,
-      appBar: GradAppBar(
+      appBar: GradBackAppBar(
         title: 'Profile',
         actions: [
           _isSaving
@@ -373,46 +381,41 @@ class _EditProfileScreenState extends State<EditProfileScreen>
                       icon: Icons.email_outlined,
                       value: widget.profile.email,
                     ),
-                    EditableInfoRow(
-                      icon: Icons.school_outlined,
+                    _selection(
+                      label: 'Program',
+                      options: _options?.programs ?? [],
                       value: _program,
-                      onEdit: () => _editField(
-                        title: 'Program',
-                        currentValue: _program,
-                        maxLength: 200,
-                        onSaved: (value) => _program = value,
-                      ),
+                      onChanged: (value) => _program = value,
                     ),
-                    EditableInfoRow(
-                      icon: Icons.calendar_today_outlined,
+                    _selection(
+                      label: 'Year Level',
+                      options: _options?.yearLevels ?? [],
                       value: _yearLevel,
-                      onEdit: () => _editField(
-                        title: 'Year Level',
-                        currentValue: _yearLevel,
-                        maxLength: 50,
-                        onSaved: (value) => _yearLevel = value,
-                      ),
+                      onChanged: (value) => _yearLevel = value,
                     ),
-                    EditableInfoRow(
+                    ProfileInfoRow(
                       icon: Icons.account_balance_outlined,
                       value: _school,
                       isLast: true,
-                      onEdit: () => _editField(
-                        title: 'School',
-                        currentValue: _school,
-                        maxLength: 200,
-                        onSaved: (value) => _school = value,
-                      ),
                     ),
                   ],
                 ),
               ),
               const SizedBox(height: 28),
+              if (_options == null && _optionsError == null)
+                const CircularProgressIndicator(),
+              if (_optionsError != null) ...[
+                Text(_optionsError!),
+                TextButton(onPressed: _loadOptions, child: const Text('Retry')),
+              ],
+              AuthRetryNotice(seconds: retrySeconds),
               SizedBox(
                 width: double.infinity,
                 height: 52,
                 child: ElevatedButton(
-                  onPressed: _isSaving ? null : _onSave,
+                  onPressed: _isSaving || isRateLimited || _options == null
+                      ? null
+                      : _onSave,
                   style: ElevatedButton.styleFrom(
                     backgroundColor: AppColors.primary,
                     foregroundColor: Colors.white,

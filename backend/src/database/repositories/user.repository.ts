@@ -1,4 +1,4 @@
-import type { Model, Types } from 'mongoose';
+import type { ClientSession, Model, Types } from 'mongoose';
 import type { User } from '../models/index.js';
 import {
   asPersistedRecord,
@@ -54,12 +54,27 @@ export class UserRepository {
     return found === null ? null : asPersistedRecord<User>(found);
   }
 
-  async markEmailVerified(id: Types.ObjectId, verifiedAt: Date): Promise<SafeUserRecord | null> {
+  async findByIdWithPassword(id: Types.ObjectId): Promise<CredentialUserRecord | null> {
+    const found = await this.model.findById(id).select('+passwordHash').lean().exec();
+    return found === null ? null : asPersistedRecord<User>(found);
+  }
+
+  /** Compare-and-set prevents an older password-change request overwriting a reset. */
+  async replacePasswordHash(id: Types.ObjectId, expectedHash: string, passwordHash: string, session: ClientSession): Promise<boolean> {
+    const result = await this.model.updateOne(
+      { _id: id, status: 'active', passwordHash: expectedHash },
+      { $set: { passwordHash } },
+      { session, runValidators: true, strict: 'throw' },
+    ).exec();
+    return result.modifiedCount === 1;
+  }
+
+  async markEmailVerified(id: Types.ObjectId, verifiedAt: Date, session?: ClientSession): Promise<SafeUserRecord | null> {
     const updated = await this.model
       .findOneAndUpdate(
         { _id: id, status: 'pendingVerification' },
         { $set: { status: 'active', emailVerifiedAt: verifiedAt } },
-        { returnDocument: 'after', runValidators: true, strict: 'throw' },
+        { returnDocument: 'after', runValidators: true, strict: 'throw', session: session ?? null },
       )
       .select('-passwordHash')
       .lean()

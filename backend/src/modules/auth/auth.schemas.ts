@@ -128,6 +128,14 @@ export const refreshTokenBodySchema = {
   properties: { refreshToken: opaqueTokenSchema },
 } as const;
 
+export const changePasswordBodySchema = {
+  type: 'object', required: ['currentPassword', 'newPassword'], additionalProperties: false,
+  properties: {
+    currentPassword: { type: 'string', minLength: 1, maxLength: 128 },
+    newPassword: strongPasswordSchema,
+  },
+} as const;
+
 export const registerResponseSchema = {
   type: 'object',
   required: ['data', 'meta'],

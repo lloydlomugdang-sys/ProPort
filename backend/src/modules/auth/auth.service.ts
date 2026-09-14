@@ -1,7 +1,9 @@
 import { randomUUID } from 'node:crypto';
 import type { FastifyBaseLogger } from 'fastify';
-import type { Types } from 'mongoose';
+import type { ClientSession, Types } from 'mongoose';
 import { AppError } from '../../common/errors/app-error.js';
+import { normalizePersonalName } from '../../common/validation/personal-name.js';
+import { PROFILE_OPTIONS } from '../users/profile-options.js';
 import type { AppConfig } from '../../config/env.types.js';
 import type { OneTimeCodeType, User } from '../../database/models/index.js';
 import {
@@ -128,7 +130,7 @@ function isDuplicateKeyError(error: unknown): boolean {
   );
 }
 
-function assertStrongPassword(password: string): void {
+function assertStrongPassword(password: string, field = 'password'): void {
   const valid =
     password.length >= 8 &&
     password.length <= 128 &&
@@ -137,21 +139,11 @@ function assertStrongPassword(password: string): void {
     /[0-9]/.test(password);
   if (!valid) {
     throw new AppError(400, 'VALIDATION_ERROR', 'The request is invalid.', {
-      password: [
+      [field]: [
         'must be 8-128 characters and include an uppercase letter, lowercase letter, and number',
       ],
     });
   }
-}
-
-function assertName(name: string, field: 'firstName' | 'lastName'): string {
-  const normalized = name.trim();
-  if (normalized.length < 2 || normalized.length > 100) {
-    throw new AppError(400, 'VALIDATION_ERROR', 'The request is invalid.', {
-      [field]: ['must contain 2-100 non-whitespace characters'],
-    });
-  }
-  return normalized;
 }
 
 function rateLimited(retryAfterSeconds: number): AppError {
@@ -210,6 +202,8 @@ export class AuthService {
     readonly verification: VerificationDelivery;
   }> {
     assertStrongPassword(input.password);
+    const firstName = normalizePersonalName(input.firstName, 'firstName');
+    const lastName = normalizePersonalName(input.lastName, 'lastName');
     const now = new Date();
     const email = normalizeEmail(input.email);
     const passwordHash = await hashPassword(input.password);
@@ -220,15 +214,21 @@ export class AuthService {
       user = await repositories.users.create({
         email,
         passwordHash,
-        firstName: assertName(input.firstName, 'firstName'),
-        lastName: assertName(input.lastName, 'lastName'),
+        firstName,
+        lastName,
         program: '',
         yearLevel: '',
-        school: '',
+        school: PROFILE_OPTIONS.school,
         status: 'pendingVerification',
       });
     } catch (error) {
       if (isDuplicateKeyError(error)) {
+        const existing = await repositories.users.findByEmailWithPassword(email);
+        if (existing?.status === 'pendingVerification' && await verifyPassword(existing.passwordHash, input.password)) {
+          // Resume only with valid existing credentials. Never overwrite the
+          // account or send another code as a side effect of registration.
+          throw new AppError(403, 'EMAIL_NOT_VERIFIED', 'Your email still needs verification.');
+        }
         throw new AppError(
           409,
           'EMAIL_ALREADY_REGISTERED',
@@ -256,26 +256,32 @@ export class AuthService {
     };
   }
 
-  async verifyEmail(email: string, code: string): Promise<AuthUser> {
+  async verifyEmail(email: string, code: string): Promise<AuthSessionResult> {
     const now = new Date();
-    const { repositories } = this.persistence();
+    const { repositories, connection } = this.persistence();
     const user = await repositories.users.findByEmail(normalizeEmail(email));
     if (user === null || user.status !== 'pendingVerification') {
       throw INVALID_CODE;
     }
 
-    await this.consumeNumericCode(
-      repositories,
-      user._id,
-      'emailVerification',
-      code,
-      now,
-    );
-    const verified = await repositories.users.markEmailVerified(user._id, now);
-    if (verified === null) {
-      throw INVALID_CODE;
+    // Bad attempts persist independently; valid consumption, activation and
+    // ordinary session creation commit together, so transient failures can retry.
+    const stored = await this.checkNumericCode(repositories, user._id, 'emailVerification', code, now);
+    const databaseSession = await connection.startSession();
+    try {
+      const result = await databaseSession.withTransaction(async () => {
+        if (!await repositories.oneTimeCodes.consume(user._id, stored._id, new Date(), this.config.authCodeMaxAttempts, databaseSession)) {
+          throw INVALID_CODE;
+        }
+        const verified = await repositories.users.markEmailVerified(user._id, now, databaseSession);
+        if (verified === null) throw INVALID_CODE;
+        return this.createSession(repositories, verified, now, databaseSession);
+      });
+      if (result === undefined) throw INVALID_CODE;
+      return result;
+    } finally {
+      await databaseSession.endSession();
     }
-    return authUser(verified);
   }
 
   async resendEmailVerification(email: string): Promise<void> {
@@ -377,7 +383,7 @@ export class AuthService {
   }
 
   async completePasswordReset(resetToken: string, newPassword: string): Promise<void> {
-    assertStrongPassword(newPassword);
+    assertStrongPassword(newPassword, 'newPassword');
     const now = new Date();
     const passwordHash = await hashPassword(newPassword);
     const { connection } = this.persistence();
@@ -415,6 +421,38 @@ export class AuthService {
           { userId: grant.userId, revokedAt: { $exists: false } },
           { $set: { revokedAt: now, revokeReason: 'passwordReset' } },
           { session: databaseSession },
+        ).exec();
+      });
+    } finally {
+      await databaseSession.endSession();
+    }
+  }
+
+  async changePassword(userId: Types.ObjectId, sessionId: Types.ObjectId, currentPassword: string, newPassword: string): Promise<void> {
+    assertStrongPassword(newPassword, 'newPassword');
+    const invalidCurrent = new AppError(400, 'INVALID_CURRENT_PASSWORD', 'Current password is incorrect.');
+    const { repositories, connection } = this.persistence();
+    const user = await repositories.users.findByIdWithPassword(userId);
+    if (user === null || user.status !== 'active' || !await verifyPassword(user.passwordHash, currentPassword)) {
+      throw invalidCurrent;
+    }
+    const passwordHash = await hashPassword(newPassword);
+    const models = registerModels(connection);
+    const databaseSession = await connection.startSession();
+    try {
+      await databaseSession.withTransaction(async () => {
+        const now = new Date();
+        const session = await models.Session.exists({
+          _id: sessionId, userId, revokedAt: { $exists: false }, expiresAt: { $gt: now },
+        }).session(databaseSession);
+        if (session === null) throw new AppError(401, 'UNAUTHORIZED', 'Authentication is required.');
+        if (!await repositories.users.replacePasswordHash(userId, user.passwordHash, passwordHash, databaseSession)) {
+          throw invalidCurrent;
+        }
+        await repositories.sessions.revokeAllForUser(userId, now, 'passwordChange', databaseSession);
+        await models.OneTimeCode.updateMany(
+          { userId, type: { $in: ['passwordReset', 'passwordResetGrant'] }, consumedAt: { $exists: false } },
+          { $set: { consumedAt: now } }, { session: databaseSession },
         ).exec();
       });
     } finally {
@@ -495,8 +533,9 @@ export class AuthService {
 
   private async createSession(
     repositories: GradPortRepositories,
-    user: PersistedRecord<User>,
+    user: SafeUserRecord | PersistedRecord<User>,
     now: Date,
+    databaseSession?: ClientSession,
   ): Promise<AuthSessionResult> {
     const refreshToken = generateOpaqueToken();
     const refreshTokenExpiresAt = addSeconds(now, this.config.authRefreshTokenTtlSeconds);
@@ -505,7 +544,7 @@ export class AuthService {
       familyId: randomUUID(),
       refreshTokenHash: hashOpaqueToken(refreshToken),
       expiresAt: refreshTokenExpiresAt,
-    });
+    }, databaseSession);
     return {
       user: authUser(user),
       tokens: this.tokenBundle(user._id, session._id, refreshToken, refreshTokenExpiresAt, now),
@@ -584,13 +623,13 @@ export class AuthService {
     return { codeExpiresAt, resendAvailableAt };
   }
 
-  private async consumeNumericCode(
+  private async checkNumericCode(
     repositories: GradPortRepositories,
     userId: Types.ObjectId,
     type: 'emailVerification' | 'passwordReset',
     code: string,
     now: Date,
-  ): Promise<void> {
+  ) {
     const stored = await repositories.oneTimeCodes.findLatestActiveWithHash(
       userId,
       type,
@@ -616,6 +655,17 @@ export class AuthService {
       );
       throw INVALID_CODE;
     }
+    return stored;
+  }
+
+  private async consumeNumericCode(
+    repositories: GradPortRepositories,
+    userId: Types.ObjectId,
+    type: 'emailVerification' | 'passwordReset',
+    code: string,
+    now: Date,
+  ): Promise<void> {
+    const stored = await this.checkNumericCode(repositories, userId, type, code, now);
     const consumed = await repositories.oneTimeCodes.consume(
       userId,
       stored._id,

@@ -36,6 +36,7 @@ POST /api/v1/auth/login
 POST /api/v1/auth/password-reset/request
 POST /api/v1/auth/password-reset/verify
 POST /api/v1/auth/password-reset/complete
+POST /api/v1/auth/password/change
 POST /api/v1/auth/refresh
 POST /api/v1/auth/logout
 ```
@@ -48,6 +49,12 @@ PATCH /api/v1/users/me
 ```
 
 Both routes require a valid access token backed by its active server-side session. The PATCH route accepts only `firstName`, `lastName`, `program`, `yearLevel`, and `school`; email changes and client-selected user IDs are not accepted.
+
+Email verification now returns the normal `{ user, tokens }` session payload: the code consumption, account activation, and session creation commit together. Flutter securely persists only the refresh token and opens Dashboard without an extra login. A pending duplicate registration with matching credentials returns `EMAIL_NOT_VERIFIED` without issuing tokens or automatically resending a code.
+
+Authenticated `POST /api/v1/auth/password/change` accepts only `currentPassword` and `newPassword`. It verifies the current password, atomically replaces its Argon2id hash, revokes all sessions and outstanding reset codes/grants, then returns `{ status: "passwordChanged" }`. Flutter clears its session and asks the user to sign in with the new password. Password whitespace is never trimmed. This endpoint has a separate five-per-15-minute account limit; existing login limits remain unchanged.
+
+Current-user responses also include `data.profileOptions`, sourced from `src/modules/users/profile-options.ts` and shared by server validation and Flutter dropdowns. The evidenced programs are Bachelor of Science in Information Technology and Bachelor of Science in Computer Science; years are 1st through 4th Year. New registrations default to New Era University. School is read-only in the app, and unchanged legacy values are preserved on unrelated edits. Names accept Unicode letters/marks, spaces, hyphens and apostrophes, reject numbers, and retain the existing 2–100-character bounds. Dashboard placeholders are display-only, and category taps filter the existing authenticated Files list.
 
 Authenticated document access is exposed under `/api/v1/documents`:
 
@@ -123,7 +130,29 @@ Implementation boundaries:
 - Successful preview responses additionally include `metadataAnalysis: {source: "gemini" | "rules" | "none", aiStatus: "success" | "unavailable" | "disabled" | "not_needed"}`. Internal evidence/provider output is not returned or persisted. Flutter labels only genuine validated Gemini results **AI suggested from document**. When AI fails, basic results are labeled as fallback, not AI.
 - Timeout, HTTP errors (including quota errors), blocked/truncated or malformed output, and unusable suggestions fall back to the existing deterministic parser. If neither can help, OCR still returns and manual entry remains possible. Gemini does not affect `/health` or `/ready` and is not called by ordinary document GET, saved OCR GET/review, or app rebuilds.
 - Existing authenticated per-user preview/extraction limit is shared (default 5/minute). Each file selection makes one analysis request. Flutter reserves 120 seconds for upload/cold start + up to 45-second OCR + up to 30-second AI; normal API timeouts are unchanged. This does not guarantee completion on an overloaded/free host. Stale results/errors cannot overwrite newer successful analysis, and network timeouts are distinguished from OCR failures.
-- No provider exceptions, OCR text or keys are logged by the AI layer. Existing logger redaction also covers Gemini key fields/headers. Recommendations are not persisted until the user saves; previews do not persist OCR text either.
+- The AI layer logs only locally generated diagnostic codes, request ID, provider/model, HTTP status when known, and latency. It never logs raw provider errors/messages, OCR text, rejected metadata, keys or tokens. Logger redaction additionally covers Gemini key fields/headers and OCR/request/candidate payload fields. Recommendations are not persisted until the user saves; previews do not persist OCR text either.
+
+#### Gemini request and safe fallback diagnostics
+
+The provider uses `POST https://generativelanguage.googleapis.com/v1beta/models/<configured-model>:generateContent`, JSON `contents` and `systemInstruction`, and `generationConfig.responseMimeType="application/json"` with `responseJsonSchema`. It does not mix in the separate OpenAPI `responseSchema` format. Nullable strings, required fields, `additionalProperties:false`, and the three-quote bound remain enforced by backend validation as well as the requested schema. See the [generateContent configuration reference](https://ai.google.dev/api/generate-content#v1beta.GenerationConfig).
+
+`candidateCount` is omitted (one candidate is the default): [Gemini 3.5 migration guidance](https://ai.google.dev/gemini-api/docs/whats-new-gemini-3.5#migrate-from-gemini-25) flags this option as unsupported for Gemini 3.x. Gemini 3 model IDs use `thinkingConfig.thinkingLevel="LOW"` for this bounded extractive task, rather than spending the 20-second deadline on the model's default thinking effort. Older model IDs do not receive this Gemini 3 option. The 4,096-token output cap, configured timeout, prompts and grounding policy remain unchanged. This removes a request compatibility risk; a successful plain-text key/model smoke test alone does not establish that the application's structured request succeeds.
+
+Render logs now identify the result of each attempted AI preview with the same server-generated `requestId` as the API response. `AI_SUCCESS` is emitted only after useful grounded metadata passes validation; all failure codes below preserve deterministic fallback and do not become API errors:
+
+| Diagnostic code | Meaning / next check |
+| --- | --- |
+| `AI_HTTP_400` | The structured request was rejected. Check request/model option compatibility, not just the API key. |
+| `AI_HTTP_401`, `AI_HTTP_403`, `AI_HTTP_404` | Provider authentication, permission or resource lookup failure respectively; verify deployed configuration privately. |
+| `AI_HTTP_429`, `AI_HTTP_5xx` | Quota/rate limit or provider failure. Actual numeric status is in the code and `httpStatus`. |
+| `AI_TIMEOUT` | Configured deadline exceeded while fetching headers or body; request is aborted and body cleanup attempted. |
+| `AI_PROVIDER_ERROR` | Network/transport or other unexpected provider failure. No raw exception is retained. |
+| `AI_INVALID_JSON`, `AI_INVALID_RESPONSE`, `AI_RESPONSE_TOO_LARGE` | Unparseable JSON, invalid candidate envelope, or response beyond 64 KiB. |
+| `AI_RESPONSE_TRUNCATED`, `AI_RESPONSE_BLOCKED` | Token-limit termination or provider safety/content blocking; never accept partial output. |
+| `AI_SCHEMA_VALIDATION_FAILED` | Output does not match the strict metadata object (including prohibited extra fields such as Reflection). |
+| `AI_GROUNDING_REJECTED` | No usable metadata survives the existing evidence/category/date checks; uncertain/null-only responses also use fallback. |
+
+To diagnose an actual APK fallback, correlate the preview response's request ID with one of these log codes after deploying this backend. Do not enable logging of Gemini error bodies or OCR payloads to investigate it. Tests use fake transports only; live Render key/model compatibility, latency, and the original failing document still need deployment verification.
 
 Privacy/cost: OCR text can contain personal document information and is sent to Google when AI is enabled. Credential-line filtering is defense-in-depth, not a general PII scrubber. Use only appropriate demo documents and disclose third-party processing before production use. Review the provider's current data-use/retention terms and configure project quotas/billing alerts and a restricted API key. Existing limits are process-local; a multi-instance deployment needs the existing rate-limit architecture's shared store. Tests use fake providers/transports and never spend API quota or send document content to Google.
 

@@ -605,18 +605,50 @@ void main() {
         ),
         findsOneWidget,
       );
-      expect(find.text('Apply AI suggestions'), findsOneWidget);
+      expect(find.text('Apply AI suggestions'), findsNothing);
+      expect(find.text('Reapply AI suggestions'), findsNothing);
+      expect(
+        find.textContaining('AI suggestions are temporarily unavailable'),
+        findsNothing,
+      );
+      expect(
+        tester.widget<TextField>(find.byType(TextField).first).controller!.text,
+        'Digital Records Management',
+      );
       expect(find.textContaining('Unable to reach the server'), findsNothing);
       final fields = tester
           .widgetList<OptionalField>(find.byType(OptionalField))
           .toList();
       expect(fields[1].controller.text, isEmpty);
+      fields[1].controller.text = 'My own reflection';
+      await tester.pump();
+      expect(find.text('Reapply AI suggestions'), findsNothing);
       await tester.ensureVisible(find.byType(TextField).first);
       await tester.enterText(find.byType(TextField).first, 'My reviewed title');
+      await tester.pump();
       expect(
         tester.widget<TextField>(find.byType(TextField).first).controller!.text,
         'My reviewed title',
       );
+      expect(find.text('Reapply AI suggestions'), findsOneWidget);
+      // Even a deliberately cleared field must survive later service updates.
+      await tester.enterText(find.byType(TextField).first, '');
+      service.notifyListeners();
+      await tester.pumpAndSettle();
+      expect(
+        tester.widget<TextField>(find.byType(TextField).first).controller!.text,
+        isEmpty,
+      );
+      fields[1].controller.text = 'My own reflection';
+      await tester.ensureVisible(find.text('Reapply AI suggestions'));
+      await tester.tap(find.text('Reapply AI suggestions'));
+      await tester.pumpAndSettle();
+      expect(
+        tester.widget<TextField>(find.byType(TextField).first).controller!.text,
+        'Digital Records Management',
+      );
+      expect(fields[1].controller.text, 'My own reflection');
+      expect(find.text('Reapply AI suggestions'), findsNothing);
       expect(service.previewCalls, 1);
       service.disposeWithAuth();
     },
@@ -647,6 +679,7 @@ void main() {
         'Digital Records Management',
       );
       expect(find.text('Apply AI suggestions'), findsNothing);
+      expect(find.textContaining('AI suggested from document'), findsNothing);
       expect(
         find.textContaining("We couldn't automatically read"),
         findsNothing,

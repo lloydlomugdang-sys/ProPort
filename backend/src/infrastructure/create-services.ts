@@ -35,7 +35,10 @@ export function createServices(config: AppConfig, logger: FastifyBaseLogger): Ap
     OCR_PROCESSING_TIMEOUT_MS,
     config.ocrMaxConcurrentJobs,
   );
-  const metadata = new AiMetadataService(config.gemini === undefined ? undefined : new GeminiMetadataProvider(config.gemini));
+  const metadata = new AiMetadataService(
+    config.gemini === undefined ? undefined : new GeminiMetadataProvider(config.gemini),
+    logger,
+  );
   return { database, storage, email, ocr, metadata };
 }
 

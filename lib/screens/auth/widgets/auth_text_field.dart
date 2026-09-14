@@ -42,7 +42,7 @@ class _AuthTextFieldState extends State<AuthTextField> {
   @override
   Widget build(BuildContext context) {
     return Container(
-      height: 34,
+      height: widget.showVisibilityToggle ? 48 : 34,
       decoration: BoxDecoration(
         color: AppColors.authFieldFill,
         borderRadius: BorderRadius.circular(4),
@@ -65,23 +65,26 @@ class _AuthTextFieldState extends State<AuthTextField> {
           isDense: true,
           filled: true,
           fillColor: Colors.transparent,
-          contentPadding:
-              const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+          contentPadding: const EdgeInsets.symmetric(
+            horizontal: 10,
+            vertical: 8,
+          ),
           border: InputBorder.none,
           enabledBorder: InputBorder.none,
           focusedBorder: InputBorder.none,
           suffixIconConstraints: const BoxConstraints(
-            minWidth: 30,
-            minHeight: 30,
+            minWidth: 48,
+            minHeight: 48,
           ),
           suffixIcon: widget.showVisibilityToggle
-              ? GestureDetector(
-                  onTap: () => setState(() => _obscured = !_obscured),
-                  child: Icon(
+              ? IconButton(
+                  tooltip: _obscured ? 'Show password' : 'Hide password',
+                  onPressed: () => setState(() => _obscured = !_obscured),
+                  icon: Icon(
                     _obscured
                         ? Icons.visibility_off_outlined
                         : Icons.visibility_outlined,
-                    size: 16,
+                    size: 20,
                     color: AppColors.authHint,
                   ),
                 )

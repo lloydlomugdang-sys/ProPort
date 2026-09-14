@@ -11,6 +11,7 @@ import 'package:proport_app/services/auth_models.dart';
 import 'package:proport_app/services/auth_scope.dart';
 import 'package:proport_app/services/auth_service.dart';
 import 'package:proport_app/services/secure_token_store.dart';
+import 'package:proport_app/services/profile_options.dart';
 
 void main() {
   testWidgets(
@@ -29,7 +30,8 @@ void main() {
       await tester.tap(find.byTooltip('Edit profile'));
       await tester.pumpAndSettle();
       // Display fallbacks never become the editable model or request values.
-      expect(find.text('Program not set'), findsNothing);
+      expect(find.byType(DropdownButtonFormField<String>), findsNWidgets(2));
+      expect(find.text('New Era University'), findsOneWidget);
       expect(auth.user.program, '  ');
       await tester.pageBack();
       await tester.pumpAndSettle();
@@ -97,7 +99,7 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(
-      find.text('Profile service is temporarily unavailable.'),
+      find.text('Something went wrong on the server. Please try again.'),
       findsOneWidget,
     );
     expect(find.text('Try Again'), findsOneWidget);
@@ -112,10 +114,15 @@ void main() {
     await tester.tap(find.byTooltip('Edit profile'));
     await tester.pumpAndSettle();
 
-    await tester.tap(find.text('Old Program'));
+    await tester.tap(find.byKey(const ValueKey('Program')));
     await tester.pumpAndSettle();
-    await tester.enterText(find.byType(TextField), 'New Program');
-    await tester.tap(find.widgetWithText(TextButton, 'Save'));
+    await tester.tap(
+      find.text('Bachelor of Science in Information Technology').last,
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('Year Level')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('4th Year').last);
     await tester.pumpAndSettle();
     await tester.tap(find.widgetWithText(ElevatedButton, 'Save Changes'));
     await tester.pump();
@@ -124,13 +131,16 @@ void main() {
     expect(auth.lastUpdate, {
       'firstName': 'Grad',
       'lastName': 'Student',
-      'program': 'New Program',
-      'yearLevel': '3rd Year',
+      'program': 'Bachelor of Science in Information Technology',
+      'yearLevel': '4th Year',
       'school': 'New Era University',
     });
     expect(find.text('Profile updated successfully.'), findsOneWidget);
     await tester.pumpAndSettle();
-    expect(find.text('New Program'), findsOneWidget);
+    expect(
+      find.text('Bachelor of Science in Information Technology'),
+      findsOneWidget,
+    );
     auth.dispose();
   });
 
@@ -153,15 +163,16 @@ void main() {
     await tester.pumpAndSettle();
     await tester.tap(find.byTooltip('Edit profile'));
     await tester.pumpAndSettle();
-    await tester.tap(find.text('Old Program'));
+    await tester.tap(find.byKey(const ValueKey('Program')));
     await tester.pumpAndSettle();
-    await tester.enterText(find.byType(TextField), 'Rejected Program');
-    await tester.tap(find.widgetWithText(TextButton, 'Save'));
+    await tester.tap(
+      find.text('Bachelor of Science in Information Technology').last,
+    );
     await tester.pumpAndSettle();
     await tester.tap(find.widgetWithText(ElevatedButton, 'Save Changes'));
     await tester.pump();
 
-    expect(find.text('must contain at most 200 characters'), findsOneWidget);
+    expect(find.text('Please select a supported program.'), findsOneWidget);
     expect(find.byTooltip('Save profile'), findsOneWidget);
     auth.dispose();
   });
@@ -228,6 +239,16 @@ class _FakeAuthService extends AuthService {
 
   @override
   AuthUser get user => _currentUser;
+
+  @override
+  Future<ProfileOptions> fetchProfileOptions() async => const ProfileOptions(
+    programs: [
+      'Bachelor of Science in Information Technology',
+      'Bachelor of Science in Computer Science',
+    ],
+    yearLevels: ['1st Year', '2nd Year', '3rd Year', '4th Year'],
+    school: 'New Era University',
+  );
 
   @override
   Future<AuthUser> fetchCurrentUser() async {

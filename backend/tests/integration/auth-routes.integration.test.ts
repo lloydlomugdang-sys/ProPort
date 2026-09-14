@@ -447,7 +447,7 @@ describe.sequential('authentication API with disposable MongoDB', () => {
       payload: { resetToken: reset.data.resetToken, newPassword: 'alllowercase' },
     });
     const weakResetError = expectError(weakReset, 400, 'VALIDATION_ERROR');
-    expect(weakResetError.error.fields?.password).toBeDefined();
+    expect(weakResetError.error.fields?.newPassword).toBeDefined();
 
     const completed = await context.app.inject({
       method: 'POST',

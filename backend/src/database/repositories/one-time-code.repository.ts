@@ -1,4 +1,4 @@
-import type { Model, Types } from 'mongoose';
+import type { ClientSession, Model, Types } from 'mongoose';
 import type { OneTimeCode } from '../models/index.js';
 import {
   asPersistedRecord,
@@ -88,6 +88,7 @@ export class OneTimeCodeRepository {
     id: Types.ObjectId,
     now: Date,
     maximumAttempts: number,
+    session?: ClientSession,
   ): Promise<boolean> {
     const result = await this.model
       .updateOne(
@@ -99,6 +100,7 @@ export class OneTimeCodeRepository {
           attempts: { $lt: maximumAttempts },
         },
         { $set: { consumedAt: now } },
+        session === undefined ? {} : { session },
       )
       .exec();
     return result.modifiedCount === 1;

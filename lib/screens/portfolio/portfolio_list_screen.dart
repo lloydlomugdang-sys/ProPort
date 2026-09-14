@@ -17,10 +17,24 @@ class PortfolioListScreen extends StatefulWidget {
 
   static const routeName = '/my-portfolios';
 
-  static void returnToList(BuildContext context) => Navigator.popUntil(
-    context,
-    (route) => route.settings.name == routeName || route.isFirst,
-  );
+  static void returnToList(BuildContext context) {
+    final navigator = Navigator.of(context);
+    var foundList = false;
+    navigator.popUntil((route) {
+      foundList = route.settings.name == routeName;
+      return foundList || route.isFirst;
+    });
+    // The Generate action can now start directly from Home, without a list
+    // underneath it. Open the same history screen after closing that flow.
+    if (!foundList) {
+      navigator.push<void>(
+        MaterialPageRoute(
+          settings: const RouteSettings(name: routeName),
+          builder: (_) => const PortfolioListScreen(),
+        ),
+      );
+    }
+  }
 
   @override
   State<PortfolioListScreen> createState() => _PortfolioListScreenState();
@@ -74,10 +88,7 @@ class _PortfolioListScreenState extends State<PortfolioListScreen> {
       await Navigator.push<void>(
         context,
         MaterialPageRoute(
-          builder: (_) => PortfolioPreviewScreen(
-            portfolioInfo: loaded.info,
-            summary: PortfolioSummary.empty,
-          ),
+          builder: (_) => PortfolioPreviewScreen(portfolioInfo: loaded.info),
         ),
       );
     } on ApiException catch (error) {

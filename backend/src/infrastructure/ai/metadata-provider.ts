@@ -2,11 +2,30 @@ import type { PublicDocumentCategory } from '../../modules/documents/document.se
 
 /** Provider output is untrusted until validated by the recommendation service. */
 export interface MetadataProvider {
+  readonly model?: string;
   recommend(text: string, categories: readonly PublicDocumentCategory[]): Promise<unknown>;
 }
 
+export type MetadataFailureCode =
+  | 'AI_PROVIDER_ERROR'
+  | `AI_HTTP_${number}`
+  | 'AI_TIMEOUT'
+  | 'AI_INVALID_JSON'
+  | 'AI_INVALID_RESPONSE'
+  | 'AI_RESPONSE_TOO_LARGE'
+  | 'AI_RESPONSE_TRUNCATED'
+  | 'AI_RESPONSE_BLOCKED'
+  | 'AI_SCHEMA_VALIDATION_FAILED'
+  | 'AI_GROUNDING_REJECTED';
+
+/** Only locally generated diagnostics; never retain raw provider errors/causes. */
 export class MetadataProviderError extends Error {
-  constructor(readonly category: 'timeout' | 'unavailable' | 'invalid_response') {
+  constructor(
+    readonly category: 'timeout' | 'unavailable' | 'invalid_response',
+    readonly code: MetadataFailureCode = category === 'timeout' ? 'AI_TIMEOUT'
+      : category === 'unavailable' ? 'AI_PROVIDER_ERROR' : 'AI_INVALID_RESPONSE',
+    readonly httpStatus?: number,
+  ) {
     super('AI metadata recommendations are temporarily unavailable.');
     this.name = 'MetadataProviderError';
   }

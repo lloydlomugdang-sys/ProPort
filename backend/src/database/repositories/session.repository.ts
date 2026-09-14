@@ -1,4 +1,4 @@
-import type { Model, Types } from 'mongoose';
+import type { ClientSession, Model, Types } from 'mongoose';
 import { Types as MongooseTypes } from 'mongoose';
 import type { Session } from '../models/index.js';
 import {
@@ -26,8 +26,9 @@ function safeSession(value: unknown): SafeSessionRecord {
 export class SessionRepository {
   constructor(private readonly model: Model<Session>) {}
 
-  async create(input: CreateSessionInput): Promise<SafeSessionRecord> {
-    const created = await this.model.create(input);
+  async create(input: CreateSessionInput, session?: ClientSession): Promise<SafeSessionRecord> {
+    const created = session === undefined ? await this.model.create(input)
+      : (await this.model.create([input], { session }))[0]!;
     return safeSession(created.toObject());
   }
 
@@ -113,11 +114,12 @@ export class SessionRepository {
     return result.modifiedCount;
   }
 
-  async revokeAllForUser(userId: Types.ObjectId, revokedAt: Date, reason: string): Promise<number> {
+  async revokeAllForUser(userId: Types.ObjectId, revokedAt: Date, reason: string, session?: ClientSession): Promise<number> {
     const result = await this.model
       .updateMany(
         { userId, revokedAt: { $exists: false } },
         { $set: { revokedAt, revokeReason: reason } },
+        session === undefined ? {} : { session },
       )
       .exec();
     return result.modifiedCount;

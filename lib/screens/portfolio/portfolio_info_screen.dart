@@ -12,6 +12,7 @@ import 'models/portfolio_schedule.dart';
 import 'portfolio_summary_screen.dart';
 import 'widgets/portfolio_schedule_picker.dart';
 import 'widgets/portfolio_text_field.dart';
+import 'widgets/step_indicator.dart';
 
 /// Collects and persists portfolio title-page information.
 class PortfolioInfoScreen extends StatefulWidget {
@@ -26,6 +27,7 @@ class PortfolioInfoScreen extends StatefulWidget {
 class _PortfolioInfoScreenState extends State<PortfolioInfoScreen>
     with SingleTickerProviderStateMixin {
   bool _isSaving = false;
+  PortfolioRecord? _createdPortfolio;
   // ─── Controllers ─────────────────────────────────────────────────────────────
   final _fullNameCtrl = TextEditingController();
   final _yearSectionCtrl = TextEditingController();
@@ -153,9 +155,13 @@ class _PortfolioInfoScreenState extends State<PortfolioInfoScreen>
         return;
       }
 
-      final saved = await service.createPortfolio(info);
+      final created = _createdPortfolio;
+      final saved = created == null
+          ? await service.createPortfolio(info)
+          : await service.updatePortfolio(created.id, info);
+      _createdPortfolio = saved;
       if (!mounted) return;
-      Navigator.pushReplacement(
+      await Navigator.push<void>(
         context,
         PageRouteBuilder(
           transitionDuration: const Duration(milliseconds: 350),
@@ -316,7 +322,7 @@ class _PortfolioInfoScreenState extends State<PortfolioInfoScreen>
                       _NextButton(
                         onPressed: _onNext,
                         label: widget.portfolio == null
-                            ? 'Save Portfolio'
+                            ? 'Next'
                             : 'Save Changes',
                         isLoading: _isSaving,
                       ),
@@ -324,6 +330,12 @@ class _PortfolioInfoScreenState extends State<PortfolioInfoScreen>
                   ),
                 ),
               ),
+              if (widget.portfolio == null)
+                Container(
+                  color: AppColors.background,
+                  padding: const EdgeInsets.symmetric(vertical: 12),
+                  child: const StepIndicatorLight(currentStep: 1),
+                ),
             ],
           ),
         ),

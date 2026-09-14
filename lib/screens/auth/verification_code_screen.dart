@@ -1,10 +1,12 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
+import 'widgets/auth_form_scroll_view.dart';
+import 'widgets/auth_form_feedback.dart';
 import 'package:flutter/services.dart';
 import '../../services/api_client.dart';
 import '../../services/auth_models.dart';
 import '../../services/auth_scope.dart';
-import 'login_screen.dart';
+import '../main_screen.dart';
 import 'new_password_screen.dart';
 
 class VerificationCodeScreen extends StatefulWidget {
@@ -22,7 +24,9 @@ class VerificationCodeScreen extends StatefulWidget {
 }
 
 class _VerificationCodeScreenState extends State<VerificationCodeScreen>
-    with SingleTickerProviderStateMixin {
+    with
+        SingleTickerProviderStateMixin,
+        AuthFormFeedback<VerificationCodeScreen> {
   final List<TextEditingController> _controllers = List.generate(
     6,
     (_) => TextEditingController(),
@@ -136,6 +140,7 @@ class _VerificationCodeScreenState extends State<VerificationCodeScreen>
   }
 
   Future<void> _handleContinue() async {
+    if (_isLoading || _isResending || isRateLimited) return;
     if (!_isComplete) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Please enter the 6-digit code')),
@@ -150,11 +155,11 @@ class _VerificationCodeScreenState extends State<VerificationCodeScreen>
         ).verifyEmail(email: widget.email, code: _otpValue);
         if (!mounted) return;
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Email verified. You can now log in.')),
+          const SnackBar(content: Text('Email verified. Welcome to GradPort!')),
         );
         Navigator.of(context).pushAndRemoveUntil(
           PageRouteBuilder(
-            pageBuilder: (_, animation, __) => const LoginScreen(),
+            pageBuilder: (_, animation, __) => const MainScreen(),
             transitionsBuilder: (_, animation, __, child) =>
                 FadeTransition(opacity: animation, child: child),
             transitionDuration: const Duration(milliseconds: 350),
@@ -193,7 +198,7 @@ class _VerificationCodeScreenState extends State<VerificationCodeScreen>
         );
       }
     } on ApiException catch (error) {
-      _showError(error.message);
+      if (mounted) _showError(handleFormError(error));
     } catch (_) {
       _showError('Unable to verify the code right now. Please try again.');
     } finally {
@@ -202,7 +207,9 @@ class _VerificationCodeScreenState extends State<VerificationCodeScreen>
   }
 
   Future<void> _handleResend() async {
-    if (_resendSeconds > 0 || _isResending) return;
+    if (_resendSeconds > 0 || _isResending || _isLoading || isRateLimited) {
+      return;
+    }
     setState(() => _isResending = true);
     try {
       final auth = AuthScope.of(context);
@@ -220,7 +227,7 @@ class _VerificationCodeScreenState extends State<VerificationCodeScreen>
         ),
       );
     } on ApiException catch (error) {
-      _showError(error.message);
+      if (mounted) _showError(handleFormError(error));
     } catch (_) {
       _showError('Unable to resend the code right now. Please try again.');
     } finally {
@@ -239,6 +246,7 @@ class _VerificationCodeScreenState extends State<VerificationCodeScreen>
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: _bgColor,
+      resizeToAvoidBottomInset: true,
       body: SafeArea(
         child: FadeTransition(
           opacity: _fadeAnim,
@@ -250,6 +258,9 @@ class _VerificationCodeScreenState extends State<VerificationCodeScreen>
                 Padding(
                   padding: const EdgeInsets.only(left: 8, top: 8),
                   child: IconButton(
+                    tooltip: MaterialLocalizations.of(
+                      context,
+                    ).backButtonTooltip,
                     icon: const Icon(
                       Icons.arrow_back_ios_new,
                       color: _darkTeal,
@@ -259,137 +270,128 @@ class _VerificationCodeScreenState extends State<VerificationCodeScreen>
                   ),
                 ),
                 Expanded(
-                  child: Center(
-                    child: SingleChildScrollView(
-                      physics: const BouncingScrollPhysics(),
-                      padding: const EdgeInsets.symmetric(horizontal: 28),
-                      child: ConstrainedBox(
-                        constraints: BoxConstraints(
-                          minHeight:
-                              MediaQuery.of(context).size.height -
-                              MediaQuery.of(context).padding.top -
-                              90,
+                  child: AuthFormScrollView(
+                    padding: const EdgeInsets.fromLTRB(28, 0, 28, 32),
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        RichText(
+                          text: const TextSpan(
+                            children: [
+                              TextSpan(
+                                text: 'Verification ',
+                                style: TextStyle(
+                                  color: Color(0xFF1A4F72),
+                                  fontWeight: FontWeight.w900,
+                                  fontSize: 28,
+                                ),
+                              ),
+                              TextSpan(
+                                text: 'Code',
+                                style: TextStyle(
+                                  color: Colors.black87,
+                                  fontWeight: FontWeight.w900,
+                                  fontSize: 28,
+                                ),
+                              ),
+                            ],
+                          ),
                         ),
-                        child: Column(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            RichText(
-                              text: const TextSpan(
-                                children: [
-                                  TextSpan(
-                                    text: 'Verification ',
-                                    style: TextStyle(
-                                      color: Color(0xFF1A4F72),
-                                      fontWeight: FontWeight.w900,
-                                      fontSize: 28,
-                                    ),
-                                  ),
-                                  TextSpan(
-                                    text: 'Code',
-                                    style: TextStyle(
-                                      color: Colors.black87,
-                                      fontWeight: FontWeight.w900,
-                                      fontSize: 28,
-                                    ),
-                                  ),
-                                ],
+
+                        const SizedBox(height: 8),
+
+                        const Text(
+                          'We sent a code to your email.',
+                          style: TextStyle(
+                            color: _subtitleColor,
+                            fontSize: 13.5,
+                            fontWeight: FontWeight.w500,
+                          ),
+                        ),
+
+                        const SizedBox(height: 40),
+
+                        const Text(
+                          'Enter the code to continue',
+                          style: TextStyle(
+                            color: _darkTeal,
+                            fontSize: 13.5,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+
+                        const SizedBox(height: 16),
+
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: List.generate(
+                            6,
+                            (index) => _buildOtpBox(index),
+                          ),
+                        ),
+
+                        const SizedBox(height: 36),
+
+                        SizedBox(
+                          width: double.infinity,
+                          height: 48,
+                          child: ElevatedButton(
+                            onPressed:
+                                _isLoading || _isResending || isRateLimited
+                                ? null
+                                : _handleContinue,
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: _accentColor,
+                              foregroundColor: Colors.white,
+                              elevation: 2,
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(10),
                               ),
                             ),
+                            child: _isLoading
+                                ? const SizedBox(
+                                    height: 20,
+                                    width: 20,
+                                    child: CircularProgressIndicator(
+                                      strokeWidth: 2,
+                                      color: Colors.white,
+                                    ),
+                                  )
+                                : const Text(
+                                    'Continue',
+                                    style: TextStyle(
+                                      fontWeight: FontWeight.w700,
+                                      fontSize: 15,
+                                    ),
+                                  ),
+                          ),
+                        ),
 
-                            const SizedBox(height: 8),
+                        AuthRetryNotice(seconds: retrySeconds),
+                        const SizedBox(height: 18),
 
-                            const Text(
-                              'We sent a code to your email.',
+                        Center(
+                          child: GestureDetector(
+                            onTap: _resendSeconds == 0 ? _handleResend : null,
+                            child: Text(
+                              _resendSeconds > 0
+                                  ? 'Resend Code (${_resendSeconds}s)'
+                                  : 'Resend Code',
                               style: TextStyle(
-                                color: _subtitleColor,
-                                fontSize: 13.5,
-                                fontWeight: FontWeight.w500,
-                              ),
-                            ),
-
-                            const SizedBox(height: 40),
-
-                            const Text(
-                              'Enter the code to continue',
-                              style: TextStyle(
-                                color: _darkTeal,
+                                color: _resendSeconds > 0
+                                    ? const Color(0xFF8BB5C8)
+                                    : _accentColor,
                                 fontSize: 13.5,
                                 fontWeight: FontWeight.w600,
+                                decoration: _resendSeconds == 0
+                                    ? TextDecoration.underline
+                                    : TextDecoration.none,
                               ),
                             ),
-
-                            const SizedBox(height: 16),
-
-                            Row(
-                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                              children: List.generate(
-                                6,
-                                (index) => _buildOtpBox(index),
-                              ),
-                            ),
-
-                            const SizedBox(height: 36),
-
-                            SizedBox(
-                              width: double.infinity,
-                              height: 48,
-                              child: ElevatedButton(
-                                onPressed: _isLoading ? null : _handleContinue,
-                                style: ElevatedButton.styleFrom(
-                                  backgroundColor: _accentColor,
-                                  foregroundColor: Colors.white,
-                                  elevation: 2,
-                                  shape: RoundedRectangleBorder(
-                                    borderRadius: BorderRadius.circular(10),
-                                  ),
-                                ),
-                                child: _isLoading
-                                    ? const SizedBox(
-                                        height: 20,
-                                        width: 20,
-                                        child: CircularProgressIndicator(
-                                          strokeWidth: 2,
-                                          color: Colors.white,
-                                        ),
-                                      )
-                                    : const Text(
-                                        'Continue',
-                                        style: TextStyle(
-                                          fontWeight: FontWeight.w700,
-                                          fontSize: 15,
-                                        ),
-                                      ),
-                              ),
-                            ),
-
-                            const SizedBox(height: 18),
-
-                            Center(
-                              child: GestureDetector(
-                                onTap: _resendSeconds == 0
-                                    ? _handleResend
-                                    : null,
-                                child: Text(
-                                  _resendSeconds > 0
-                                      ? 'Resend Code (${_resendSeconds}s)'
-                                      : 'Resend Code',
-                                  style: TextStyle(
-                                    color: _resendSeconds > 0
-                                        ? const Color(0xFF8BB5C8)
-                                        : _accentColor,
-                                    fontSize: 13.5,
-                                    fontWeight: FontWeight.w600,
-                                    decoration: _resendSeconds == 0
-                                        ? TextDecoration.underline
-                                        : TextDecoration.none,
-                                  ),
-                                ),
-                              ),
-                            ),
-                          ],
+                          ),
                         ),
-                      ),
+                      ],
                     ),
                   ),
                 ),

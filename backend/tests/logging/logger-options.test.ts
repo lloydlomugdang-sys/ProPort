@@ -10,8 +10,16 @@ describe('logger redaction', () => {
     const app = Fastify({ logger: { ...options, stream: { write: (message: string) => { messages.push(message); } } } });
     app.log.info({ GEMINI_API_KEY: 'test-secret-sentinel', config: { gemini: { apiKey: 'test-secret-sentinel' } },
       credentials: { geminiApiKey: 'test-secret-sentinel', authorization: 'test-secret-sentinel' } });
+    app.log.warn({ apiKey: 'test-secret-sentinel', geminiApiKey: 'test-secret-sentinel',
+      currentPassword: 'current-password-sentinel', body: { currentPassword: 'current-password-sentinel' },
+      authorization: 'test-secret-sentinel', accessToken: 'test-secret-sentinel', refreshToken: 'test-secret-sentinel',
+      rawText: 'private-document-sentinel', reviewedText: 'private-document-sentinel', ocrText: 'private-document-sentinel',
+      contents: [{ text: 'private-document-sentinel' }], candidates: [{ text: 'private-document-sentinel' }],
+      payload: { ocrText: 'private-document-sentinel', candidates: [{ text: 'private-document-sentinel' }] } });
     await app.close();
     expect(messages.join('')).not.toContain('test-secret-sentinel');
+    expect(messages.join('')).not.toContain('current-password-sentinel');
+    expect(messages.join('')).not.toContain('private-document-sentinel');
     expect(messages.join('')).toContain('[REDACTED]');
   });
 

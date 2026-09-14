@@ -5,6 +5,11 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:proport_app/screens/home/home_screen.dart';
+import 'package:proport_app/screens/files/files_screen.dart';
+import 'package:proport_app/screens/files/view_files_screen.dart';
+import 'package:proport_app/screens/portfolio/portfolio_list_screen.dart';
+import 'package:proport_app/services/portfolio_scope.dart';
+import 'package:proport_app/services/portfolio_service.dart';
 import 'package:proport_app/services/api_client.dart';
 import 'package:proport_app/services/auth_models.dart';
 import 'package:proport_app/services/auth_scope.dart';
@@ -15,6 +20,110 @@ import 'package:proport_app/services/document_service.dart';
 import 'package:proport_app/services/secure_token_store.dart';
 
 void main() {
+  const categoryLabels = {
+    'Curriculum Vitae': 'curriculum-vitae',
+    'Scholastic Record': 'scholastic-record',
+    'Certificates': 'certificates',
+    'Accomplishments': 'accomplishments',
+    'Other Achievements': 'other-achievements',
+    'College Report': 'college-report',
+  };
+  for (final category in categoryLabels.entries) {
+    testWidgets(
+      '${category.key} opens existing Files with correct empty category and Back returns Home',
+      (tester) async {
+        final auth = _DashboardAuthService(_user());
+        final documents = _DashboardDocumentService(auth);
+        addTearDown(() {
+          documents.dispose();
+          auth.dispose();
+        });
+        await tester.pumpWidget(_testApp(auth, documents));
+        await tester.pumpAndSettle();
+        expect(find.byTooltip('Back'), findsNothing);
+        await tester.ensureVisible(find.text(category.key));
+        await tester.tap(find.text(category.key));
+        await tester.pumpAndSettle();
+        expect(
+          tester
+              .widget<FilesScreen>(find.byType(FilesScreen))
+              .initialCategoryKey,
+          category.value,
+        );
+        expect(
+          tester
+              .widget<ViewFilesScreen>(find.byType(ViewFilesScreen))
+              .categoryKey,
+          category.value,
+        );
+        expect(find.text('No files found.'), findsOneWidget);
+        expect(find.byTooltip('Back'), findsOneWidget);
+        await tester.tap(find.byTooltip('Back'));
+        await tester.pumpAndSettle();
+        expect(find.byType(HomeScreen), findsOneWidget);
+      },
+    );
+  }
+  testWidgets(
+    'Dashboard category filter shows matching documents across folders only',
+    (tester) async {
+      final auth = _DashboardAuthService(_user());
+      final documents = _DashboardDocumentService(
+        auth,
+        records: [
+          _document('certificate-one.pdf', 'certificates', 'awards'),
+          _document('certificate-two.pdf', 'certificates', 'seminars'),
+          _document('private-other-category.pdf', 'curriculum-vitae', 'cv'),
+        ],
+      );
+      addTearDown(() {
+        documents.dispose();
+        auth.dispose();
+      });
+      await tester.pumpWidget(_testApp(auth, documents));
+      await tester.pumpAndSettle();
+      await tester.ensureVisible(find.text('Certificates'));
+      await tester.tap(find.text('Certificates'));
+      await tester.pumpAndSettle();
+      expect(find.text('certificate-one.pdf'), findsOneWidget);
+      expect(find.text('certificate-two.pdf'), findsOneWidget);
+      expect(find.text('private-other-category.pdf'), findsNothing);
+    },
+  );
+  testWidgets(
+    'Generate starts at Title Page while My Portfolios opens history',
+    (tester) async {
+      final auth = _DashboardAuthService(_user());
+      final documents = _DashboardDocumentService(auth);
+      final portfolios = PortfolioService(authService: auth);
+      addTearDown(() {
+        portfolios.dispose();
+        documents.dispose();
+        auth.dispose();
+      });
+      await tester.pumpWidget(
+        PortfolioScope(
+          portfolioService: portfolios,
+          child: _testApp(auth, documents),
+        ),
+      );
+      await tester.pumpAndSettle();
+      await tester.ensureVisible(find.text('Generate Portfolio'));
+      await tester.tap(find.text('Generate Portfolio'));
+      await tester.pumpAndSettle();
+      expect(find.text('Title Page'), findsOneWidget);
+      expect(find.text('Next'), findsOneWidget);
+      expect(find.byType(PortfolioListScreen), findsNothing);
+      await tester.tap(find.byIcon(Icons.arrow_back_ios_new));
+      await tester.pumpAndSettle();
+      await tester.ensureVisible(find.text('My Portfolios'));
+      await tester.tap(find.text('My Portfolios'));
+      await tester.pumpAndSettle();
+      expect(find.byType(PortfolioListScreen), findsOneWidget);
+      expect(find.text('No portfolios yet.'), findsOneWidget);
+    },
+  );
+
   testWidgets('shows the authenticated user name, program, and year level', (
     tester,
   ) async {
@@ -83,14 +192,17 @@ void main() {
   testWidgets('shows neutral placeholders for missing optional values', (
     tester,
   ) async {
-    final auth = _DashboardAuthService(_user(program: '', yearLevel: ''));
+    final auth = _DashboardAuthService(
+      _user(program: '', yearLevel: '', school: ''),
+    );
 
     final documents = _DashboardDocumentService(auth);
     await tester.pumpWidget(_testApp(auth, documents));
     await tester.pumpAndSettle();
 
-    expect(find.text('Program not provided'), findsOneWidget);
-    expect(find.text('Year level not provided'), findsOneWidget);
+    expect(find.text('Program not set'), findsOneWidget);
+    expect(find.text('Year level not set'), findsOneWidget);
+    expect(find.text('School not set'), findsOneWidget);
     expect(find.text('BS Information Technology'), findsNothing);
     expect(find.text('3rd year'), findsNothing);
     documents.dispose();
@@ -227,6 +339,17 @@ class _DashboardAuthService extends AuthService {
   @override
   AuthUser? get user => _currentUser;
 
+  @override
+  Future<Map<String, dynamic>> authenticatedGetJson(String path) async {
+    if (path == '/api/v1/portfolios') {
+      return {
+        'data': {'portfolios': <Object>[]},
+        'meta': {'requestId': 'history'},
+      };
+    }
+    return super.authenticatedGetJson(path);
+  }
+
   void replaceUser(AuthUser user) {
     _currentUser = user;
     notifyListeners();
@@ -249,11 +372,15 @@ class _DashboardDocumentService extends DocumentService {
     AuthService auth, {
     DocumentSummary summary = DocumentSummary.empty,
     bool hasLoaded = true,
+    this.records = const [],
   }) : _summary = summary,
        _hasLoaded = hasLoaded,
        super(authService: auth);
 
   DocumentSummary _summary;
+  final List<DocumentRecord> records;
+  @override
+  List<DocumentRecord> get documents => records;
   final bool _hasLoaded;
 
   @override
@@ -279,6 +406,7 @@ AuthUser _user({
   String lastName = 'Student',
   String program = 'Information Technology',
   String yearLevel = '3rd Year',
+  String school = 'New Era University',
 }) {
   return AuthUser(
     id: 'user-1',
@@ -287,8 +415,24 @@ AuthUser _user({
     lastName: lastName,
     program: program,
     yearLevel: yearLevel,
-    school: 'New Era University',
+    school: school,
     status: 'active',
     emailVerifiedAt: DateTime.utc(2030),
   );
 }
+
+DocumentRecord _document(String name, String category, String folder) =>
+    DocumentRecord(
+      id: name,
+      categoryKey: category,
+      folderKey: folder,
+      title: name,
+      documentDate: DateTime.utc(2026),
+      originalFileName: name,
+      mimeType: 'application/pdf',
+      fileKind: 'pdf',
+      extension: 'pdf',
+      sizeBytes: 10,
+      createdAt: DateTime.utc(2026),
+      updatedAt: DateTime.utc(2026),
+    );

@@ -3,6 +3,7 @@ import { Types } from 'mongoose';
 import { AppError } from '../../common/errors/app-error.js';
 import { successResponse } from '../../common/http/api-response.js';
 import type { AppServices } from '../../infrastructure/create-services.js';
+import { PROFILE_OPTIONS } from './profile-options.js';
 import {
   currentUserPatchBodySchema,
   currentUserQuerySchema,
@@ -68,7 +69,7 @@ export async function registerCurrentUserRoutes(
         response: { 200: currentUserResponseSchema },
       },
     },
-    async (request) => successResponse({ user: identityFor(request).profile }, request.id),
+    async (request) => successResponse({ user: identityFor(request).profile, profileOptions: PROFILE_OPTIONS }, request.id),
   );
 
   app.patch<{ Body: UpdateCurrentUserProfileInput }>(
@@ -83,7 +84,7 @@ export async function registerCurrentUserRoutes(
     },
     async (request) => {
       const user = await currentUsers.updateProfile(identityFor(request).userId, request.body);
-      return successResponse({ user }, request.id);
+      return successResponse({ user, profileOptions: PROFILE_OPTIONS }, request.id);
     },
   );
 }

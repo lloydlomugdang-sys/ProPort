@@ -1,6 +1,8 @@
 // LOCATION: lib/screens/auth/login_screen.dart
 
 import 'package:flutter/material.dart';
+import 'widgets/auth_form_scroll_view.dart';
+import 'widgets/auth_form_feedback.dart';
 import 'package:google_fonts/google_fonts.dart';
 import '../../services/api_client.dart';
 import '../../services/auth_models.dart';
@@ -22,7 +24,7 @@ class LoginScreen extends StatefulWidget {
 }
 
 class _LoginScreenState extends State<LoginScreen>
-    with SingleTickerProviderStateMixin {
+    with SingleTickerProviderStateMixin, AuthFormFeedback<LoginScreen> {
   final _emailCtrl = TextEditingController();
   final _passwordCtrl = TextEditingController();
   bool _isLoading = false;
@@ -66,6 +68,7 @@ class _LoginScreenState extends State<LoginScreen>
   }
 
   Future<void> _loginUser() async {
+    if (_isLoading || isRateLimited) return;
     final email = _emailCtrl.text.trim();
     final password = _passwordCtrl.text;
 
@@ -89,7 +92,7 @@ class _LoginScreenState extends State<LoginScreen>
     try {
       await AuthScope.of(context).login(email: email, password: password);
       if (!mounted) return;
-      Navigator.pushReplacement(
+      Navigator.pushAndRemoveUntil(
         context,
         PageRouteBuilder(
           transitionDuration: const Duration(milliseconds: 400),
@@ -97,6 +100,7 @@ class _LoginScreenState extends State<LoginScreen>
           transitionsBuilder: (_, anim, __, child) =>
               FadeTransition(opacity: anim, child: child),
         ),
+        (route) => false,
       );
     } on ApiException catch (error) {
       if (!mounted) return;
@@ -116,7 +120,7 @@ class _LoginScreenState extends State<LoginScreen>
           ),
         );
       } else {
-        _showError(error.message);
+        _showError(handleFormError(error));
       }
     } on AuthStorageException catch (error) {
       _showError(error.message);
@@ -166,57 +170,47 @@ class _LoginScreenState extends State<LoginScreen>
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: _bg,
+      resizeToAvoidBottomInset: true,
       body: SafeArea(
         child: FadeTransition(
           opacity: _fadeAnim,
-          child: SingleChildScrollView(
-            physics: const ClampingScrollPhysics(),
-            child: ConstrainedBox(
-              constraints: BoxConstraints(
-                minHeight:
-                    MediaQuery.of(context).size.height -
-                    MediaQuery.of(context).padding.top -
-                    MediaQuery.of(context).padding.bottom,
-              ),
-              child: IntrinsicHeight(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.center,
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    // ── Title ─────────────────────────────────────
-                    RichText(
-                      text: TextSpan(
-                        children: [
-                          TextSpan(
-                            text: 'Log ',
-                            style: GoogleFonts.poppins(
-                              fontSize: 28,
-                              fontWeight: FontWeight.w700,
-                              color: _titleColor,
-                            ),
-                          ),
-                          TextSpan(
-                            text: 'In',
-                            style: GoogleFonts.poppins(
-                              fontSize: 28,
-                              fontWeight: FontWeight.w400,
-                              color: _titleColor,
-                            ),
-                          ),
-                        ],
+          child: AuthFormScrollView(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.center,
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                // ── Title ─────────────────────────────────────
+                RichText(
+                  text: TextSpan(
+                    children: [
+                      TextSpan(
+                        text: 'Log ',
+                        style: GoogleFonts.poppins(
+                          fontSize: 28,
+                          fontWeight: FontWeight.w700,
+                          color: _titleColor,
+                        ),
                       ),
-                    ),
-
-                    const SizedBox(height: 18),
-
-                    // ── Card ───────────────────────────────────────
-                    Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 20),
-                      child: _buildCard(),
-                    ),
-                  ],
+                      TextSpan(
+                        text: 'In',
+                        style: GoogleFonts.poppins(
+                          fontSize: 28,
+                          fontWeight: FontWeight.w400,
+                          color: _titleColor,
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
-              ),
+
+                const SizedBox(height: 18),
+
+                // ── Card ───────────────────────────────────────
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 20),
+                  child: _buildCard(),
+                ),
+              ],
             ),
           ),
         ),
@@ -264,6 +258,7 @@ class _LoginScreenState extends State<LoginScreen>
 
           // ── Login button ───────────────────────────────────
           _loginButton(),
+          AuthRetryNotice(seconds: retrySeconds),
 
           const SizedBox(height: 8),
 
@@ -286,8 +281,9 @@ class _LoginScreenState extends State<LoginScreen>
 
           // ── Don't have an account? Sign Up ─────────────────
           Center(
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
+            child: Wrap(
+              alignment: WrapAlignment.center,
+              crossAxisAlignment: WrapCrossAlignment.center,
               children: [
                 Text(
                   "Don't have an account? ",
@@ -335,7 +331,7 @@ class _LoginScreenState extends State<LoginScreen>
 
   Widget _loginButton() {
     return GestureDetector(
-      onTap: _isLoading ? null : _loginUser,
+      onTap: _isLoading || isRateLimited ? null : _loginUser,
       child: Container(
         width: double.infinity,
         height: 36,

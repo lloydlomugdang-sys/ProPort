@@ -51,6 +51,8 @@ class _AddFileScreenState extends State<AddFileScreen>
   String? _suggestionMessage;
   int _previewOperation = 0;
   final Set<_OcrField> _automaticFields = {};
+  final Set<_OcrField> _manualFields = {};
+  bool _hasEditedAiSuggestion = false;
   bool _writingSuggestions = false;
   bool _suggestionFailed = false;
   bool _suggestedByAi = false;
@@ -69,12 +71,16 @@ class _AddFileScreenState extends State<AddFileScreen>
     _titleCtrl.addListener(() {
       if (_titleCtrl.text == _observedTitle) return;
       _observedTitle = _titleCtrl.text;
-      if (!_writingSuggestions) _automaticFields.remove(_OcrField.title);
+      if (!_writingSuggestions) {
+        setState(() => _markManual(_OcrField.title));
+      }
     });
     _descriptionCtrl.addListener(() {
       if (_descriptionCtrl.text == _observedDescription) return;
       _observedDescription = _descriptionCtrl.text;
-      if (!_writingSuggestions) _automaticFields.remove(_OcrField.description);
+      if (!_writingSuggestions) {
+        setState(() => _markManual(_OcrField.description));
+      }
     });
     _entranceCtrl = AnimationController(
       vsync: this,
@@ -157,6 +163,7 @@ class _AddFileScreenState extends State<AddFileScreen>
         _suggestionMessage = null;
         _suggestionFailed = false;
         _suggestedByAi = false;
+        _hasEditedAiSuggestion = false;
       });
       await _suggestDetails();
     } catch (_) {
@@ -312,6 +319,14 @@ class _AddFileScreenState extends State<AddFileScreen>
     }
   }
 
+  void _markManual(_OcrField field) {
+    if (_suggestedByAi && _automaticFields.contains(field)) {
+      _hasEditedAiSuggestion = true;
+    }
+    _automaticFields.remove(field);
+    _manualFields.add(field);
+  }
+
   void _clearAutomaticFields() {
     _writingSuggestions = true;
     try {
@@ -340,7 +355,9 @@ class _AddFileScreenState extends State<AddFileScreen>
             .where((category) => category.key == suggestions.categoryKey)
             .firstOrNull;
         if (suggestedCategory != null &&
-            (replace || _selectedContent == null)) {
+            (replace ||
+                (!_manualFields.contains(_OcrField.content) &&
+                    _selectedContent == null))) {
           if (_selectedContent != suggestedCategory.name) {
             _selectedFolder = null;
           }
@@ -350,7 +367,9 @@ class _AddFileScreenState extends State<AddFileScreen>
         final category = _selectedCategory(categories);
         if (category != null &&
             category.key == suggestions.categoryKey &&
-            (replace || _selectedFolder == null)) {
+            (replace ||
+                (!_manualFields.contains(_OcrField.folder) &&
+                    _selectedFolder == null))) {
           final folder = category.folders
               .where((folder) => folder.key == suggestions.folderKey)
               .firstOrNull;
@@ -360,20 +379,30 @@ class _AddFileScreenState extends State<AddFileScreen>
           }
         }
         if (suggestions.title != null &&
-            (replace || _titleCtrl.text.trim().isEmpty)) {
+            (replace ||
+                (!_manualFields.contains(_OcrField.title) &&
+                    _titleCtrl.text.trim().isEmpty))) {
           _titleCtrl.text = suggestions.title!;
           _automaticFields.add(_OcrField.title);
         }
         if (suggestions.documentDate != null &&
-            (replace || _selectedDate == null)) {
+            (replace ||
+                (!_manualFields.contains(_OcrField.date) &&
+                    _selectedDate == null))) {
           _selectedDate = suggestions.documentDate;
           _automaticFields.add(_OcrField.date);
         }
         if (suggestions.description != null &&
-            (replace || _descriptionCtrl.text.trim().isEmpty)) {
+            (replace ||
+                (!_manualFields.contains(_OcrField.description) &&
+                    _descriptionCtrl.text.trim().isEmpty))) {
           _descriptionCtrl.text = suggestions.description!;
           _descriptionEnabled = true;
           _automaticFields.add(_OcrField.description);
+        }
+        if (replace) {
+          _manualFields.removeAll(_automaticFields);
+          _hasEditedAiSuggestion = false;
         }
       });
     } finally {
@@ -452,14 +481,16 @@ class _AddFileScreenState extends State<AddFileScreen>
                         color: AppColors.textMuted,
                       ),
                     ),
-                  if (_suggestions != null && !_suggestions!.isEmpty)
+                  if (_suggestions != null &&
+                      !_suggestions!.isEmpty &&
+                      (!_suggestedByAi || _hasEditedAiSuggestion))
                     TextButton(
                       onPressed: _isSubmitting
                           ? null
                           : () => _applySuggestions(replace: true),
                       child: Text(
                         _suggestedByAi
-                            ? 'Apply AI suggestions'
+                            ? 'Reapply AI suggestions'
                             : 'Apply OCR suggestions',
                       ),
                     ),
@@ -482,8 +513,8 @@ class _AddFileScreenState extends State<AddFileScreen>
                     setState(() {
                       _selectedContent = val;
                       _selectedFolder = null; // reset folder
-                      _automaticFields.remove(_OcrField.content);
-                      _automaticFields.remove(_OcrField.folder);
+                      _markManual(_OcrField.content);
+                      _markManual(_OcrField.folder);
                     });
                   },
                 ),
@@ -499,9 +530,9 @@ class _AddFileScreenState extends State<AddFileScreen>
                   enabled: _selectedContent != null,
                   onChanged: (val) => setState(() {
                     _selectedFolder = val;
-                    _automaticFields.remove(_OcrField.folder);
+                    _markManual(_OcrField.folder);
                     // Keep the category that owns a manually selected folder.
-                    _automaticFields.remove(_OcrField.content);
+                    _markManual(_OcrField.content);
                   }),
                 ),
                 const SizedBox(height: 14),
@@ -522,7 +553,7 @@ class _AddFileScreenState extends State<AddFileScreen>
                   required: true,
                   onDateSelected: (d) => setState(() {
                     _selectedDate = d;
-                    _automaticFields.remove(_OcrField.date);
+                    _markManual(_OcrField.date);
                   }),
                 ),
                 const SizedBox(height: 14),
@@ -535,7 +566,7 @@ class _AddFileScreenState extends State<AddFileScreen>
                   isEnabled: _descriptionEnabled,
                   onToggle: () => setState(() {
                     _descriptionEnabled = !_descriptionEnabled;
-                    _automaticFields.remove(_OcrField.description);
+                    _markManual(_OcrField.description);
                   }),
                 ),
                 const SizedBox(height: 14),

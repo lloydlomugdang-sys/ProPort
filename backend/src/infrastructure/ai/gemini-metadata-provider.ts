@@ -19,9 +19,11 @@ function record(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
-async function readBounded(response: Response): Promise<unknown> {
-  if (response.body === null) throw new MetadataProviderError('invalid_response');
+async function readBounded(response: Response, signal: AbortSignal): Promise<unknown> {
+  if (response.body === null) throw new MetadataProviderError('invalid_response', 'AI_INVALID_RESPONSE', response.status);
   const reader = response.body.getReader();
+  const cancel = (): void => { void reader.cancel().catch(() => undefined); };
+  signal.addEventListener('abort', cancel, { once: true });
   const chunks: Uint8Array[] = [];
   let size = 0;
   try {
@@ -29,11 +31,16 @@ async function readBounded(response: Response): Promise<unknown> {
       const { done, value } = await reader.read();
       if (done) break;
       size += value.byteLength;
-      if (size > 64 * 1024) throw new MetadataProviderError('invalid_response');
+      if (size > 64 * 1024) throw new MetadataProviderError('invalid_response', 'AI_RESPONSE_TOO_LARGE', response.status);
       chunks.push(value);
     }
-    return JSON.parse(Buffer.concat(chunks).toString('utf8')) as unknown;
+    try {
+      return JSON.parse(Buffer.concat(chunks).toString('utf8')) as unknown;
+    } catch {
+      throw new MetadataProviderError('invalid_response', 'AI_INVALID_JSON', response.status);
+    }
   } finally {
+    signal.removeEventListener('abort', cancel);
     await reader.cancel().catch(() => undefined);
     reader.releaseLock();
   }
@@ -41,6 +48,8 @@ async function readBounded(response: Response): Promise<unknown> {
 
 export class GeminiMetadataProvider implements MetadataProvider {
   constructor(private readonly config: GeminiConfig, private readonly fetcher: typeof fetch = fetch) {}
+
+  get model(): string { return this.config.model; }
 
   async recommend(text: string, categories: readonly PublicDocumentCategory[]): Promise<unknown> {
     const controller = new AbortController();
@@ -75,23 +84,42 @@ export class GeminiMetadataProvider implements MetadataProvider {
           systemInstruction: { parts: [{ text: INSTRUCTIONS }] },
           contents: [{ role: 'user', parts: [{ text: JSON.stringify({ categories, ocrText: text }) }] }],
           generationConfig: {
-            candidateCount: 1, maxOutputTokens: 4096,
+            // A single candidate is the default. Gemini 3.x does not support
+            // candidateCount; don't send that legacy option, even as 1.
+            maxOutputTokens: 4096,
+            // This small extractive task needs low latency within our deadline.
+            // Don't send Gemini 3 thinking options to older/configured models.
+            ...(/^gemini-3[.-]/.test(this.config.model) ? { thinkingConfig: { thinkingLevel: 'LOW' } } : {}),
             responseMimeType: 'application/json', responseJsonSchema: metadataRecommendationSchema,
           },
         }),
       },
     );
-    if (!response.ok) {
+    if (signal.aborted) {
       await response.body?.cancel().catch(() => undefined);
-      throw new MetadataProviderError('unavailable');
+      throw new MetadataProviderError('timeout');
     }
-    const body = await readBounded(response);
+    if (!response.ok) {
+      // Discard the entire error body: even a provider message can echo input.
+      await response.body?.cancel().catch(() => undefined);
+      throw new MetadataProviderError('unavailable', `AI_HTTP_${response.status}`, response.status);
+    }
+    const body = await readBounded(response, signal);
+    if (record(body) && record(body.promptFeedback) && body.promptFeedback.blockReason !== undefined) {
+      throw new MetadataProviderError('invalid_response', 'AI_RESPONSE_BLOCKED', response.status);
+    }
     if (!record(body) || !Array.isArray(body.candidates) || body.candidates.length !== 1) {
-      throw new MetadataProviderError('invalid_response');
+      throw new MetadataProviderError('invalid_response', 'AI_INVALID_RESPONSE', response.status);
     }
     const candidate: unknown = body.candidates[0];
+    if (record(candidate) && candidate.finishReason === 'MAX_TOKENS') {
+      throw new MetadataProviderError('invalid_response', 'AI_RESPONSE_TRUNCATED', response.status);
+    }
+    if (record(candidate) && ['SAFETY', 'RECITATION', 'BLOCKLIST', 'PROHIBITED_CONTENT', 'SPII', 'IMAGE_SAFETY'].includes(String(candidate.finishReason))) {
+      throw new MetadataProviderError('invalid_response', 'AI_RESPONSE_BLOCKED', response.status);
+    }
     if (!record(candidate) || candidate.finishReason !== 'STOP' || !record(candidate.content) || !Array.isArray(candidate.content.parts)) {
-      throw new MetadataProviderError('invalid_response');
+      throw new MetadataProviderError('invalid_response', 'AI_INVALID_RESPONSE', response.status);
     }
     const parts: unknown[] = candidate.content.parts;
     const output = parts.filter((part) => record(part) && part.thought !== true)
@@ -99,7 +127,7 @@ export class GeminiMetadataProvider implements MetadataProvider {
     try {
       return JSON.parse(output) as unknown;
     } catch {
-      throw new MetadataProviderError('invalid_response');
+      throw new MetadataProviderError('invalid_response', 'AI_INVALID_JSON', response.status);
     }
   }
 }

@@ -1,11 +1,14 @@
 import fastifyJwt from '@fastify/jwt';
 import rateLimit from '@fastify/rate-limit';
 import type { FastifyInstance, FastifyReply } from 'fastify';
+import { Types } from 'mongoose';
+import { CurrentUserService } from '../users/user.service.js';
 import { AppError } from '../../common/errors/app-error.js';
 import { successResponse } from '../../common/http/api-response.js';
 import type { AppConfig } from '../../config/env.types.js';
 import type { AppServices } from '../../infrastructure/create-services.js';
 import {
+  changePasswordBodySchema,
   emailCodeBodySchema,
   emailOnlyBodySchema,
   loginBodySchema,
@@ -16,7 +19,6 @@ import {
   resetPasswordBodySchema,
   sessionResponseSchema,
   statusResponseSchema,
-  userResponseSchema,
 } from './auth.schemas.js';
 import { AuthService } from './auth.service.js';
 
@@ -172,11 +174,11 @@ export async function registerAuthRoutes(
   app.post<{ Body: EmailCodeBody }>(
     '/api/v1/auth/email-verification/verify',
     {
-      schema: { body: emailCodeBodySchema, response: { 200: userResponseSchema } },
+      schema: { body: emailCodeBodySchema, response: { 200: sessionResponseSchema } },
     },
     async (request) =>
       successResponse(
-        { user: await auth.verifyEmail(request.body.email, request.body.code) },
+        await auth.verifyEmail(request.body.email, request.body.code),
         request.id,
       ),
   );
@@ -269,6 +271,37 @@ export async function registerAuthRoutes(
     async (request) => {
       await auth.completePasswordReset(request.body.resetToken, request.body.newPassword);
       return successResponse({ status: 'passwordReset' as const }, request.id);
+    },
+  );
+
+  app.post<{ Body: { currentPassword: string; newPassword: string } }>(
+    '/api/v1/auth/password/change',
+    {
+      onRequest: async (request) => {
+        try {
+          await request.jwtVerify<{ sub: string; sid: string }>();
+        } catch {
+          throw new AppError(401, 'UNAUTHORIZED', 'Authentication is required.');
+        }
+      },
+      schema: { body: changePasswordBodySchema, response: { 200: statusResponseSchema('passwordChanged') } },
+      config: { rateLimit: { max: 5, timeWindow: '15 minutes', groupId: 'auth-password-change',
+        keyGenerator: (request) => {
+          const claims = request.user as { sub: string };
+          return claims.sub;
+        },
+      } },
+    },
+    async (request) => {
+      const claims = request.user as { sub: string; sid: string };
+      if (!Types.ObjectId.isValid(claims.sub) || !Types.ObjectId.isValid(claims.sid)) {
+        throw new AppError(401, 'UNAUTHORIZED', 'Authentication is required.');
+      }
+      const userId = new Types.ObjectId(claims.sub);
+      const sessionId = new Types.ObjectId(claims.sid);
+      await new CurrentUserService(options.services.database).authenticate(userId, sessionId);
+      await auth.changePassword(userId, sessionId, request.body.currentPassword, request.body.newPassword);
+      return successResponse({ status: 'passwordChanged' as const }, request.id);
     },
   );
 

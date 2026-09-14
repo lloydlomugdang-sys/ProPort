@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import 'widgets/auth_form_scroll_view.dart';
+import 'widgets/auth_form_feedback.dart';
 import '../../services/api_client.dart';
 import '../../services/auth_scope.dart';
 import 'login_screen.dart';
@@ -13,7 +15,7 @@ class NewPasswordScreen extends StatefulWidget {
 }
 
 class _NewPasswordScreenState extends State<NewPasswordScreen>
-    with SingleTickerProviderStateMixin {
+    with SingleTickerProviderStateMixin, AuthFormFeedback<NewPasswordScreen> {
   final _formKey = GlobalKey<FormState>();
   final _newPasswordController = TextEditingController();
   final _confirmPasswordController = TextEditingController();
@@ -56,6 +58,7 @@ class _NewPasswordScreenState extends State<NewPasswordScreen>
   }
 
   Future<void> _handleSavePassword() async {
+    if (_isLoading || isRateLimited) return;
     if (!_formKey.currentState!.validate()) return;
     setState(() => _isLoading = true);
     try {
@@ -96,7 +99,7 @@ class _NewPasswordScreenState extends State<NewPasswordScreen>
         (route) => false,
       );
     } on ApiException catch (error) {
-      _showError(error.message);
+      if (mounted) _showError(handleFormError(error));
     } catch (_) {
       _showError('Unable to reset your password right now. Please try again.');
     } finally {
@@ -115,6 +118,7 @@ class _NewPasswordScreenState extends State<NewPasswordScreen>
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: _bgColor,
+      resizeToAvoidBottomInset: true,
       body: SafeArea(
         child: FadeTransition(
           opacity: _fadeAnim,
@@ -126,6 +130,9 @@ class _NewPasswordScreenState extends State<NewPasswordScreen>
                 Padding(
                   padding: const EdgeInsets.only(left: 8, top: 8),
                   child: IconButton(
+                    tooltip: MaterialLocalizations.of(
+                      context,
+                    ).backButtonTooltip,
                     icon: const Icon(
                       Icons.arrow_back_ios_new,
                       color: _darkTeal,
@@ -135,165 +142,155 @@ class _NewPasswordScreenState extends State<NewPasswordScreen>
                   ),
                 ),
                 Expanded(
-                  child: Center(
-                    child: SingleChildScrollView(
-                      physics: const BouncingScrollPhysics(),
-                      padding: const EdgeInsets.symmetric(horizontal: 28),
-                      child: ConstrainedBox(
-                        constraints: BoxConstraints(
-                          minHeight:
-                              MediaQuery.of(context).size.height -
-                              MediaQuery.of(context).padding.top -
-                              90,
-                        ),
-                        child: Form(
-                          key: _formKey,
-                          child: Column(
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              RichText(
-                                text: const TextSpan(
-                                  children: [
-                                    TextSpan(
-                                      text: 'New ',
-                                      style: TextStyle(
-                                        color: Color(0xFF1A4F72),
-                                        fontWeight: FontWeight.w900,
-                                        fontSize: 28,
-                                      ),
-                                    ),
-                                    TextSpan(
-                                      text: 'Password',
-                                      style: TextStyle(
-                                        color: Colors.black87,
-                                        fontWeight: FontWeight.w900,
-                                        fontSize: 28,
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              ),
-
-                              const SizedBox(height: 8),
-
-                              const Text(
-                                'Create a unique password.',
-                                style: TextStyle(
-                                  color: _subtitleColor,
-                                  fontSize: 13.5,
-                                  fontWeight: FontWeight.w500,
-                                ),
-                              ),
-
-                              const SizedBox(height: 40),
-
-                              const Text(
-                                'New password',
-                                style: TextStyle(
-                                  color: _darkTeal,
-                                  fontSize: 13.5,
-                                  fontWeight: FontWeight.w600,
-                                ),
-                              ),
-
-                              const SizedBox(height: 8),
-
-                              _buildPasswordField(
-                                controller: _newPasswordController,
-                                hintText: 'Create new password',
-                                obscureText: _obscureNew,
-                                onToggle: () =>
-                                    setState(() => _obscureNew = !_obscureNew),
-                                validator: (v) {
-                                  if (v == null || v.isEmpty) {
-                                    return 'Enter a new password';
-                                  }
-                                  if (v.length < 8) {
-                                    return 'At least 8 characters required';
-                                  }
-                                  if (v.length > 128) {
-                                    return 'No more than 128 characters allowed';
-                                  }
-                                  final hasUpper = RegExp(r'[A-Z]').hasMatch(v);
-                                  final hasLower = RegExp(r'[a-z]').hasMatch(v);
-                                  final hasDigit = RegExp(r'\d').hasMatch(v);
-                                  if (!hasUpper || !hasLower || !hasDigit) {
-                                    return 'Use uppercase, lowercase, and a number';
-                                  }
-                                  return null;
-                                },
-                              ),
-
-                              const SizedBox(height: 20),
-
-                              const Text(
-                                'Confirm Password',
-                                style: TextStyle(
-                                  color: _darkTeal,
-                                  fontSize: 13.5,
-                                  fontWeight: FontWeight.w600,
-                                ),
-                              ),
-
-                              const SizedBox(height: 8),
-
-                              _buildPasswordField(
-                                controller: _confirmPasswordController,
-                                hintText: 'Re-enter new password',
-                                obscureText: _obscureConfirm,
-                                onToggle: () => setState(
-                                  () => _obscureConfirm = !_obscureConfirm,
-                                ),
-                                validator: (v) {
-                                  if (v == null || v.isEmpty) {
-                                    return 'Confirm your password';
-                                  }
-                                  if (v != _newPasswordController.text) {
-                                    return 'Passwords do not match';
-                                  }
-                                  return null;
-                                },
-                              ),
-
-                              const SizedBox(height: 36),
-
-                              SizedBox(
-                                width: double.infinity,
-                                height: 48,
-                                child: ElevatedButton(
-                                  onPressed: _isLoading
-                                      ? null
-                                      : _handleSavePassword,
-                                  style: ElevatedButton.styleFrom(
-                                    backgroundColor: _accentColor,
-                                    foregroundColor: Colors.white,
-                                    elevation: 2,
-                                    shape: RoundedRectangleBorder(
-                                      borderRadius: BorderRadius.circular(10),
-                                    ),
+                  child: AuthFormScrollView(
+                    padding: const EdgeInsets.fromLTRB(28, 0, 28, 32),
+                    child: Form(
+                      key: _formKey,
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          RichText(
+                            text: const TextSpan(
+                              children: [
+                                TextSpan(
+                                  text: 'New ',
+                                  style: TextStyle(
+                                    color: Color(0xFF1A4F72),
+                                    fontWeight: FontWeight.w900,
+                                    fontSize: 28,
                                   ),
-                                  child: _isLoading
-                                      ? const SizedBox(
-                                          height: 20,
-                                          width: 20,
-                                          child: CircularProgressIndicator(
-                                            strokeWidth: 2,
-                                            color: Colors.white,
-                                          ),
-                                        )
-                                      : const Text(
-                                          'Save Password',
-                                          style: TextStyle(
-                                            fontWeight: FontWeight.w700,
-                                            fontSize: 15,
-                                          ),
-                                        ),
+                                ),
+                                TextSpan(
+                                  text: 'Password',
+                                  style: TextStyle(
+                                    color: Colors.black87,
+                                    fontWeight: FontWeight.w900,
+                                    fontSize: 28,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+
+                          const SizedBox(height: 8),
+
+                          const Text(
+                            'Create a unique password.',
+                            style: TextStyle(
+                              color: _subtitleColor,
+                              fontSize: 13.5,
+                              fontWeight: FontWeight.w500,
+                            ),
+                          ),
+
+                          const SizedBox(height: 40),
+
+                          const Text(
+                            'New password',
+                            style: TextStyle(
+                              color: _darkTeal,
+                              fontSize: 13.5,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+
+                          const SizedBox(height: 8),
+
+                          _buildPasswordField(
+                            controller: _newPasswordController,
+                            hintText: 'Create new password',
+                            obscureText: _obscureNew,
+                            onToggle: () =>
+                                setState(() => _obscureNew = !_obscureNew),
+                            validator: (v) {
+                              if (v == null || v.isEmpty) {
+                                return 'Enter a new password';
+                              }
+                              if (v.length < 8) {
+                                return 'At least 8 characters required';
+                              }
+                              if (v.length > 128) {
+                                return 'No more than 128 characters allowed';
+                              }
+                              final hasUpper = RegExp(r'[A-Z]').hasMatch(v);
+                              final hasLower = RegExp(r'[a-z]').hasMatch(v);
+                              final hasDigit = RegExp(r'\d').hasMatch(v);
+                              if (!hasUpper || !hasLower || !hasDigit) {
+                                return 'Use uppercase, lowercase, and a number';
+                              }
+                              return null;
+                            },
+                          ),
+
+                          const SizedBox(height: 20),
+
+                          const Text(
+                            'Confirm Password',
+                            style: TextStyle(
+                              color: _darkTeal,
+                              fontSize: 13.5,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+
+                          const SizedBox(height: 8),
+
+                          _buildPasswordField(
+                            controller: _confirmPasswordController,
+                            hintText: 'Re-enter new password',
+                            obscureText: _obscureConfirm,
+                            onToggle: () => setState(
+                              () => _obscureConfirm = !_obscureConfirm,
+                            ),
+                            validator: (v) {
+                              if (v == null || v.isEmpty) {
+                                return 'Confirm your password';
+                              }
+                              if (v != _newPasswordController.text) {
+                                return 'Passwords do not match';
+                              }
+                              return null;
+                            },
+                          ),
+
+                          const SizedBox(height: 36),
+
+                          SizedBox(
+                            width: double.infinity,
+                            height: 48,
+                            child: ElevatedButton(
+                              onPressed: _isLoading || isRateLimited
+                                  ? null
+                                  : _handleSavePassword,
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: _accentColor,
+                                foregroundColor: Colors.white,
+                                elevation: 2,
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(10),
                                 ),
                               ),
-                            ],
+                              child: _isLoading
+                                  ? const SizedBox(
+                                      height: 20,
+                                      width: 20,
+                                      child: CircularProgressIndicator(
+                                        strokeWidth: 2,
+                                        color: Colors.white,
+                                      ),
+                                    )
+                                  : const Text(
+                                      'Save Password',
+                                      style: TextStyle(
+                                        fontWeight: FontWeight.w700,
+                                        fontSize: 15,
+                                      ),
+                                    ),
+                            ),
                           ),
-                        ),
+                          AuthRetryNotice(seconds: retrySeconds),
+                        ],
                       ),
                     ),
                   ),
@@ -323,6 +320,7 @@ class _NewPasswordScreenState extends State<NewPasswordScreen>
         filled: true,
         fillColor: Colors.white,
         suffixIcon: IconButton(
+          tooltip: obscureText ? 'Show password' : 'Hide password',
           icon: Icon(
             obscureText ? Icons.visibility_off : Icons.visibility,
             color: const Color(0xFF8BB5C8),

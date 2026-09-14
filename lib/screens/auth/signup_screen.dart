@@ -1,6 +1,9 @@
 // LOCATION: lib/screens/auth/signup_screen.dart
 
 import 'package:flutter/material.dart';
+import 'widgets/auth_form_scroll_view.dart';
+import 'widgets/auth_form_feedback.dart';
+import '../../services/form_validation.dart';
 import 'package:google_fonts/google_fonts.dart';
 import '../../constants/app_colors.dart';
 import '../../services/api_client.dart';
@@ -17,7 +20,7 @@ class SignupScreen extends StatefulWidget {
 }
 
 class _SignupScreenState extends State<SignupScreen>
-    with SingleTickerProviderStateMixin {
+    with SingleTickerProviderStateMixin, AuthFormFeedback<SignupScreen> {
   final _firstNameCtrl = TextEditingController();
   final _lastNameCtrl = TextEditingController();
   final _emailCtrl = TextEditingController();
@@ -71,11 +74,20 @@ class _SignupScreenState extends State<SignupScreen>
   }
 
   Future<void> _createAccount() async {
+    if (_isLoading || isRateLimited) return;
     final firstName = _firstNameCtrl.text.trim();
     final lastName = _lastNameCtrl.text.trim();
     final email = _emailCtrl.text.trim();
     final password = _passwordCtrl.text;
     final confirm = _confirmCtrl.text;
+
+    final nameError =
+        personalNameError(firstName, 'first name') ??
+        personalNameError(lastName, 'last name');
+    if (nameError != null) {
+      _showError(nameError);
+      return;
+    }
 
     if (firstName.isEmpty) {
       _showError('Please enter your first name.');
@@ -173,7 +185,19 @@ class _SignupScreenState extends State<SignupScreen>
         ),
       );
     } on ApiException catch (error) {
-      _showError(error.message);
+      if (!mounted) return;
+      _showError(handleFormError(error));
+      if (error.code == 'EMAIL_NOT_VERIFIED') {
+        Navigator.pushReplacement(
+          context,
+          MaterialPageRoute(
+            builder: (_) => VerificationCodeScreen(
+              email: email,
+              purpose: VerificationPurpose.emailVerification,
+            ),
+          ),
+        );
+      }
     } catch (_) {
       _showError('Unable to create your account right now. Please try again.');
     } finally {
@@ -204,61 +228,55 @@ class _SignupScreenState extends State<SignupScreen>
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: _bg,
+      resizeToAvoidBottomInset: true,
+      appBar: Navigator.of(context).canPop()
+          ? AppBar(
+              backgroundColor: _bg,
+              elevation: 0,
+              toolbarHeight: 40,
+              leading: const BackButton(color: _titleColor),
+            )
+          : null,
       body: SafeArea(
         child: FadeTransition(
           opacity: _fadeAnim,
-          // SingleChildScrollView prevents overflow on small screens /
-          // when keyboard is up. ConstrainedBox + IntrinsicHeight +
-          // MainAxisAlignment.center gives vertical centering when the
-          // card is shorter than the available height.
-          child: SingleChildScrollView(
-            physics: const ClampingScrollPhysics(),
-            child: ConstrainedBox(
-              constraints: BoxConstraints(
-                minHeight:
-                    MediaQuery.of(context).size.height -
-                    MediaQuery.of(context).padding.top -
-                    MediaQuery.of(context).padding.bottom,
-              ),
-              child: IntrinsicHeight(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.center,
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    // ── Title ───────────────────────────────────────
-                    RichText(
-                      text: TextSpan(
-                        children: [
-                          TextSpan(
-                            text: 'Sign ',
-                            style: GoogleFonts.poppins(
-                              fontSize: 28,
-                              fontWeight: FontWeight.w700,
-                              color: _titleColor,
-                            ),
-                          ),
-                          TextSpan(
-                            text: 'Up',
-                            style: GoogleFonts.poppins(
-                              fontSize: 28,
-                              fontWeight: FontWeight.w400,
-                              color: _titleColor,
-                            ),
-                          ),
-                        ],
+          child: AuthFormScrollView(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.center,
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                // ── Title ───────────────────────────────────────
+                RichText(
+                  text: TextSpan(
+                    children: [
+                      TextSpan(
+                        text: 'Sign ',
+                        style: GoogleFonts.poppins(
+                          fontSize: 28,
+                          fontWeight: FontWeight.w700,
+                          color: _titleColor,
+                        ),
                       ),
-                    ),
-
-                    const SizedBox(height: 16),
-
-                    // ── Card — 20px side margins ─────────────────────
-                    Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 20),
-                      child: _buildCard(),
-                    ),
-                  ],
+                      TextSpan(
+                        text: 'Up',
+                        style: GoogleFonts.poppins(
+                          fontSize: 28,
+                          fontWeight: FontWeight.w400,
+                          color: _titleColor,
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
-              ),
+
+                const SizedBox(height: 16),
+
+                // ── Card — 20px side margins ─────────────────────
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 20),
+                  child: _buildCard(),
+                ),
+              ],
             ),
           ),
         ),
@@ -344,15 +362,17 @@ class _SignupScreenState extends State<SignupScreen>
 
           // ── Sign Up button ────────────────────────────────
           _signUpButton(),
+          AuthRetryNotice(seconds: retrySeconds),
 
           const SizedBox(height: 10),
 
           // ── Already have an account — INSIDE the card ─────
           // Wireframe: this row is at the bottom of the teal card,
-          // not below it. Centering it here prevents any overflow.
+          // not below it. Wrap only if a narrow viewport cannot fit the line.
           Center(
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
+            child: Wrap(
+              alignment: WrapAlignment.center,
+              crossAxisAlignment: WrapCrossAlignment.center,
               children: [
                 Text(
                   'Already have an account? ',
@@ -392,7 +412,7 @@ class _SignupScreenState extends State<SignupScreen>
 
   Widget _signUpButton() {
     return GestureDetector(
-      onTap: _isLoading ? null : _createAccount,
+      onTap: _isLoading || isRateLimited ? null : _createAccount,
       child: Container(
         width: double.infinity,
         height: 36,

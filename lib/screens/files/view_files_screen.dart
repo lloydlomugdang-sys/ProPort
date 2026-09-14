@@ -17,14 +17,14 @@ class ViewFilesScreen extends StatefulWidget {
     super.key,
     required this.categoryKey,
     required this.categoryName,
-    required this.folderKey,
-    required this.folderName,
+    this.folderKey,
+    this.folderName,
   });
 
-  final String categoryKey;
+  final String? categoryKey;
   final String categoryName;
-  final String folderKey;
-  final String folderName;
+  final String? folderKey;
+  final String? folderName;
 
   @override
   State<ViewFilesScreen> createState() => _ViewFilesScreenState();
@@ -63,8 +63,10 @@ class _ViewFilesScreenState extends State<ViewFilesScreen> {
   List<DocumentRecord> _visibleFiles(List<DocumentRecord> documents) {
     return documents
         .where((document) {
-          if (document.categoryKey != widget.categoryKey ||
-              document.folderKey != widget.folderKey) {
+          if ((widget.categoryKey != null &&
+                  document.categoryKey != widget.categoryKey) ||
+              (widget.folderKey != null &&
+                  document.folderKey != widget.folderKey)) {
             return false;
           }
           if (_filter == 'Images' && document.fileKind != 'image') return false;
@@ -140,7 +142,9 @@ class _ViewFilesScreenState extends State<ViewFilesScreen> {
   Widget build(BuildContext context) {
     final service = DocumentScope.of(context);
     final visible = _visibleFiles(service.documents);
-    final title = '${widget.categoryName} • ${widget.folderName}';
+    final title = widget.folderName == null
+        ? widget.categoryName
+        : '${widget.categoryName} • ${widget.folderName}';
 
     return Scaffold(
       backgroundColor: AppColors.background,

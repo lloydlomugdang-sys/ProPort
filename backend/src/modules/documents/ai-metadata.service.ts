@@ -1,5 +1,6 @@
+import type { FastifyBaseLogger } from 'fastify';
 import type { MetadataProvider } from '../../infrastructure/ai/metadata-provider.js';
-import { metadataRecommendationSchema } from '../../infrastructure/ai/metadata-provider.js';
+import { MetadataProviderError, metadataRecommendationSchema } from '../../infrastructure/ai/metadata-provider.js';
 import type { PublicDocumentCategory } from './document.service.js';
 import { suggestDocumentMetadata, type MetadataSuggestions } from './metadata-suggestion.service.js';
 
@@ -34,7 +35,9 @@ function grounded(value: string | undefined, text: string): value is string {
 
 /** Service-level validation mirrors the strict JSON schema; no coercion of AI values. */
 export function validateAiMetadata(value: unknown, text: string, categories: readonly PublicDocumentCategory[]): MetadataSuggestions {
-  if (typeof value !== 'object' || value === null || Array.isArray(value)) throw new Error('Invalid AI metadata.');
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+    throw new MetadataProviderError('invalid_response', 'AI_SCHEMA_VALIDATION_FAILED');
+  }
   const record = value as Record<string, unknown>;
   const keys = metadataRecommendationSchema.required;
   if (Object.keys(record).some((key) => !keys.includes(key as typeof keys[number])) ||
@@ -42,7 +45,7 @@ export function validateAiMetadata(value: unknown, text: string, categories: rea
       keys.filter((key) => key !== 'descriptionQuotes').some((key) => record[key] !== null && typeof record[key] !== 'string') ||
       !Array.isArray(record.descriptionQuotes) || record.descriptionQuotes.length > 3 ||
       record.descriptionQuotes.some((quote: unknown) => typeof quote !== 'string')) {
-    throw new Error('Invalid AI metadata.');
+    throw new MetadataProviderError('invalid_response', 'AI_SCHEMA_VALIDATION_FAILED');
   }
   const evidence = plainText(record.classificationEvidence, 500);
   const content = plainText(record.content, 100);
@@ -74,22 +77,42 @@ export function validateAiMetadata(value: unknown, text: string, categories: rea
 }
 
 export class AiMetadataService {
-  constructor(private readonly provider?: MetadataProvider) {}
+  constructor(
+    private readonly provider?: MetadataProvider,
+    private readonly logger?: Pick<FastifyBaseLogger, 'info' | 'warn'>,
+  ) {}
 
-  async recommend(ocr: { readonly reviewedText?: string; readonly rawText?: string }, categories: readonly PublicDocumentCategory[]): Promise<{
+  async recommend(ocr: { readonly reviewedText?: string; readonly rawText?: string }, categories: readonly PublicDocumentCategory[], requestId?: string): Promise<{
     metadataSuggestions: MetadataSuggestions; metadataAnalysis: MetadataAnalysis;
   }> {
     // Reviewed empty text is authoritative. Never send session, user, filename or file bytes.
     const text = normalizeAiText(ocr.reviewedText ?? ocr.rawText ?? '');
     let aiStatus: MetadataAnalysis['aiStatus'] = this.provider === undefined ? 'disabled' : 'not_needed';
     if (this.provider !== undefined && text.length >= 20) {
+      const startedAt = performance.now();
+      let received = false;
       try {
-        const metadataSuggestions = validateAiMetadata(await this.provider.recommend(text, categories), text, categories);
+        const output = await this.provider.recommend(text, categories);
+        received = true;
+        const metadataSuggestions = validateAiMetadata(output, text, categories);
         if (Object.keys(metadataSuggestions).length > 0) {
+          this.logger?.info({
+            requestId, provider: 'gemini', model: this.provider.model ?? 'unknown',
+            code: 'AI_SUCCESS', httpStatus: 200, latencyMs: Math.round(performance.now() - startedAt),
+          }, 'AI metadata suggestions accepted.');
           return { metadataSuggestions, metadataAnalysis: { source: 'gemini', aiStatus: 'success' } };
         }
-      } catch {
+        throw new MetadataProviderError('invalid_response', 'AI_GROUNDING_REJECTED');
+      } catch (error) {
         // An outage, unsafe answer or malformed output must not turn successful OCR into an error.
+        // Whitelist only diagnostics we created ourselves, never the error/message,
+        // provider response, request body, OCR text, or rejected metadata values.
+        const failure = error instanceof MetadataProviderError ? error : new MetadataProviderError('unavailable');
+        this.logger?.warn({
+          requestId, provider: 'gemini', model: this.provider.model ?? 'unknown',
+          code: failure.code, httpStatus: failure.httpStatus ?? (received ? 200 : undefined),
+          latencyMs: Math.round(performance.now() - startedAt),
+        }, 'AI metadata unavailable; using deterministic fallback.');
       }
       aiStatus = 'unavailable';
     }

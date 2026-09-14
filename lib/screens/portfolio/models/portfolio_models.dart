@@ -1,4 +1,5 @@
 import 'portfolio_schedule.dart';
+import '../../../services/document_models.dart';
 
 /// Holds the user-entered portfolio title-page information.
 class PortfolioInfo {
@@ -109,17 +110,55 @@ class PortfolioSection {
 }
 
 class PortfolioSummary {
-  const PortfolioSummary({required this.sections});
+  const PortfolioSummary({required this.sections, int? totalItems})
+    : _totalItems = totalItems;
 
   final List<PortfolioSection> sections;
+  final int? _totalItems;
 
-  int get totalItems => sections.fold(0, (sum, section) => sum + section.count);
+  int get totalItems =>
+      _totalItems ?? sections.fold(0, (sum, section) => sum + section.count);
 
-  /// Metadata CRUD cannot determine document counts, so the supported
-  /// sections remain visible with honest zero values until document CRUD.
+  static const categorySections = {
+    'curriculum-vitae': 'Curriculum Vitae',
+    'scholastic-record': 'Scholastic Record',
+    'certificates': 'Certificates',
+    'accomplishments': 'Accomplishments',
+    'other-achievements': 'Other Achievements',
+    'college-report': 'College Report',
+  };
+
+  /// Use server-wide counts, not the document list (which can be limited).
+  /// Creative titles have their own section and are counted only once.
+  factory PortfolioSummary.fromDocumentSummary(DocumentSummary documents) {
+    return PortfolioSummary(
+      totalItems: documents.totalCount,
+      sections: [
+        PortfolioSection(
+          name: 'Creative Title',
+          count: documents.creativeTitleCount,
+        ),
+        for (final entry in categorySections.entries)
+          PortfolioSection(
+            name: entry.value,
+            count:
+                (documents.categoryCount(entry.key) -
+                        documents.folderCount(entry.key, 'creative-title'))
+                    .clamp(0, documents.totalCount),
+          ),
+      ],
+    );
+  }
+
+  static String sectionFor(DocumentRecord document) =>
+      document.folderKey == 'creative-title'
+      ? 'Creative Title'
+      : categorySections[document.categoryKey] ?? document.categoryKey;
+
+  /// Only for a known-empty collection, never as a loading/error placeholder.
   static PortfolioSummary get empty => const PortfolioSummary(
     sections: [
-      PortfolioSection(name: 'Creative Titles', count: 0),
+      PortfolioSection(name: 'Creative Title', count: 0),
       PortfolioSection(name: 'Curriculum Vitae', count: 0),
       PortfolioSection(name: 'Scholastic Record', count: 0),
       PortfolioSection(name: 'Certificates', count: 0),

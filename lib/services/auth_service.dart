@@ -3,6 +3,7 @@ import 'package:flutter/foundation.dart';
 import 'api_client.dart';
 import 'auth_models.dart';
 import 'secure_token_store.dart';
+import 'profile_options.dart';
 
 enum SessionRestoreResult { authenticated, noSession, unavailable }
 
@@ -30,6 +31,7 @@ class AuthService extends ChangeNotifier {
   final bool _ownsApiClient;
 
   AuthUser? _user;
+  ProfileOptions? _profileOptions;
   String? _accessToken;
   DateTime? _accessTokenExpiresAt;
   String? _refreshToken;
@@ -67,7 +69,9 @@ class AuthService extends ChangeNotifier {
       '$_authPath/email-verification/verify',
       body: {'email': email, 'code': code},
     );
-    return _parseUser(_dataOf(response)['user']);
+    final session = _parseSession(_dataOf(response));
+    await _persistAndApply(session);
+    return session.user;
   }
 
   Future<void> resendEmailVerification({required String email}) async {
@@ -127,6 +131,7 @@ class AuthService extends ChangeNotifier {
       '$_authPath/password-reset/complete',
       body: {'resetToken': resetToken, 'newPassword': newPassword},
     );
+    await _clearLocalSession();
   }
 
   Future<AuthUser> fetchCurrentUser() async {
@@ -134,7 +139,32 @@ class AuthService extends ChangeNotifier {
       (accessToken) =>
           _apiClient.getJson(_currentUserPath, bearerToken: accessToken),
     );
-    return _applyCurrentUser(_dataOf(response)['user']);
+    final data = _dataOf(response);
+    if (data['profileOptions'] != null) {
+      _profileOptions = ProfileOptions.fromJson(data['profileOptions']);
+    }
+    return _applyCurrentUser(data['user']);
+  }
+
+  Future<ProfileOptions> fetchProfileOptions() async {
+    if (_profileOptions == null) await fetchCurrentUser();
+    return _profileOptions ??
+        (throw const ApiException(
+          code: 'INVALID_RESPONSE',
+          message: 'Profile choices are unavailable. Please try again.',
+        ));
+  }
+
+  Future<void> changePassword({
+    required String currentPassword,
+    required String newPassword,
+  }) async {
+    await authenticatedPostJson(
+      '$_authPath/password/change',
+      body: {'currentPassword': currentPassword, 'newPassword': newPassword},
+    );
+    // Server commits the new hash and all-session revocation before responding.
+    await _clearLocalSession();
   }
 
   Future<AuthUser> updateCurrentUserProfile({
@@ -388,6 +418,7 @@ class AuthService extends ChangeNotifier {
 
   Future<void> _clearLocalSession() async {
     _user = null;
+    _profileOptions = null;
     _accessToken = null;
     _accessTokenExpiresAt = null;
     _refreshToken = null;
