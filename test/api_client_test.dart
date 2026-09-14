@@ -5,8 +5,51 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:proport_app/services/api_client.dart';
+import 'package:proport_app/services/document_service.dart';
 
 void main() {
+  test(
+    'slow multipart OCR success uses the preview timeout and retains metadata',
+    () async {
+      final client = MockClient((request) async {
+        expect(request.url.path, '/api/v1/documents/ocr-preview');
+        expect(request.headers['authorization'], 'Bearer access-token');
+        await Future<void>.delayed(const Duration(milliseconds: 25));
+        return http.Response(
+          jsonEncode({
+            'data': {
+              'ocr': {
+                'status': 'ready',
+                'metadataSuggestions': {'title': 'Course Title'},
+              },
+            },
+            'meta': {'requestId': 'slow-preview'},
+          }),
+          200,
+        );
+      });
+      final api = ApiClient(
+        baseUrl: 'https://example.test',
+        client: client,
+        timeout: const Duration(milliseconds: 1),
+      );
+      final result = await api.postMultipart(
+        '/api/v1/documents/ocr-preview',
+        fields: const {},
+        fileName: 'course.png',
+        mimeType: 'image/png',
+        fileBytes: Uint8List(8),
+        bearerToken: 'access-token',
+        requestTimeout: DocumentService.ocrPreviewTimeout,
+      );
+      expect(
+        result['data']['ocr']['metadataSuggestions']['title'],
+        'Course Title',
+      );
+      expect(api.timeout, const Duration(milliseconds: 1));
+    },
+  );
+
   test('postJson sends JSON and returns a valid data envelope', () async {
     late http.Request captured;
     final client = MockClient((request) async {

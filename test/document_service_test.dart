@@ -19,6 +19,7 @@ void main() {
         'ocr': {
           'status': 'ready',
           'rawText': 'OCR fixture',
+          'metadataAnalysis': {'source': 'gemini', 'aiStatus': 'success'},
           'metadataSuggestions': {
             'categoryKey': 'certificates',
             'folderKey': 'trainings',
@@ -36,11 +37,13 @@ void main() {
       );
       final result = await service.previewOcr(file);
       expect(result.metadataSuggestions?.title, 'Digital Records Management');
+      expect(result.metadataAnalysis?.source, 'gemini');
+      expect(result.metadataAnalysis?.aiStatus, 'success');
       expect(result.metadataSuggestions?.documentDate, DateTime(2026, 9, 14));
       expect(auth.uploadPath, '/api/v1/documents/ocr-preview');
       expect(auth.uploadFields, isEmpty);
       expect(auth.uploadBytes, same(file.bytes));
-      expect(auth.ocrPostTimeout, DocumentService.ocrRequestTimeout);
+      expect(auth.ocrPostTimeout, DocumentService.ocrPreviewTimeout);
       expect(service.documents, isEmpty);
       expect(service.summary.totalCount, 0);
       service.dispose();
@@ -65,6 +68,17 @@ void main() {
         isNull,
       );
       expect(DocumentMetadataSuggestions.fromJson({}).isEmpty, isTrue);
+      expect(
+        DocumentOcrResult.fromJson({'status': 'ready'}).metadataAnalysis,
+        isNull,
+      );
+      expect(
+        () => DocumentOcrResult.fromJson({
+          'status': 'ready',
+          'metadataAnalysis': {'source': 'invented', 'aiStatus': 'success'},
+        }),
+        throwsFormatException,
+      );
     },
   );
 

@@ -1,6 +1,8 @@
 import { resolve } from 'node:path';
 import type { FastifyBaseLogger } from 'fastify';
 import type { AppConfig } from '../config/env.types.js';
+import { GeminiMetadataProvider } from './ai/gemini-metadata-provider.js';
+import { AiMetadataService } from '../modules/documents/ai-metadata.service.js';
 import type { DatabaseConnection } from './database/database-connection.js';
 import { MockDatabaseConnection } from './database/mock-database.js';
 import { MongooseDatabaseConnection } from './database/mongoose-database.js';
@@ -22,6 +24,7 @@ export interface AppServices {
   readonly storage: ObjectStorage;
   readonly email: EmailSender;
   readonly ocr: OcrEngine;
+  readonly metadata?: AiMetadataService;
 }
 
 export function createServices(config: AppConfig, logger: FastifyBaseLogger): AppServices {
@@ -32,7 +35,8 @@ export function createServices(config: AppConfig, logger: FastifyBaseLogger): Ap
     OCR_PROCESSING_TIMEOUT_MS,
     config.ocrMaxConcurrentJobs,
   );
-  return { database, storage, email, ocr };
+  const metadata = new AiMetadataService(config.gemini === undefined ? undefined : new GeminiMetadataProvider(config.gemini));
+  return { database, storage, email, ocr, metadata };
 }
 
 function createStorage(config: AppConfig): ObjectStorage {

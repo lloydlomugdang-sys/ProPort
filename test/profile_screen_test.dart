@@ -13,6 +13,45 @@ import 'package:proport_app/services/auth_service.dart';
 import 'package:proport_app/services/secure_token_store.dart';
 
 void main() {
+  testWidgets(
+    'empty profile fields use display-only fallbacks replaced after save',
+    (tester) async {
+      final auth = _FakeAuthService(
+        user: _user(program: '  ', yearLevel: '', school: '\t'),
+      );
+      await tester.pumpWidget(_testApp(auth));
+      await tester.pumpAndSettle();
+      expect(find.text('Program not set'), findsOneWidget);
+      expect(find.text('Year level not set'), findsOneWidget);
+      expect(find.text('School not set'), findsOneWidget);
+      expect(find.text('student@example.com'), findsOneWidget);
+
+      await tester.tap(find.byTooltip('Edit profile'));
+      await tester.pumpAndSettle();
+      // Display fallbacks never become the editable model or request values.
+      expect(find.text('Program not set'), findsNothing);
+      expect(auth.user.program, '  ');
+      await tester.pageBack();
+      await tester.pumpAndSettle();
+      await auth.updateCurrentUserProfile(
+        firstName: 'Grad',
+        lastName: 'Student',
+        program: 'Information Technology',
+        yearLevel: '4th Year',
+        school: 'GradPort University',
+      );
+      await tester.pumpAndSettle();
+      expect(find.text('Program not set'), findsNothing);
+      expect(find.text('Year level not set'), findsNothing);
+      expect(find.text('School not set'), findsNothing);
+      expect(find.text('Information Technology'), findsOneWidget);
+      expect(find.text('4th Year'), findsOneWidget);
+      expect(find.text('GradPort University'), findsOneWidget);
+      expect(auth.lastUpdate!.values, isNot(contains('Program not set')));
+      auth.dispose();
+    },
+  );
+
   testWidgets('shows loading and then displays the fetched profile', (
     tester,
   ) async {

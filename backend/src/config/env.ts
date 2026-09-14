@@ -6,6 +6,7 @@ import type {
   DatabaseDriver,
   DatabaseEnvironment,
   EmailDriver,
+  GeminiConfig,
   LogLevel,
   NodeEnvironment,
   R2Config,
@@ -393,6 +394,17 @@ export function loadConfig(environment: Environment = process.env): AppConfig {
   const issues: string[] = [];
   const databaseConfig = parseDatabaseConfig(environment, issues);
   const { nodeEnv } = databaseConfig;
+  const aiProvider = parseEnum(environment.AI_PROVIDER ?? 'none', 'AI_PROVIDER', ['none', 'gemini'] as const, issues);
+  let gemini: GeminiConfig | undefined;
+  if (aiProvider === 'gemini') {
+    const apiKey = requiredDriverValue(environment.GEMINI_API_KEY, 'GEMINI_API_KEY', 'AI_PROVIDER=gemini', issues);
+    const model = requiredDriverValue(environment.GEMINI_MODEL, 'GEMINI_MODEL', 'AI_PROVIDER=gemini', issues);
+    if (model && !/^gemini-[a-z0-9.-]{1,100}$/.test(model)) {
+      issues.push('GEMINI_MODEL must be a Gemini model ID, not a URL');
+    }
+    const timeoutMs = parseInteger(environment.GEMINI_TIMEOUT_MS ?? '20000', 'GEMINI_TIMEOUT_MS', 1000, 30000, issues);
+    gemini = Object.freeze({ apiKey, model, timeoutMs });
+  }
   const logLevel = parseEnum<LogLevel>(
     environment.LOG_LEVEL ?? 'info',
     'LOG_LEVEL',
@@ -527,6 +539,8 @@ export function loadConfig(environment: Environment = process.env): AppConfig {
 
   return Object.freeze({
     ...databaseConfig,
+    aiProvider,
+    ...(gemini === undefined ? {} : { gemini }),
     host,
     port,
     logLevel,

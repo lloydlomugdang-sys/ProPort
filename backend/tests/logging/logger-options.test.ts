@@ -1,7 +1,20 @@
 import { describe, expect, it } from 'vitest';
+import Fastify from 'fastify';
 import { createLoggerOptions } from '../../src/common/logging/logger-options.js';
 
 describe('logger redaction', () => {
+  it('redacts Gemini credentials and authorization in serialized logs', async () => {
+    const messages: string[] = [];
+    const options = createLoggerOptions('info');
+    if (options === false) throw new Error('Test logger must be enabled.');
+    const app = Fastify({ logger: { ...options, stream: { write: (message: string) => { messages.push(message); } } } });
+    app.log.info({ GEMINI_API_KEY: 'test-secret-sentinel', config: { gemini: { apiKey: 'test-secret-sentinel' } },
+      credentials: { geminiApiKey: 'test-secret-sentinel', authorization: 'test-secret-sentinel' } });
+    await app.close();
+    expect(messages.join('')).not.toContain('test-secret-sentinel');
+    expect(messages.join('')).toContain('[REDACTED]');
+  });
+
   it('covers credentials, uploaded contents, and extracted text', () => {
     const options = createLoggerOptions('info') as {
       readonly redact: { readonly paths: readonly string[]; readonly censor: string };
@@ -21,6 +34,12 @@ describe('logger redaction', () => {
         '*.emailProviderCredentials',
         '*.brevoApiKey',
         '*.BREVO_API_KEY',
+        'GEMINI_API_KEY',
+        '*.GEMINI_API_KEY',
+        '*.geminiApiKey',
+        '*.apiKey',
+        'config.gemini.apiKey',
+        'req.headers["x-goog-api-key"]',
         '*.r2AccessKeyId',
         '*.r2SecretAccessKey',
         '*.R2_ACCESS_KEY_ID',

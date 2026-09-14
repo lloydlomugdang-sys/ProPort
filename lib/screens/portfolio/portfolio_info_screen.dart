@@ -12,10 +12,8 @@ import 'models/portfolio_schedule.dart';
 import 'portfolio_summary_screen.dart';
 import 'widgets/portfolio_schedule_picker.dart';
 import 'widgets/portfolio_text_field.dart';
-import 'widgets/step_indicator.dart';
 
-/// Screen 1 of 3 — Portfolio Information.
-/// Collects title page fields before generating the portfolio.
+/// Collects and persists portfolio title-page information.
 class PortfolioInfoScreen extends StatefulWidget {
   const PortfolioInfoScreen({super.key, this.portfolio});
 
@@ -155,19 +153,13 @@ class _PortfolioInfoScreenState extends State<PortfolioInfoScreen>
         return;
       }
 
-      await service.createPortfolio(info);
+      final saved = await service.createPortfolio(info);
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Portfolio saved successfully.'),
-          backgroundColor: AppColors.success,
-        ),
-      );
       Navigator.pushReplacement(
         context,
         PageRouteBuilder(
           transitionDuration: const Duration(milliseconds: 350),
-          pageBuilder: (_, _, _) => PortfolioSummaryScreen(portfolioInfo: info),
+          pageBuilder: (_, _, _) => PortfolioSummaryScreen(portfolio: saved),
           transitionsBuilder: (_, anim, _, child) => FadeTransition(
             opacity: CurvedAnimation(parent: anim, curve: Curves.easeOut),
             child: SlideTransition(
@@ -324,7 +316,7 @@ class _PortfolioInfoScreenState extends State<PortfolioInfoScreen>
                       _NextButton(
                         onPressed: _onNext,
                         label: widget.portfolio == null
-                            ? 'Next'
+                            ? 'Save Portfolio'
                             : 'Save Changes',
                         isLoading: _isSaving,
                       ),
@@ -332,21 +324,10 @@ class _PortfolioInfoScreenState extends State<PortfolioInfoScreen>
                   ),
                 ),
               ),
-
-              // ── Step indicator (pinned above bottom nav) ───────────
-              _buildStepBar(),
             ],
           ),
         ),
       ),
-    );
-  }
-
-  Widget _buildStepBar() {
-    return Container(
-      color: AppColors.background,
-      padding: const EdgeInsets.symmetric(vertical: 12),
-      child: const StepIndicatorLight(currentStep: 1),
     );
   }
 }

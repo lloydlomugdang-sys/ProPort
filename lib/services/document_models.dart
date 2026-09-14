@@ -2,6 +2,31 @@ import 'dart:typed_data';
 
 enum DocumentOcrStatus { notProcessed, processing, ready, failed }
 
+class DocumentMetadataAnalysis {
+  const DocumentMetadataAnalysis({
+    required this.source,
+    required this.aiStatus,
+  });
+
+  final String source;
+  final String aiStatus;
+
+  factory DocumentMetadataAnalysis.fromJson(Map<String, dynamic> json) {
+    final source = _requiredString(json, 'source');
+    final status = _requiredString(json, 'aiStatus');
+    if (!const ['gemini', 'rules', 'none'].contains(source) ||
+        !const [
+          'success',
+          'unavailable',
+          'disabled',
+          'not_needed',
+        ].contains(status)) {
+      throw const FormatException();
+    }
+    return DocumentMetadataAnalysis(source: source, aiStatus: status);
+  }
+}
+
 class DocumentMetadataSuggestions {
   const DocumentMetadataSuggestions({
     this.categoryKey,
@@ -52,6 +77,7 @@ class DocumentOcrResult {
     this.processedAt,
     this.updatedAt,
     this.metadataSuggestions,
+    this.metadataAnalysis,
   });
 
   final DocumentOcrStatus status;
@@ -61,6 +87,7 @@ class DocumentOcrResult {
   final DateTime? processedAt;
   final DateTime? updatedAt;
   final DocumentMetadataSuggestions? metadataSuggestions;
+  final DocumentMetadataAnalysis? metadataAnalysis;
 
   bool get isReady => status == DocumentOcrStatus.ready;
 
@@ -75,6 +102,10 @@ class DocumentOcrResult {
     final processedAt = _optionalDateTime(json, 'processedAt');
     final updatedAt = _optionalDateTime(json, 'updatedAt');
     final suggestions = json['metadataSuggestions'];
+    final analysis = json['metadataAnalysis'];
+    if (analysis != null && analysis is! Map<String, dynamic>) {
+      throw const FormatException();
+    }
     if (suggestions != null && suggestions is! Map<String, dynamic>) {
       throw const FormatException();
     }
@@ -85,6 +116,9 @@ class DocumentOcrResult {
       engine: _optionalString(json, 'engine'),
       processedAt: processedAt,
       updatedAt: updatedAt,
+      metadataAnalysis: analysis == null
+          ? null
+          : DocumentMetadataAnalysis.fromJson(analysis as Map<String, dynamic>),
       metadataSuggestions: suggestions == null
           ? null
           : DocumentMetadataSuggestions.fromJson(

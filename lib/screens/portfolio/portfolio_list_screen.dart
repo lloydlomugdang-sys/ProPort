@@ -15,6 +15,13 @@ import 'portfolio_preview_screen.dart';
 class PortfolioListScreen extends StatefulWidget {
   const PortfolioListScreen({super.key});
 
+  static const routeName = '/my-portfolios';
+
+  static void returnToList(BuildContext context) => Navigator.popUntil(
+    context,
+    (route) => route.settings.name == routeName || route.isFirst,
+  );
+
   @override
   State<PortfolioListScreen> createState() => _PortfolioListScreenState();
 }
@@ -50,7 +57,7 @@ class _PortfolioListScreenState extends State<PortfolioListScreen> {
   }
 
   Future<void> _create() async {
-    await Navigator.push<void>(
+    await Navigator.push<Object?>(
       context,
       MaterialPageRoute(builder: (_) => const PortfolioInfoScreen()),
     );
@@ -305,6 +312,12 @@ class _PortfolioCard extends StatelessWidget {
           Text(info.yearAndSection, style: AppTextStyles.labelMedium),
           const SizedBox(height: 2),
           Text(info.formattedSchedule, style: AppTextStyles.labelMedium),
+          const SizedBox(height: 2),
+          Text(info.instructorName, style: AppTextStyles.labelMedium),
+          if (info.semesterAndYear.trim().isNotEmpty) ...[
+            const SizedBox(height: 2),
+            Text(info.semesterAndYear, style: AppTextStyles.labelMedium),
+          ],
           const SizedBox(height: 8),
           Row(
             mainAxisAlignment: MainAxisAlignment.end,

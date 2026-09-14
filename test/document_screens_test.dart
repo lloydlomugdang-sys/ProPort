@@ -282,9 +282,11 @@ void main() {
     (tester) async {
       final service = _ScreenDocumentService(ocr: _suggestedOcr());
       await _openSuggestionForm(tester, service);
-      await tester.tap(find.text('Suggest details from OCR'));
       await tester.pumpAndSettle();
 
+      expect(service.previewCalls, 1);
+      expect(find.text('Suggest details from OCR'), findsNothing);
+      expect(find.textContaining('Unable to reach the server'), findsNothing);
       expect(
         find.text('Suggested from OCR — review before adding your file.'),
         findsOneWidget,
@@ -347,10 +349,9 @@ void main() {
     (tester) async {
       final pending = Completer<DocumentOcrResult>();
       final service = _ScreenDocumentService(extraction: pending);
-      await _openSuggestionForm(tester, service);
-      await tester.tap(find.text('Suggest details from OCR'));
+      await _openSuggestionForm(tester, service, settle: false);
       await tester.pump();
-      expect(find.text('Reading file…'), findsOneWidget);
+      expect(find.text('Reading document...'), findsOneWidget);
       await tester.ensureVisible(find.byType(TextField).first);
       await tester.enterText(find.byType(TextField).first, 'My personal title');
       final dateField = tester.widget<DatePickerField>(
@@ -414,7 +415,6 @@ void main() {
         ),
       );
       await _openSuggestionForm(tester, service);
-      await tester.tap(find.text('Suggest details from OCR'));
       await tester.pumpAndSettle();
       expect(
         tester
@@ -449,8 +449,9 @@ void main() {
   testWidgets(
     'automatic suggestions preserve an explicitly selected content and folder',
     (tester) async {
-      final service = _ScreenDocumentService(ocr: _suggestedOcr());
-      await _openSuggestionForm(tester, service);
+      final pending = Completer<DocumentOcrResult>();
+      final service = _ScreenDocumentService(extraction: pending);
+      await _openSuggestionForm(tester, service, settle: false);
       tester
           .widget<DropdownButton<String>>(
             find.byType(DropdownButton<String>).first,
@@ -463,7 +464,7 @@ void main() {
           )
           .onChanged!('Projects');
       await tester.pump();
-      await tester.tap(find.text('Suggest details from OCR'));
+      pending.complete(_suggestedOcr());
       await tester.pumpAndSettle();
       expect(
         tester
@@ -514,7 +515,6 @@ void main() {
         ),
       );
       await _openSuggestionForm(tester, service);
-      await tester.tap(find.text('Suggest details from OCR'));
       await tester.pumpAndSettle();
       expect(
         find.text('No reliable details found. You can enter them manually.'),
@@ -547,10 +547,11 @@ void main() {
       ),
     );
     await _openSuggestionForm(tester, service);
-    await tester.tap(find.text('Suggest details from OCR'));
     await tester.pumpAndSettle();
     expect(
-      find.textContaining('Text extraction took too long.'),
+      find.text(
+        "We couldn't automatically read this file. You can still enter the details manually.",
+      ),
       findsOneWidget,
     );
     await _completeUploadForm(tester, pick: false);
@@ -565,8 +566,11 @@ void main() {
   ) async {
     final pending = Completer<DocumentOcrResult>();
     final service = _ScreenDocumentService(extraction: pending);
-    await _openSuggestionForm(tester, service);
-    await tester.tap(find.text('Suggest details from OCR'));
+    service.previewResponses.addAll([
+      pending.future,
+      Future.value(const DocumentOcrResult(status: DocumentOcrStatus.ready)),
+    ]);
+    await _openSuggestionForm(tester, service, settle: false);
     await tester.pump();
     await tester.tap(find.text('demo.pdf'));
     await tester.pump();
@@ -579,6 +583,220 @@ void main() {
     expect(find.text('Apply OCR suggestions'), findsNothing);
     service.disposeWithAuth();
   });
+
+  testWidgets(
+    'AI recommendations are labeled, editable and never fill Reflection',
+    (tester) async {
+      final suggestions = _suggestedOcr().metadataSuggestions;
+      final service = _ScreenDocumentService(
+        ocr: DocumentOcrResult(
+          status: DocumentOcrStatus.ready,
+          metadataSuggestions: suggestions,
+          metadataAnalysis: const DocumentMetadataAnalysis(
+            source: 'gemini',
+            aiStatus: 'success',
+          ),
+        ),
+      );
+      await _openSuggestionForm(tester, service);
+      expect(
+        find.text(
+          'AI suggested from document — review and edit before saving.',
+        ),
+        findsOneWidget,
+      );
+      expect(find.text('Apply AI suggestions'), findsOneWidget);
+      expect(find.textContaining('Unable to reach the server'), findsNothing);
+      final fields = tester
+          .widgetList<OptionalField>(find.byType(OptionalField))
+          .toList();
+      expect(fields[1].controller.text, isEmpty);
+      await tester.ensureVisible(find.byType(TextField).first);
+      await tester.enterText(find.byType(TextField).first, 'My reviewed title');
+      expect(
+        tester.widget<TextField>(find.byType(TextField).first).controller!.text,
+        'My reviewed title',
+      );
+      expect(service.previewCalls, 1);
+      service.disposeWithAuth();
+    },
+  );
+
+  testWidgets(
+    'AI outage applies basic details without an OCR or network failure',
+    (tester) async {
+      final service = _ScreenDocumentService(
+        ocr: DocumentOcrResult(
+          status: DocumentOcrStatus.ready,
+          metadataSuggestions: _suggestedOcr().metadataSuggestions,
+          metadataAnalysis: const DocumentMetadataAnalysis(
+            source: 'rules',
+            aiStatus: 'unavailable',
+          ),
+        ),
+      );
+      await _openSuggestionForm(tester, service);
+      expect(
+        find.text(
+          'AI suggestions are temporarily unavailable. Basic document details were applied where possible.',
+        ),
+        findsOneWidget,
+      );
+      expect(
+        tester.widget<TextField>(find.byType(TextField).first).controller!.text,
+        'Digital Records Management',
+      );
+      expect(find.text('Apply AI suggestions'), findsNothing);
+      expect(
+        find.textContaining("We couldn't automatically read"),
+        findsNothing,
+      );
+      expect(find.textContaining('Unable to reach the server'), findsNothing);
+      service.disposeWithAuth();
+    },
+  );
+
+  for (final type in [
+    ('jpg', 'image/jpeg'),
+    ('jpeg', 'image/jpeg'),
+    ('png', 'image/png'),
+    ('pdf', 'application/pdf'),
+  ]) {
+    testWidgets(
+      'selecting ${type.$1} automatically requests exactly one preview',
+      (tester) async {
+        final pending = Completer<DocumentOcrResult>();
+        final service = _ScreenDocumentService(extraction: pending);
+        final file = PickedDocument(
+          name: 'selected.${type.$1}',
+          mimeType: type.$2,
+          bytes: Uint8List(8),
+        );
+        await tester.pumpWidget(
+          _app(service, AddFileScreen(filePicker: _FakePicker(file))),
+        );
+        await tester.pumpAndSettle();
+        await tester.tap(find.text('Tap to upload file'));
+        await tester.pump();
+        expect(service.previewCalls, 1);
+        expect(service.previewFiles.single, same(file));
+        expect(find.text('Reading document...'), findsOneWidget);
+        pending.complete(_suggestedOcr());
+        await tester.pumpAndSettle();
+        expect(find.text('Reading document...'), findsNothing);
+        expect(find.textContaining('Unable to reach the server'), findsNothing);
+        expect(service.previewCalls, 1);
+        service.disposeWithAuth();
+      },
+    );
+  }
+
+  testWidgets(
+    'new file replaces earlier automatic fields and preserves manual edits',
+    (tester) async {
+      final service = _ScreenDocumentService(ocr: _suggestedOcr());
+      final picker = await _openSuggestionForm(tester, service);
+      await tester.ensureVisible(find.byType(TextField).first);
+      await tester.enterText(find.byType(TextField).first, 'My own title');
+      final optional = tester
+          .widgetList<OptionalField>(find.byType(OptionalField))
+          .toList();
+      optional[1].controller.text = 'Personal reflection';
+      final pending = Completer<DocumentOcrResult>();
+      service.previewResponses.add(pending.future);
+      picker.result = PickedDocument(
+        name: 'new.png',
+        mimeType: 'image/png',
+        bytes: Uint8List(8),
+      );
+      await tester.ensureVisible(find.text('demo.pdf'));
+      await tester.tap(find.text('demo.pdf'));
+      await tester.pump();
+      expect(
+        tester
+            .widget<DatePickerField>(find.byType(DatePickerField))
+            .selectedDate,
+        isNull,
+      );
+      expect(optional[0].controller.text, isEmpty);
+      expect(
+        tester.widget<TextField>(find.byType(TextField).first).controller!.text,
+        'My own title',
+      );
+      pending.complete(
+        DocumentOcrResult(
+          status: DocumentOcrStatus.ready,
+          metadataSuggestions: DocumentMetadataSuggestions(
+            categoryKey: 'certificates',
+            folderKey: 'trainings',
+            title: 'New automatic title',
+            documentDate: DateTime(2026, 10, 15),
+            description: 'New detected description',
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(service.previewFiles.map((file) => file.name), [
+        'demo.pdf',
+        'new.png',
+      ]);
+      expect(
+        tester
+            .widget<DropdownButton<String>>(
+              find.byType(DropdownButton<String>).last,
+            )
+            .value,
+        'Trainings',
+      );
+      expect(
+        tester
+            .widget<DatePickerField>(find.byType(DatePickerField))
+            .selectedDate,
+        DateTime(2026, 10, 15),
+      );
+      expect(
+        tester.widget<TextField>(find.byType(TextField).first).controller!.text,
+        'My own title',
+      );
+      expect(optional[0].controller.text, 'New detected description');
+      expect(optional[1].controller.text, 'Personal reflection');
+      service.disposeWithAuth();
+    },
+  );
+
+  testWidgets(
+    'failure for an older file cannot replace newer successful suggestions',
+    (tester) async {
+      final old = Completer<DocumentOcrResult>();
+      final service = _ScreenDocumentService()
+        ..previewResponses.addAll([old.future, Future.value(_suggestedOcr())]);
+      final picker = await _openSuggestionForm(tester, service, settle: false);
+      picker.result = PickedDocument(
+        name: 'new.png',
+        mimeType: 'image/png',
+        bytes: Uint8List(8),
+      );
+      await tester.tap(find.text('demo.pdf'));
+      await tester.pumpAndSettle();
+      old.completeError(
+        const ApiException(
+          code: 'NETWORK_ERROR',
+          message: 'Unable to reach the server.',
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(find.textContaining('Unable to reach the server'), findsNothing);
+      expect(
+        find.textContaining("We couldn't automatically read"),
+        findsNothing,
+      );
+      expect(
+        tester.widget<TextField>(find.byType(TextField).first).controller!.text,
+        'Digital Records Management',
+      );
+      service.disposeWithAuth();
+    },
+  );
 
   testWidgets('Add File rejects unsupported and oversized picker results', (
     tester,
@@ -648,10 +866,11 @@ DocumentOcrResult _suggestedOcr() => DocumentOcrResult(
   ),
 );
 
-Future<void> _openSuggestionForm(
+Future<_FakePicker> _openSuggestionForm(
   WidgetTester tester,
-  DocumentService service,
-) async {
+  DocumentService service, {
+  bool settle = true,
+}) async {
   final picker = _FakePicker(
     PickedDocument(
       name: 'demo.pdf',
@@ -662,7 +881,12 @@ Future<void> _openSuggestionForm(
   await tester.pumpWidget(_app(service, AddFileScreen(filePicker: picker)));
   await tester.pumpAndSettle();
   await tester.tap(find.text('Tap to upload file'));
-  await tester.pumpAndSettle();
+  if (settle) {
+    await tester.pumpAndSettle();
+  } else {
+    await tester.pump();
+  }
+  return picker;
 }
 
 Widget _app(DocumentService service, Widget child) => DocumentScope(
@@ -703,7 +927,7 @@ Future<void> _completeUploadForm(
 class _FakePicker implements DocumentPicker {
   _FakePicker(this.result);
 
-  final PickedDocument? result;
+  PickedDocument? result;
   int calls = 0;
 
   @override
@@ -753,7 +977,10 @@ class _ScreenDocumentService extends DocumentService {
     DocumentCategory(
       key: 'certificates',
       name: 'Certificates',
-      folders: [DocumentFolder(key: 'seminars', name: 'Seminars')],
+      folders: [
+        DocumentFolder(key: 'seminars', name: 'Seminars'),
+        DocumentFolder(key: 'trainings', name: 'Trainings'),
+      ],
     ),
     DocumentCategory(
       key: 'accomplishments',
@@ -770,6 +997,9 @@ class _ScreenDocumentService extends DocumentService {
   final Completer<DocumentOcrResult>? extraction;
   final ApiException? extractionFailure;
   int extractionCalls = 0;
+  int previewCalls = 0;
+  final List<Future<DocumentOcrResult>> previewResponses = [];
+  final List<PickedDocument> previewFiles = [];
   String? savedText;
   final List<String> deletedIds = [];
   PickedDocument? uploadedFile;
@@ -847,6 +1077,9 @@ class _ScreenDocumentService extends DocumentService {
 
   @override
   Future<DocumentOcrResult> previewOcr(PickedDocument file) async {
+    previewCalls++;
+    previewFiles.add(file);
+    if (previewResponses.isNotEmpty) return await previewResponses.removeAt(0);
     final failure = extractionFailure;
     if (failure != null) throw failure;
     return extraction == null ? _ocr : await extraction!.future;

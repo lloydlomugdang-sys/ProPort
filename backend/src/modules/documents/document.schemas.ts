@@ -169,6 +169,13 @@ const documentOcrSchema = {
     engine: { enum: ['tesseract.js', 'pdfjs'] },
     processedAt: { type: 'string', format: 'date-time' },
     updatedAt: { type: 'string', format: 'date-time' },
+    metadataAnalysis: {
+      type: 'object', additionalProperties: false, required: ['source', 'aiStatus'],
+      properties: {
+        source: { enum: ['gemini', 'rules', 'none'] },
+        aiStatus: { enum: ['success', 'unavailable', 'disabled', 'not_needed'] },
+      },
+    },
     metadataSuggestions: {
       type: 'object',
       additionalProperties: false,

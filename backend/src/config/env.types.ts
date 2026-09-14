@@ -6,6 +6,12 @@ export type DatabaseAccessMode = 'runtime' | 'maintenance';
 export type StorageDriver = 'local' | 'r2';
 export type EmailDriver = 'console' | 'smtp' | 'brevo';
 
+export interface GeminiConfig {
+  readonly apiKey: string;
+  readonly model: string;
+  readonly timeoutMs: number;
+}
+
 export interface SmtpConfig {
   readonly host: string;
   readonly port: number;
@@ -42,6 +48,8 @@ export interface DatabaseConfig {
 }
 
 export interface AppConfig extends DatabaseConfig {
+  readonly aiProvider: 'none' | 'gemini';
+  readonly gemini?: GeminiConfig;
   readonly host: string;
   readonly port: number;
   readonly logLevel: LogLevel;

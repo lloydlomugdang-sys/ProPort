@@ -126,6 +126,10 @@ class _HomeScreenState extends State<HomeScreen>
                   onPressed: _onGeneratePortfolio,
                   height: 54,
                 ),
+                TextButton(
+                  onPressed: _onGeneratePortfolio,
+                  child: const Text('My Portfolios'),
+                ),
               ],
             ),
           ),
@@ -139,6 +143,7 @@ class _HomeScreenState extends State<HomeScreen>
     Navigator.push(
       context,
       PageRouteBuilder(
+        settings: const RouteSettings(name: PortfolioListScreen.routeName),
         transitionDuration: const Duration(milliseconds: 380),
         pageBuilder: (_, _, _) => const PortfolioListScreen(),
         transitionsBuilder: (_, anim, _, child) => FadeTransition(

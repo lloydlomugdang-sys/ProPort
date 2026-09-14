@@ -13,6 +13,10 @@ class DocumentService extends ChangeNotifier {
 
   static const maxUploadBytes = 15 * 1024 * 1024;
   static const ocrRequestTimeout = Duration(seconds: 60);
+  // Preview includes upload, a possible cold start and the backend's bounded
+  // 45-second OCR job plus bounded Gemini analysis (at most 30 seconds).
+  // Keep ordinary API requests on their existing timeout.
+  static const ocrPreviewTimeout = Duration(seconds: 120);
   static const _documentsPath = '/api/v1/documents';
 
   final AuthService _authService;
@@ -150,7 +154,7 @@ class DocumentService extends ChangeNotifier {
       fileName: file.name,
       mimeType: file.mimeType,
       fileBytes: file.bytes,
-      requestTimeout: ocrRequestTimeout,
+      requestTimeout: ocrPreviewTimeout,
     );
     if (authGeneration != _authGeneration) {
       throw const ApiException(

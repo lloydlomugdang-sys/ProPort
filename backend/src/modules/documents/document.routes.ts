@@ -171,7 +171,7 @@ export async function registerDocumentRoutes(
 ): Promise<void> {
   const { services } = options;
   const currentUsers = new CurrentUserService(services.database);
-  const documents = new DocumentService(services.database, services.storage, services.ocr);
+  const documents = new DocumentService(services.database, services.storage, services.ocr, services.metadata);
   const identities = new WeakMap<FastifyRequest, CurrentUserIdentity>();
 
   async function requireCurrentUser(request: FastifyRequest): Promise<void> {

@@ -110,20 +110,46 @@ void main() {
       await tester.pumpAndSettle();
       await tester.tap(find.text('OK'));
       await tester.pumpAndSettle();
-      final nextButton = find.text('Next');
+      final nextButton = find.text('Save Portfolio');
       await tester.ensureVisible(nextButton);
       await tester.tap(nextButton);
       await tester.pumpAndSettle();
 
       expect(auth.postCount, 1);
-      expect(find.text('Portfolio Summary'), findsOneWidget);
+      expect(find.text('Portfolio Saved'), findsOneWidget);
+      expect(find.text('Saved to My Portfolios'), findsOneWidget);
+      expect(
+        find.text('PDF/DOCX export is not available yet.'),
+        findsOneWidget,
+      );
       expect(find.text('Friday 8:00 AM - 9:00 AM'), findsOneWidget);
-      expect(find.text('0'), findsWidgets);
-      await tester.tap(find.byIcon(Icons.arrow_back_ios_new));
+      await tester.tap(find.text('View Portfolio'));
+      await tester.pumpAndSettle();
+      expect(auth.itemGetCount, 1);
+      expect(find.text('Portfolio Preview'), findsOneWidget);
+      expect(find.text('Confirm & Export'), findsNothing);
+      expect(find.text('Portfolio Exported'), findsNothing);
+      await tester.tap(find.text('Back to My Portfolios'));
       await tester.pumpAndSettle();
 
+      expect(find.text('My Portfolios'), findsOneWidget);
+      expect(find.text('Portfolio Preview'), findsNothing);
       expect(find.text('New Portfolio Student'), findsOneWidget);
       expect(find.text('Friday 8:00 AM - 9:00 AM'), findsOneWidget);
+      // A new service instance restores the same server record after restart.
+      await tester.pumpWidget(const SizedBox.shrink());
+      final restored = PortfolioService(authService: auth);
+      await tester.pumpWidget(_app(restored));
+      await tester.pumpAndSettle();
+      expect(restored.portfolios.single.id, 'portfolio-1');
+      await restored.loadPortfolios(force: true);
+      await tester.pumpAndSettle();
+      expect(restored.portfolios, hasLength(1));
+      await tester.tap(find.byKey(const Key('view-portfolio-1')));
+      await tester.pumpAndSettle();
+      expect(find.text('Portfolio Preview'), findsOneWidget);
+      await tester.tap(find.text('Back to My Portfolios'));
+      await tester.pumpAndSettle();
       await tester.tap(find.byKey(const Key('delete-portfolio-1')));
       await tester.pumpAndSettle();
       expect(find.text('Delete Portfolio'), findsOneWidget);
@@ -133,6 +159,8 @@ void main() {
       expect(auth.deleteCount, 1);
       expect(find.byKey(const Key('portfolio-empty')), findsOneWidget);
       expect(find.text('Portfolio deleted successfully.'), findsOneWidget);
+      await tester.pumpWidget(const SizedBox.shrink());
+      restored.dispose();
     },
   );
 

@@ -17,6 +17,8 @@ import 'widgets/date_picker_field.dart';
 import 'widgets/optional_field.dart';
 import 'widgets/upload_card.dart';
 
+enum _OcrField { content, folder, title, date, description }
+
 class AddFileScreen extends StatefulWidget {
   const AddFileScreen({super.key, this.filePicker});
 
@@ -48,6 +50,12 @@ class _AddFileScreenState extends State<AddFileScreen>
   DocumentMetadataSuggestions? _suggestions;
   String? _suggestionMessage;
   int _previewOperation = 0;
+  final Set<_OcrField> _automaticFields = {};
+  bool _writingSuggestions = false;
+  bool _suggestionFailed = false;
+  bool _suggestedByAi = false;
+  String _observedTitle = '';
+  String _observedDescription = '';
 
   // ─── Entrance animation ───────────────────────────────────────────────────
   late final AnimationController _entranceCtrl;
@@ -58,6 +66,16 @@ class _AddFileScreenState extends State<AddFileScreen>
   void initState() {
     super.initState();
     _filePicker = widget.filePicker ?? DeviceDocumentPicker();
+    _titleCtrl.addListener(() {
+      if (_titleCtrl.text == _observedTitle) return;
+      _observedTitle = _titleCtrl.text;
+      if (!_writingSuggestions) _automaticFields.remove(_OcrField.title);
+    });
+    _descriptionCtrl.addListener(() {
+      if (_descriptionCtrl.text == _observedDescription) return;
+      _observedDescription = _descriptionCtrl.text;
+      if (!_writingSuggestions) _automaticFields.remove(_OcrField.description);
+    });
     _entranceCtrl = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 420),
@@ -78,6 +96,19 @@ class _AddFileScreenState extends State<AddFileScreen>
       _entranceCtrl.forward();
       DocumentScope.of(context).load().catchError((_) {});
     });
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    // Categories can finish loading after the OCR response. Apply matching keys
+    // then as well, without letting a category-list failure discard useful text.
+    final operation = _previewOperation;
+    if (_suggestions != null) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted && operation == _previewOperation) _applySuggestions();
+      });
+    }
   }
 
   @override
@@ -118,12 +149,16 @@ class _AddFileScreenState extends State<AddFileScreen>
         return;
       }
       setState(() {
+        _clearAutomaticFields();
         _pickedFile = selected;
         _previewOperation++;
         _isSuggesting = false;
         _suggestions = null;
         _suggestionMessage = null;
+        _suggestionFailed = false;
+        _suggestedByAi = false;
       });
+      await _suggestDetails();
     } catch (_) {
       if (!mounted) return;
       _showSnack('Unable to read the selected file. Please try another file.');
@@ -218,28 +253,57 @@ class _AddFileScreenState extends State<AddFileScreen>
     setState(() {
       _isSuggesting = true;
       _suggestionMessage = null;
+      _suggestionFailed = false;
     });
     try {
       final result = await service.previewOcr(file);
       if (!mounted || operation != _previewOperation) return;
+      if (!result.isReady) {
+        throw const ApiException(
+          code: 'OCR_FAILED',
+          message: 'Automatic reading failed.',
+        );
+      }
       final suggestions = result.isReady ? result.metadataSuggestions : null;
       setState(() {
         _suggestions = suggestions;
+        _suggestedByAi = result.metadataAnalysis?.source == 'gemini';
         _suggestionMessage = suggestions == null || suggestions.isEmpty
             ? 'No reliable details found. You can enter them manually.'
             : 'Suggested from OCR — review before adding your file.';
+        if (_suggestedByAi) {
+          _suggestionMessage =
+              'AI suggested from document — review and edit before saving.';
+        } else if (result.metadataAnalysis?.aiStatus == 'unavailable') {
+          _suggestionMessage = suggestions == null || suggestions.isEmpty
+              ? 'AI suggestions are temporarily unavailable. You can enter the details manually.'
+              : 'AI suggestions are temporarily unavailable. Basic document details were applied where possible.';
+        }
       });
       if (suggestions != null) _applySuggestions();
     } on ApiException catch (error) {
       if (mounted && operation == _previewOperation) {
-        setState(() => _suggestionMessage = error.message);
+        setState(() {
+          _suggestionFailed = true;
+          _suggestionMessage = switch (error.code) {
+            'NETWORK_ERROR' =>
+              'No connection for automatic reading. You can still enter the details manually.',
+            'NETWORK_TIMEOUT' =>
+              'Automatic reading took too long. You can still enter the details manually.',
+            'RATE_LIMITED' =>
+              'Too many reading requests. Please wait before retrying, or enter the details manually.',
+            _ =>
+              "We couldn't automatically read this file. You can still enter the details manually.",
+          };
+        });
       }
     } catch (_) {
       if (mounted && operation == _previewOperation) {
-        setState(
-          () => _suggestionMessage =
-              'Unable to suggest details. You can still add your file manually.',
-        );
+        setState(() {
+          _suggestionFailed = true;
+          _suggestionMessage =
+              "We couldn't automatically read this file. You can still enter the details manually.";
+        });
       }
     } finally {
       if (mounted && operation == _previewOperation) {
@@ -248,41 +312,73 @@ class _AddFileScreenState extends State<AddFileScreen>
     }
   }
 
+  void _clearAutomaticFields() {
+    _writingSuggestions = true;
+    try {
+      if (_automaticFields.contains(_OcrField.content)) _selectedContent = null;
+      if (_automaticFields.contains(_OcrField.folder)) _selectedFolder = null;
+      if (_automaticFields.contains(_OcrField.title)) _titleCtrl.clear();
+      if (_automaticFields.contains(_OcrField.date)) _selectedDate = null;
+      if (_automaticFields.contains(_OcrField.description)) {
+        _descriptionCtrl.clear();
+        _descriptionEnabled = false;
+      }
+      _automaticFields.clear();
+    } finally {
+      _writingSuggestions = false;
+    }
+  }
+
   void _applySuggestions({bool replace = false}) {
     final suggestions = _suggestions;
     if (suggestions == null || _isSubmitting) return;
     final categories = DocumentScope.of(context).categories;
-    setState(() {
-      final suggestedCategory = categories
-          .where((category) => category.key == suggestions.categoryKey)
-          .firstOrNull;
-      if (suggestedCategory != null && (replace || _selectedContent == null)) {
-        if (_selectedContent != suggestedCategory.name) _selectedFolder = null;
-        _selectedContent = suggestedCategory.name;
-      }
-      final category = _selectedCategory(categories);
-      if (category != null &&
-          category.key == suggestions.categoryKey &&
-          (replace || _selectedFolder == null)) {
-        final folder = category.folders
-            .where((folder) => folder.key == suggestions.folderKey)
+    _writingSuggestions = true;
+    try {
+      setState(() {
+        final suggestedCategory = categories
+            .where((category) => category.key == suggestions.categoryKey)
             .firstOrNull;
-        if (folder != null) _selectedFolder = folder.name;
-      }
-      if (suggestions.title != null &&
-          (replace || _titleCtrl.text.trim().isEmpty)) {
-        _titleCtrl.text = suggestions.title!;
-      }
-      if (suggestions.documentDate != null &&
-          (replace || _selectedDate == null)) {
-        _selectedDate = suggestions.documentDate;
-      }
-      if (suggestions.description != null &&
-          (replace || _descriptionCtrl.text.trim().isEmpty)) {
-        _descriptionCtrl.text = suggestions.description!;
-        _descriptionEnabled = true;
-      }
-    });
+        if (suggestedCategory != null &&
+            (replace || _selectedContent == null)) {
+          if (_selectedContent != suggestedCategory.name) {
+            _selectedFolder = null;
+          }
+          _selectedContent = suggestedCategory.name;
+          _automaticFields.add(_OcrField.content);
+        }
+        final category = _selectedCategory(categories);
+        if (category != null &&
+            category.key == suggestions.categoryKey &&
+            (replace || _selectedFolder == null)) {
+          final folder = category.folders
+              .where((folder) => folder.key == suggestions.folderKey)
+              .firstOrNull;
+          if (folder != null) {
+            _selectedFolder = folder.name;
+            _automaticFields.add(_OcrField.folder);
+          }
+        }
+        if (suggestions.title != null &&
+            (replace || _titleCtrl.text.trim().isEmpty)) {
+          _titleCtrl.text = suggestions.title!;
+          _automaticFields.add(_OcrField.title);
+        }
+        if (suggestions.documentDate != null &&
+            (replace || _selectedDate == null)) {
+          _selectedDate = suggestions.documentDate;
+          _automaticFields.add(_OcrField.date);
+        }
+        if (suggestions.description != null &&
+            (replace || _descriptionCtrl.text.trim().isEmpty)) {
+          _descriptionCtrl.text = suggestions.description!;
+          _descriptionEnabled = true;
+          _automaticFields.add(_OcrField.description);
+        }
+      });
+    } finally {
+      _writingSuggestions = false;
+    }
   }
 
   // ─── Helpers ──────────────────────────────────────────────────────────────
@@ -330,23 +426,24 @@ class _AddFileScreenState extends State<AddFileScreen>
                 UploadCard(onTap: _onUploadTap, fileName: _pickedFile?.name),
 
                 if (_pickedFile != null) ...[
-                  TextButton.icon(
-                    onPressed: _isSuggesting || _isSubmitting
-                        ? null
-                        : _suggestDetails,
-                    icon: _isSuggesting
-                        ? const SizedBox(
-                            width: 16,
-                            height: 16,
-                            child: CircularProgressIndicator(strokeWidth: 2),
-                          )
-                        : const Icon(Icons.text_snippet_outlined, size: 18),
-                    label: Text(
-                      _isSuggesting
-                          ? 'Reading file…'
-                          : 'Suggest details from OCR',
+                  if (_isSuggesting)
+                    const Row(
+                      children: [
+                        SizedBox(
+                          width: 16,
+                          height: 16,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        ),
+                        SizedBox(width: 8),
+                        Text('Reading document...'),
+                      ],
                     ),
-                  ),
+                  if (_suggestionFailed)
+                    TextButton.icon(
+                      onPressed: _isSubmitting ? null : _suggestDetails,
+                      icon: const Icon(Icons.refresh, size: 18),
+                      label: const Text('Retry automatic reading'),
+                    ),
                   if (_suggestionMessage != null)
                     Text(
                       _suggestionMessage!,
@@ -360,7 +457,11 @@ class _AddFileScreenState extends State<AddFileScreen>
                       onPressed: _isSubmitting
                           ? null
                           : () => _applySuggestions(replace: true),
-                      child: const Text('Apply OCR suggestions'),
+                      child: Text(
+                        _suggestedByAi
+                            ? 'Apply AI suggestions'
+                            : 'Apply OCR suggestions',
+                      ),
                     ),
                 ],
 
@@ -381,6 +482,8 @@ class _AddFileScreenState extends State<AddFileScreen>
                     setState(() {
                       _selectedContent = val;
                       _selectedFolder = null; // reset folder
+                      _automaticFields.remove(_OcrField.content);
+                      _automaticFields.remove(_OcrField.folder);
                     });
                   },
                 ),
@@ -394,7 +497,12 @@ class _AddFileScreenState extends State<AddFileScreen>
                   value: _selectedFolder,
                   required: true,
                   enabled: _selectedContent != null,
-                  onChanged: (val) => setState(() => _selectedFolder = val),
+                  onChanged: (val) => setState(() {
+                    _selectedFolder = val;
+                    _automaticFields.remove(_OcrField.folder);
+                    // Keep the category that owns a manually selected folder.
+                    _automaticFields.remove(_OcrField.content);
+                  }),
                 ),
                 const SizedBox(height: 14),
 
@@ -412,7 +520,10 @@ class _AddFileScreenState extends State<AddFileScreen>
                   label: 'Date',
                   selectedDate: _selectedDate,
                   required: true,
-                  onDateSelected: (d) => setState(() => _selectedDate = d),
+                  onDateSelected: (d) => setState(() {
+                    _selectedDate = d;
+                    _automaticFields.remove(_OcrField.date);
+                  }),
                 ),
                 const SizedBox(height: 14),
 
@@ -422,9 +533,10 @@ class _AddFileScreenState extends State<AddFileScreen>
                   hint: 'Enter description',
                   controller: _descriptionCtrl,
                   isEnabled: _descriptionEnabled,
-                  onToggle: () => setState(
-                    () => _descriptionEnabled = !_descriptionEnabled,
-                  ),
+                  onToggle: () => setState(() {
+                    _descriptionEnabled = !_descriptionEnabled;
+                    _automaticFields.remove(_OcrField.description);
+                  }),
                 ),
                 const SizedBox(height: 14),
 

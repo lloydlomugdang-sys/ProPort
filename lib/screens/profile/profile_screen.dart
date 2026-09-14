@@ -175,15 +175,21 @@ class _ProfileScreenState extends State<ProfileScreen> {
                 ),
                 ProfileInfoRow(
                   icon: Icons.school_outlined,
-                  value: profile.program,
+                  value: profile.program.trim().isEmpty
+                      ? 'Program not set'
+                      : profile.program,
                 ),
                 ProfileInfoRow(
                   icon: Icons.calendar_today_outlined,
-                  value: profile.yearLevel,
+                  value: profile.yearLevel.trim().isEmpty
+                      ? 'Year level not set'
+                      : profile.yearLevel,
                 ),
                 ProfileInfoRow(
                   icon: Icons.account_balance_outlined,
-                  value: profile.school,
+                  value: profile.school.trim().isEmpty
+                      ? 'School not set'
+                      : profile.school,
                   isLast: true,
                 ),
               ],

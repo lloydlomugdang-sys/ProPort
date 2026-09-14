@@ -86,9 +86,69 @@ Existing document records require no data migration: a missing `ocr` field is re
 
 Add a File can request `POST /api/v1/documents/ocr-preview` with one multipart `file` and no text fields. This authenticated preview uses the existing file validation, OCR engine and limits, shares the per-user OCR rate limit, and persists neither an object nor a document. It returns the standard `{data:{ocr:{status:"ready",rawText,reviewedText,engine,metadataSuggestions}},meta:{requestId}}` envelope. Existing owner-scoped OCR GET/POST/PATCH responses also include `metadataSuggestions` when ready, computed from `reviewedText` (including an intentionally empty review), falling back to `rawText` only when no review exists.
 
-Metadata parsing uses deterministic text rules only, with no new model, external API, or package. Optional suggestion fields are `categoryKey`, `folderKey`, `title`, `documentDate` (`YYYY-MM-DD`), and `description`; Reflection is never generated. Certificates map only to the active `certificates` / **Certificates** category, with `trainings` / **Trainings** for course/training/workshop text or `seminars` / **Seminars** for seminar/webinar text when those folders exist. Explicit subject markers identify titles, and description text uses only the detected certificate type, subject and explicitly named issuing/conducting organization. Missing, impossible, conflicting, or ambiguous MM/DD versus DD/MM dates are omitted. No current date or filename is substituted.
+Optional suggestion fields remain `categoryKey`, `folderKey`, `title`, `documentDate` (`YYYY-MM-DD`), and `description`; Reflection is never generated. The deterministic parser remains the fallback. It uses explicit subject markers, known certificate categories/folders, and conservative date parsing. Missing, impossible, conflicting, or ambiguous MM/DD versus DD/MM dates are omitted. No current date or filename is substituted.
 
-Flutter's **Suggest details from OCR** fills empty fields; **Apply OCR suggestions** explicitly replaces supported metadata fields. Reflection and other user edits remain unchanged by automatic prefilling. Every suggestion stays editable. Preview failure does not prevent manual upload, and previews do not save OCR text: stored-file extraction/review continues through the existing OCR endpoints. No schema, seed, index or permission change is needed.
+Selecting a supported JPEG/PNG/PDF in Flutter automatically starts the preview, shows the filename and **Reading document...**, and fills empty metadata fields. **Apply AI suggestions** (or **Apply OCR suggestions** for basic results) is an explicit replacement action. Manual edits and Reflection are protected during automatic prefilling. A new file clears only earlier automatic values, starts one new preview, and ignores late results/errors from the old file. Preview failure does not prevent manual upload. Stored-file extraction/review continues through the existing OCR endpoints. No database schema, seed, index or permission change is needed.
+
+### AI-Assisted Academic Document Classification and Metadata Recommendation
+
+OCR is text extraction; Google Gemini is the third-party AI component. GradPort does not train or develop a custom machine-learning model.
+
+```text
+Authenticated file selection → existing /api/v1/documents/ocr-preview
+→ local OCR → bounded text → Gemini → backend validation
+→ transient metadataSuggestions → user reviews/edits → existing upload/save
+                         ↘ Gemini unavailable: deterministic parser fallback
+```
+
+Enable the feature only in the backend's ignored runtime environment or deployment secret store:
+
+```dotenv
+AI_PROVIDER=gemini
+GEMINI_API_KEY=<your secret API key; never commit>
+GEMINI_MODEL=gemini-3.5-flash
+GEMINI_TIMEOUT_MS=20000
+```
+
+`AI_PROVIDER=none` is the default and disables all external AI calls, preserving the basic parser. With `gemini`, a nonempty key and model ID are required; startup fails with sanitized variable-name-only errors if configuration is incomplete. The timeout defaults to 20 seconds and allows 1–30 seconds. Maintenance/database-only configuration does not require AI settings. The example model is configurable: confirm availability in your Google project and select a text model supporting [Gemini structured output](https://ai.google.dev/gemini-api/docs/generate-content/structured-output) from the [current model catalog](https://ai.google.dev/gemini-api/docs/models). No SDK or other new package is required; the provider uses Node's existing `fetch` support and the documented [generateContent REST API](https://ai.google.dev/api/generate-content).
+
+Implementation boundaries:
+
+- `GeminiMetadataProvider` makes one HTTPS request, puts the key only in `x-goog-api-key` (not the URL), disallows redirects, bounds the response to 64 KiB, and aborts on timeout. No automatic retries, file uploads to Google, search tools, function calls, or model-authored executable code.
+- `AiMetadataService` prefers `reviewedText` over `rawText`, including an explicitly empty review. It normalizes whitespace while preserving line boundaries, caps input at 12,000 characters, and omits obvious credential-assignment lines. No user/session objects, auth headers/tokens, filenames, file bytes, or backend secrets enter the prompt.
+- Gemini receives only OCR text and the current active category/folder list. OCR text is explicitly treated as untrusted data, not instructions. The model requests null/empty for uncertainty and never Reflection.
+- The internal JSON schema requires `content`, `folder`, `classificationEvidence`, `title`, `date`, and `descriptionQuotes`. Runtime service validation checks the same finite shape/types and rejects missing/extra fields (including Reflection). Unknown category/folder values are omitted, not created. Matching uses only case/whitespace normalization of actual current names/keys and validates folder membership in the selected category.
+- Classification requires an exact source excerpt as evidence. Titles (max 250 characters) must occur in OCR, not be a detected recipient name. Description is up to three short, exact source excerpts joined with an em dash (under 2,000 characters), not unverified generated prose. Markup and overlong values are rejected, controls/whitespace normalized. Dates must be valid, unambiguous, source-supported document/event dates according to the existing conservative parser; birth/expiry dates are excluded.
+- AI semantics and OCR accuracy cannot be guaranteed by evidence matching. Unrecognized date formats, translated/paraphrased titles and descriptions are intentionally omitted rather than guessed. The user must review the editable recommendations.
+- Successful preview responses additionally include `metadataAnalysis: {source: "gemini" | "rules" | "none", aiStatus: "success" | "unavailable" | "disabled" | "not_needed"}`. Internal evidence/provider output is not returned or persisted. Flutter labels only genuine validated Gemini results **AI suggested from document**. When AI fails, basic results are labeled as fallback, not AI.
+- Timeout, HTTP errors (including quota errors), blocked/truncated or malformed output, and unusable suggestions fall back to the existing deterministic parser. If neither can help, OCR still returns and manual entry remains possible. Gemini does not affect `/health` or `/ready` and is not called by ordinary document GET, saved OCR GET/review, or app rebuilds.
+- Existing authenticated per-user preview/extraction limit is shared (default 5/minute). Each file selection makes one analysis request. Flutter reserves 120 seconds for upload/cold start + up to 45-second OCR + up to 30-second AI; normal API timeouts are unchanged. This does not guarantee completion on an overloaded/free host. Stale results/errors cannot overwrite newer successful analysis, and network timeouts are distinguished from OCR failures.
+- No provider exceptions, OCR text or keys are logged by the AI layer. Existing logger redaction also covers Gemini key fields/headers. Recommendations are not persisted until the user saves; previews do not persist OCR text either.
+
+Privacy/cost: OCR text can contain personal document information and is sent to Google when AI is enabled. Credential-line filtering is defense-in-depth, not a general PII scrubber. Use only appropriate demo documents and disclose third-party processing before production use. Review the provider's current data-use/retention terms and configure project quotas/billing alerts and a restricted API key. Existing limits are process-local; a multi-instance deployment needs the existing rate-limit architecture's shared store. Tests use fake providers/transports and never spend API quota or send document content to Google.
+
+Suggested technical description: “GradPort uses a third-party generative AI service through an API for AI-assisted academic document classification and metadata recommendation. The system does not train or develop a custom machine-learning model. OCR first extracts document text, after which the AI service analyzes the extracted text and recommends structured metadata that is validated by the GradPort backend before being presented to the user.”
+
+Current seeded Content → Folder choices (only active entries returned by the repository are eligible):
+
+| Content | Folders |
+| --- | --- |
+| Curriculum Vitae | Creative Title; Curriculum Vitae |
+| Scholastic Record | Creative Title; Unofficial TOR with Reflections |
+| Certificates | Creative Title; Seminars; Other Seminars; Trainings |
+| Accomplishments | Creative Title; Thesis/Capstone; Case Studies; Projects; Assessments |
+| Other Achievements | Creative Title; Projects |
+| College Report | College Report |
+
+The existing folder name “Unofficial TOR with Reflections” does not authorize generating Reflection text; that form field always stays manual.
+
+Manual acceptance after you configure Gemini (not performed by automated tests): select the certificate fixture, check Certificates / Trainings / activity title / 2026-09-14 / grounded description, confirm the AI label and blank Reflection, then edit and save. Try another file, an unavailable provider, and no connectivity. Confirm manual edits survive and upload stays available. The preview is a single response, so the lightweight reading indicator covers both OCR and AI; it does not pretend to report live stage progress.
+
+### Saved portfolio and profile UX
+
+Home now exposes **My Portfolios** alongside its existing Generate Portfolio action. **Save Portfolio** uses the existing owner-scoped create endpoint and server-returned record. Confirmation says **Saved to My Portfolios**, with **View Portfolio** and **Back to My Portfolios**; viewing retrieves the saved record, and the same list reloads it after restart/login. The saved object currently contains title-page information, not an assembled document. PDF/DOCX generation/download is not implemented; the active flow no longer claims a successful export. No duplicate history, ownership system, or database migration was introduced.
+
+Profile shows **Program not set**, **Year level not set**, and **School not set** only for blank display values. These strings are never inserted into the editable model or MongoDB. Real saved values and the authenticated email remain authoritative.
 
 Normal repository results never contain `passwordHash`, `refreshTokenHash`, or `codeHash`, including create and update results. Purpose-specific authentication lookups are narrow and their sensitive records must never cross the service boundary.
 

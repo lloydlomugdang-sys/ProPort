@@ -17,6 +17,7 @@ import {
 } from '../../infrastructure/ocr/ocr-engine.js';
 import type { ObjectStorage } from '../../infrastructure/storage/object-storage.js';
 import { suggestDocumentMetadata, type MetadataSuggestions } from './metadata-suggestion.service.js';
+import { AiMetadataService, type MetadataAnalysis } from './ai-metadata.service.js';
 
 export const MAX_DOCUMENT_FILE_SIZE_BYTES = 15 * 1024 * 1024;
 
@@ -113,6 +114,7 @@ export interface PublicDocumentOcr {
   readonly processedAt?: string;
   readonly updatedAt?: string;
   readonly metadataSuggestions?: MetadataSuggestions;
+  readonly metadataAnalysis?: MetadataAnalysis;
 }
 
 const NOT_FOUND = new AppError(
@@ -300,6 +302,7 @@ export class DocumentService {
     private readonly database: DatabaseConnection,
     private readonly storage: ObjectStorage,
     private readonly ocrEngine: OcrEngine,
+    private readonly metadata: AiMetadataService = new AiMetadataService(),
   ) {}
 
   async upload(ownerId: Types.ObjectId, input: DocumentUploadInput): Promise<PublicDocument> {
@@ -437,7 +440,7 @@ export class DocumentService {
         rawText: extracted.rawText,
         reviewedText: extracted.rawText,
         engine: extracted.engine,
-      });
+      }, true);
     } catch (error) {
       if (error instanceof AppError) throw error;
       throw mappedOcrError(error);
@@ -562,7 +565,7 @@ export class DocumentService {
     return extracted;
   }
 
-  private async withSuggestions(ocr: PublicDocumentOcr): Promise<PublicDocumentOcr> {
+  private async withSuggestions(ocr: PublicDocumentOcr, analyze = false): Promise<PublicDocumentOcr> {
     if (ocr.status !== 'ready') return ocr;
     let categories: readonly PublicDocumentCategory[] = [];
     try {
@@ -571,6 +574,8 @@ export class DocumentService {
       // An unavailable category list must not discard successful OCR. Text fields
       // remain useful; no category or folder will be invented as a fallback.
     }
+    // Paid AI analysis is only invoked by the authenticated, rate-limited preview.
+    if (analyze) return { ...ocr, ...await this.metadata.recommend(ocr, categories) };
     return { ...ocr, metadataSuggestions: suggestDocumentMetadata(ocr, categories) };
   }
 

@@ -33,6 +33,7 @@ import {
   MAX_DOCUMENT_FILE_SIZE_BYTES,
 } from '../../src/modules/documents/document.service.js';
 import { createTestServices } from '../helpers/build-test-app.js';
+import { AiMetadataService } from '../../src/modules/documents/ai-metadata.service.js';
 import {
   createDisposableMongoDatabase,
   type DisposableMongoDatabase,
@@ -280,6 +281,8 @@ describe.sequential('authenticated document API with disposable storage and Mong
   let secondUser: Credentials;
   const emailSender = new CapturingEmailSender();
   const ocrEngine = new ControllableOcrEngine();
+  let aiResult: unknown = null;
+  let aiCalls = 0;
   const uploadedIds: string[] = [];
 
   beforeAll(async () => {
@@ -294,6 +297,7 @@ describe.sequential('authenticated document API with disposable storage and Mong
       email: emailSender,
       storage,
       ocr: ocrEngine,
+      metadata: new AiMetadataService({ recommend: async () => { aiCalls++; return aiResult; } }),
     };
     app = await buildApp({
       config: loadConfig({ NODE_ENV: 'test', LOG_LEVEL: 'silent' }),
@@ -501,7 +505,39 @@ describe.sequential('authenticated document API with disposable storage and Mong
     expect(storage.keys.size).toBe(beforeKeys);
   });
 
+  it('returns validated AI recommendations without persisting, and keeps OCR usable on AI failure', async () => {
+    const collection = disposable!.connection.db!.collection(COLLECTION_NAMES.documents);
+    const count = await collection.countDocuments();
+    const keys = storage.keys.size;
+    const rawText = 'Certificate of Completion\nCourse: Digital Records Management\nIssued on Sep 14, 2026';
+    const upload = multipartUpload({}, { name: 'course.png', mimeType: 'image/png', contents: png });
+    aiResult = {
+      content: 'Certificates', folder: 'Trainings', classificationEvidence: 'Course: Digital Records Management',
+      title: 'Digital Records Management', date: '2026-09-14', descriptionQuotes: ['Certificate of Completion', 'Digital Records Management'],
+    };
+    const beforeCalls = aiCalls;
+    for (const source of ['gemini', 'rules']) {
+      ocrEngine.nextRawText = rawText;
+      const response = await app!.inject({ method: 'POST', url: '/api/v1/documents/ocr-preview',
+        headers: { ...bearer(firstUser.accessToken), ...upload.headers }, payload: upload.payload });
+      expect(response.statusCode).toBe(200);
+      expect(response.json()).toMatchObject({ data: { ocr: {
+        status: 'ready', rawText, reviewedText: rawText,
+        metadataAnalysis: { source, aiStatus: source === 'gemini' ? 'success' : 'unavailable' },
+        metadataSuggestions: { categoryKey: 'certificates', folderKey: 'trainings', title: 'Digital Records Management' },
+      } } });
+      expect(response.body).not.toMatch(/classificationEvidence|descriptionQuotes|reflection|apiKey/);
+      aiResult = null; // The provider's next response is malformed; fall back, not HTTP 5xx.
+    }
+    expect(aiCalls).toBe(beforeCalls + 2);
+    expect(await collection.countDocuments()).toBe(count);
+    expect(storage.keys.size).toBe(keys);
+    await app!.inject({ method: 'GET', url: '/api/v1/documents', headers: bearer(firstUser.accessToken) });
+    expect(aiCalls).toBe(beforeCalls + 2);
+  });
+
   it('authenticates preview and rejects client ownership/text fields and invalid files', async () => {
+    const beforeAiCalls = aiCalls;
     const upload = multipartUpload({}, { name: 'course.png', mimeType: 'image/png', contents: png });
     expectError(await app!.inject({
       method: 'POST', url: '/api/v1/documents/ocr-preview',
@@ -524,6 +560,7 @@ describe.sequential('authenticated document API with disposable storage and Mong
       method: 'POST', url: '/api/v1/documents/ocr-preview',
       headers: { ...bearer(firstUser.accessToken), ...upload.headers }, payload: upload.payload,
     }), 504, 'OCR_TIMEOUT');
+    expect(aiCalls).toBe(beforeAiCalls);
   });
 
   it('lists, summarizes, retrieves, and streams only safe owned data', async () => {
