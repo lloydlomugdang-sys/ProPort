@@ -13,6 +13,39 @@ export const documentQuerySchema = {
   maxProperties: 0,
 } as const;
 
+export const documentAttachmentPathParamsSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['documentId', 'attachmentId'],
+  properties: {
+    documentId: { type: 'string', pattern: '^[a-fA-F0-9]{24}$' },
+    attachmentId: { type: 'string', minLength: 1, maxLength: 100 },
+  },
+} as const;
+
+const attachmentSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: [
+    'id',
+    'originalFileName',
+    'mimeType',
+    'fileKind',
+    'extension',
+    'sizeBytes',
+    'order',
+  ],
+  properties: {
+    id: { type: 'string' },
+    originalFileName: { type: 'string' },
+    mimeType: { type: 'string' },
+    fileKind: { enum: ['image', 'pdf'] },
+    extension: { type: 'string' },
+    sizeBytes: { type: 'integer', minimum: 1 },
+    order: { type: 'integer', minimum: 0 },
+  },
+} as const;
+
 const documentSchema = {
   type: 'object',
   additionalProperties: false,
@@ -43,6 +76,7 @@ const documentSchema = {
     fileKind: { enum: ['image', 'pdf', 'docx'] },
     extension: { type: 'string' },
     sizeBytes: { type: 'integer', minimum: 1 },
+    attachments: { type: 'array', items: attachmentSchema },
     createdAt: { type: 'string', format: 'date-time' },
     updatedAt: { type: 'string', format: 'date-time' },
   },

@@ -12,6 +12,7 @@ import 'package:xml/xml.dart';
 
 import '../screens/portfolio/models/portfolio_models.dart';
 import 'api_client.dart';
+import 'auth_service.dart';
 import 'document_service.dart';
 
 /// An explicit public-data projection: no tokens, storage keys or internal IDs.
@@ -133,28 +134,57 @@ abstract interface class PortfolioExporter {
 }
 
 class DevicePortfolioExporter implements PortfolioExporter {
-  const DevicePortfolioExporter({this.store});
+  const DevicePortfolioExporter({this.store, this.authService});
 
   final PortfolioExportStore? store;
+  final AuthService? authService;
 
   @override
   Future<PortfolioExportFile> generate(
     PortfolioExportContent content,
     ExportFormat format,
   ) async {
-    ByteData? regular;
-    ByteData? bold;
+    final Uint8List bytes;
     if (format == ExportFormat.pdf) {
-      regular = await rootBundle.load('assets/fonts/NotoSans-Regular.ttf');
-      bold = await rootBundle.load('assets/fonts/NotoSans-Bold.ttf');
+      if (authService == null) {
+        throw const PortfolioExportException(
+          'Unable to generate your complete portfolio. Check your connection and try again.',
+        );
+      }
+      try {
+        bytes = await authService!.authenticatedPostBytes(
+          '/api/v1/portfolios/export/pdf',
+          body: {
+            'fullName': content.titleFields['Full Name'] ?? '',
+            'yearAndSection': content.titleFields['Year & Section'] ?? '',
+            'schedule': content.titleFields['Schedule'] ?? '',
+            'instructorName': content.titleFields["Instructor's Name"] ?? '',
+            'course': content.titleFields['Course'] ?? '',
+            'courseCode': content.titleFields['Course Code'] ?? '',
+            'semesterAndYear':
+                content.titleFields['Semester & Academic Year'] ?? '',
+          },
+          requestTimeout: const Duration(seconds: 90),
+        );
+      } on ApiException catch (error) {
+        if (error.statusCode == 0 ||
+            error.code == 'NETWORK_ERROR' ||
+            error.message.contains('reach the server') ||
+            error.message.contains('connection')) {
+          throw const PortfolioExportException(
+            'Unable to generate your complete portfolio. Check your connection and try again.',
+          );
+        }
+        throw PortfolioExportException(error.message);
+      } catch (_) {
+        throw const PortfolioExportException(
+          'Unable to generate your complete portfolio. Check your connection and try again.',
+        );
+      }
+    } else {
+      // DOCX export: editable outline
+      bytes = await compute(_renderDocxOnly, content);
     }
-    // Layout/compression happens off the UI isolate so progress stays animated.
-    final bytes = await compute(_render, (
-      content: content,
-      format: format,
-      regular: regular,
-      bold: bold,
-    ));
     return (store ?? PortfolioExportStore()).write(
       bytes,
       portfolioFileName(content.titleFields['Full Name'] ?? '', format),
@@ -179,6 +209,9 @@ class DevicePortfolioExporter implements PortfolioExporter {
     // A dismissed share sheet is not a failed generation or a claimed save.
   }
 }
+
+Uint8List _renderDocxOnly(PortfolioExportContent content) =>
+    PortfolioFileRenderer.docx(content);
 
 Future<Uint8List> _render(
   ({

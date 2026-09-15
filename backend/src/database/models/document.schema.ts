@@ -20,6 +20,18 @@ export interface DocumentOcr {
   processingExpiresAt?: Date;
 }
 
+export interface DocumentAttachment {
+  id: string;
+  originalFileName: string;
+  objectKey: string;
+  mimeType: string;
+  fileKind: 'image' | 'pdf';
+  extension: string;
+  sizeBytes: number;
+  sha256: string;
+  order: number;
+}
+
 export interface Document {
   ownerId: Types.ObjectId;
   categoryKey: string;
@@ -35,6 +47,7 @@ export interface Document {
   extension: string;
   sizeBytes: number;
   sha256: string;
+  attachments?: DocumentAttachment[];
   ocr?: DocumentOcr;
   createdAt: Date;
   updatedAt: Date;
@@ -56,6 +69,25 @@ export const documentSchema = new Schema<Document>(
     extension: { type: String, required: true, lowercase: true, trim: true, maxlength: 10 },
     sizeBytes: { type: Number, required: true, min: 1, max: 15 * 1024 * 1024 },
     sha256: { type: String, required: true, lowercase: true, trim: true, minlength: 64, maxlength: 64 },
+    attachments: {
+      type: [
+        new Schema<DocumentAttachment>(
+          {
+            id: { type: String, required: true, trim: true, maxlength: 100 },
+            originalFileName: { type: String, required: true, trim: true, maxlength: 255 },
+            objectKey: { type: String, required: true, trim: true, maxlength: 1024 },
+            mimeType: { type: String, required: true, trim: true, maxlength: 150 },
+            fileKind: { type: String, enum: ['image', 'pdf'], required: true },
+            extension: { type: String, required: true, lowercase: true, trim: true, maxlength: 10 },
+            sizeBytes: { type: Number, required: true, min: 1, max: 15 * 1024 * 1024 },
+            sha256: { type: String, required: true, lowercase: true, trim: true, minlength: 64, maxlength: 64 },
+            order: { type: Number, required: true, min: 0 },
+          },
+          { _id: false, strict: 'throw', versionKey: false },
+        ),
+      ],
+      default: undefined,
+    },
     ocr: {
       type: new Schema<DocumentOcr>(
         {

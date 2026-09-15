@@ -26,6 +26,20 @@ class ApiException implements Exception {
   String toString() => message;
 }
 
+class ApiMultipartFile {
+  const ApiMultipartFile({
+    required this.field,
+    required this.fileName,
+    required this.mimeType,
+    required this.bytes,
+  });
+
+  final String field;
+  final String fileName;
+  final String mimeType;
+  final Uint8List bytes;
+}
+
 class ApiClient {
   ApiClient({
     String? baseUrl,
@@ -119,6 +133,107 @@ class ApiClient {
     );
   }
 
+  Future<Uint8List> getBytes(
+    String path, {
+    String? bearerToken,
+    Duration? requestTimeout,
+  }) async {
+    final headers = _headers(bearerToken: bearerToken);
+    late final http.Response response;
+    try {
+      response = await _client
+          .get(_uriFor(path), headers: headers)
+          .timeout(requestTimeout ?? timeout);
+    } on TimeoutException {
+      throw const ApiException(
+        code: 'NETWORK_TIMEOUT',
+        message: 'The server took too long to respond. Please try again.',
+      );
+    } on http.ClientException {
+      throw const ApiException(
+        code: 'NETWORK_ERROR',
+        message:
+            'Unable to reach the server. Check your connection and try again.',
+      );
+    }
+
+    if (response.statusCode >= 200 && response.statusCode < 300) {
+      return response.bodyBytes;
+    }
+
+    final decoded = _decodeObject(response.body, response.statusCode);
+    final error = decoded['error'];
+    if (error is Map<String, dynamic>) {
+      final rawFields = error['fields'];
+      throw ApiException(
+        code: error['code'] is String
+            ? error['code'] as String
+            : 'UNKNOWN_ERROR',
+        message: error['message'] is String
+            ? error['message'] as String
+            : 'An error occurred.',
+        statusCode: response.statusCode,
+        fields: rawFields is Map<String, dynamic> ? rawFields : const {},
+      );
+    }
+    throw ApiException(
+      code: 'HTTP_${response.statusCode}',
+      message: 'Request failed with status ${response.statusCode}.',
+      statusCode: response.statusCode,
+    );
+  }
+
+  Future<Uint8List> postBytes(
+    String path, {
+    required Map<String, dynamic> body,
+    String? bearerToken,
+    Duration? requestTimeout,
+  }) async {
+    final headers = _headers(bearerToken: bearerToken, hasJsonBody: true);
+    late final http.Response response;
+    try {
+      response = await _client
+          .post(_uriFor(path), headers: headers, body: jsonEncode(body))
+          .timeout(requestTimeout ?? timeout);
+    } on TimeoutException {
+      throw const ApiException(
+        code: 'NETWORK_TIMEOUT',
+        message: 'The server took too long to respond. Please try again.',
+      );
+    } on http.ClientException {
+      throw const ApiException(
+        code: 'NETWORK_ERROR',
+        message:
+            'Unable to reach the server. Check your connection and try again.',
+      );
+    }
+
+    if (response.statusCode >= 200 && response.statusCode < 300) {
+      return response.bodyBytes;
+    }
+
+    final decoded = _decodeObject(response.body, response.statusCode);
+    final error = decoded['error'];
+    if (error is Map<String, dynamic>) {
+      final rawFields = error['fields'];
+      throw ApiException(
+        code: error['code'] is String
+            ? error['code'] as String
+            : 'UNKNOWN_ERROR',
+        message: error['message'] is String
+            ? error['message'] as String
+            : 'An error occurred.',
+        statusCode: response.statusCode,
+        fields: rawFields is Map<String, dynamic> ? rawFields : const {},
+      );
+    }
+    throw ApiException(
+      code: 'HTTP_${response.statusCode}',
+      message: 'Request failed with status ${response.statusCode}.',
+      statusCode: response.statusCode,
+    );
+  }
+
   Future<Map<String, dynamic>> postMultipart(
     String path, {
     required Map<String, String> fields,
@@ -140,6 +255,31 @@ class ApiClient {
           contentType: MediaType.parse(mimeType),
         ),
       );
+      return http.Response.fromStream(await _client.send(request));
+    }, requestTimeout: requestTimeout);
+  }
+
+  Future<Map<String, dynamic>> postMultiPartFiles(
+    String path, {
+    required Map<String, String> fields,
+    required List<ApiMultipartFile> files,
+    String? bearerToken,
+    Duration? requestTimeout,
+  }) {
+    return _perform(() async {
+      final request = http.MultipartRequest('POST', _uriFor(path));
+      request.headers.addAll(_headers(bearerToken: bearerToken));
+      request.fields.addAll(fields);
+      for (final f in files) {
+        request.files.add(
+          http.MultipartFile.fromBytes(
+            f.field,
+            f.bytes,
+            filename: f.fileName,
+            contentType: MediaType.parse(f.mimeType),
+          ),
+        );
+      }
       return http.Response.fromStream(await _client.send(request));
     }, requestTimeout: requestTimeout);
   }

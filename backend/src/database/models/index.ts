@@ -14,7 +14,7 @@ export { userSchema, USER_STATUSES } from './user.schema.js';
 
 export type { CollegeReport } from './college-report.schema.js';
 export type { DocumentCategory } from './document-category.schema.js';
-export type { Document } from './document.schema.js';
+export type { Document, DocumentAttachment } from './document.schema.js';
 export type {
   DocumentOcr,
   OcrEngineName,

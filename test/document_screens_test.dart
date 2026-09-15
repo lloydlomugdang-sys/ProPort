@@ -968,6 +968,14 @@ class _FakePicker implements DocumentPicker {
     calls++;
     return result;
   }
+
+  @override
+  Future<List<PickedDocument>?> pickDocuments({
+    bool allowMultiple = true,
+  }) async {
+    final single = await pickDocument();
+    return single == null ? null : [single];
+  }
 }
 
 class _ScreenDocumentService extends DocumentService {
@@ -1069,7 +1077,8 @@ class _ScreenDocumentService extends DocumentService {
 
   @override
   Future<DocumentRecord> upload({
-    required PickedDocument file,
+    PickedDocument? file,
+    List<PickedDocument>? files,
     required String categoryKey,
     required String folderKey,
     required String title,
@@ -1079,14 +1088,15 @@ class _ScreenDocumentService extends DocumentService {
   }) async {
     final failure = uploadFailure;
     if (failure != null) throw failure;
-    uploadedFile = file;
+    final effectiveFile = file ?? files?.firstOrNull;
+    uploadedFile = effectiveFile;
     uploadedCategoryKey = categoryKey;
     uploadedFolderKey = folderKey;
     uploadedTitle = title;
     uploadedDate = documentDate;
     uploadedDescription = description;
     uploadedReflection = reflection;
-    final created = _document(fileName: file.name);
+    final created = _document(fileName: effectiveFile?.name ?? 'document.pdf');
     _documents = [created, ..._documents];
     _summary = _summary.adding(created);
     notifyListeners();
@@ -1109,9 +1119,14 @@ class _ScreenDocumentService extends DocumentService {
   Future<DocumentOcrResult> loadOcr(String documentId) async => _ocr;
 
   @override
-  Future<DocumentOcrResult> previewOcr(PickedDocument file) async {
+  Future<DocumentOcrResult> previewOcr(dynamic fileOrFiles) async {
     previewCalls++;
-    previewFiles.add(file);
+    final files = fileOrFiles is List<PickedDocument>
+        ? fileOrFiles
+        : fileOrFiles is PickedDocument
+        ? [fileOrFiles]
+        : const <PickedDocument>[];
+    previewFiles.addAll(files);
     if (previewResponses.isNotEmpty) return await previewResponses.removeAt(0);
     final failure = extractionFailure;
     if (failure != null) throw failure;

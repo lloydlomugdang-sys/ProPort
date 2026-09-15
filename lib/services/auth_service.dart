@@ -258,6 +258,65 @@ class AuthService extends ChangeNotifier {
     );
   }
 
+  Future<Map<String, dynamic>> authenticatedPostMultipartFiles(
+    String path, {
+    required Map<String, String> fields,
+    required List<ApiMultipartFile> files,
+    Duration? requestTimeout,
+  }) {
+    return _authenticatedRequest(
+      (accessToken) => _apiClient.postMultiPartFiles(
+        path,
+        bearerToken: accessToken,
+        fields: fields,
+        files: files,
+        requestTimeout: requestTimeout,
+      ),
+    );
+  }
+
+  Future<Uint8List> authenticatedGetBytes(
+    String path, {
+    Duration? requestTimeout,
+  }) {
+    return _authenticatedBytesRequest(
+      (accessToken) => _apiClient.getBytes(
+        path,
+        bearerToken: accessToken,
+        requestTimeout: requestTimeout,
+      ),
+    );
+  }
+
+  Future<Uint8List> authenticatedPostBytes(
+    String path, {
+    required Map<String, dynamic> body,
+    Duration? requestTimeout,
+  }) {
+    return _authenticatedBytesRequest(
+      (accessToken) => _apiClient.postBytes(
+        path,
+        body: body,
+        bearerToken: accessToken,
+        requestTimeout: requestTimeout,
+      ),
+    );
+  }
+
+  Future<Uint8List> _authenticatedBytesRequest(
+    Future<Uint8List> Function(String accessToken) request,
+  ) async {
+    await _ensureFreshAccessToken();
+
+    try {
+      return await request(_requiredAccessToken());
+    } on ApiException catch (error) {
+      if (error.statusCode != 401) rethrow;
+      await _refreshAfterUnauthorized();
+      return request(_requiredAccessToken());
+    }
+  }
+
   Future<SessionRestoreResult> restoreSession() async {
     late final String? storedRefreshToken;
     try {

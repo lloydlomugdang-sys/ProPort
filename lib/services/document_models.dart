@@ -193,6 +193,38 @@ class DocumentCategory {
   }
 }
 
+class DocumentAttachmentRecord {
+  const DocumentAttachmentRecord({
+    required this.id,
+    required this.originalFileName,
+    required this.mimeType,
+    required this.fileKind,
+    required this.extension,
+    required this.sizeBytes,
+    required this.order,
+  });
+
+  final String id;
+  final String originalFileName;
+  final String mimeType;
+  final String fileKind;
+  final String extension;
+  final int sizeBytes;
+  final int order;
+
+  factory DocumentAttachmentRecord.fromJson(Map<String, dynamic> json) {
+    return DocumentAttachmentRecord(
+      id: _requiredString(json, 'id'),
+      originalFileName: _requiredString(json, 'originalFileName'),
+      mimeType: _requiredString(json, 'mimeType'),
+      fileKind: _requiredString(json, 'fileKind'),
+      extension: _requiredString(json, 'extension'),
+      sizeBytes: json['sizeBytes'] as int,
+      order: json['order'] as int,
+    );
+  }
+}
+
 class DocumentRecord {
   const DocumentRecord({
     required this.id,
@@ -209,6 +241,7 @@ class DocumentRecord {
     required this.updatedAt,
     this.description,
     this.reflection,
+    this.attachments,
   });
 
   final String id;
@@ -225,8 +258,28 @@ class DocumentRecord {
   final int sizeBytes;
   final DateTime createdAt;
   final DateTime updatedAt;
+  final List<DocumentAttachmentRecord>? attachments;
 
   String get fileTypeLabel => fileKind == 'pdf' ? 'PDF' : 'Image';
+
+  List<DocumentAttachmentRecord> get effectiveAttachments {
+    if (attachments != null && attachments!.isNotEmpty) {
+      return attachments!;
+    }
+    return [
+      DocumentAttachmentRecord(
+        id: '1',
+        originalFileName: originalFileName,
+        mimeType: mimeType,
+        fileKind: fileKind,
+        extension: extension,
+        sizeBytes: sizeBytes,
+        order: 0,
+      ),
+    ];
+  }
+
+  int get pageCount => effectiveAttachments.length;
 
   factory DocumentRecord.fromJson(Map<String, dynamic> json) {
     final documentDate = DateTime.tryParse(
@@ -241,6 +294,13 @@ class DocumentRecord {
         sizeBytes is! int) {
       throw const FormatException();
     }
+    final rawAttachments = json['attachments'];
+    final List<DocumentAttachmentRecord>? attachments = rawAttachments is List
+        ? rawAttachments
+              .whereType<Map<String, dynamic>>()
+              .map(DocumentAttachmentRecord.fromJson)
+              .toList(growable: false)
+        : null;
     return DocumentRecord(
       id: _requiredString(json, 'id'),
       categoryKey: _requiredString(json, 'categoryKey'),
@@ -256,6 +316,7 @@ class DocumentRecord {
       sizeBytes: sizeBytes,
       createdAt: createdAt,
       updatedAt: updatedAt,
+      attachments: attachments,
     );
   }
 }

@@ -7,6 +7,7 @@ import 'services/auth_scope.dart';
 import 'services/auth_service.dart';
 import 'services/document_scope.dart';
 import 'services/document_service.dart';
+import 'services/portfolio_export_service.dart';
 import 'services/portfolio_scope.dart';
 import 'services/portfolio_service.dart';
 
@@ -23,13 +24,13 @@ class GradPortApp extends StatefulWidget {
   const GradPortApp({
     super.key,
     this.authService,
-    this.portfolioService,
     this.documentService,
+    this.portfolioService,
   });
 
   final AuthService? authService;
-  final PortfolioService? portfolioService;
   final DocumentService? documentService;
+  final PortfolioService? portfolioService;
 
   @override
   State<GradPortApp> createState() => _GradPortAppState();
@@ -37,21 +38,21 @@ class GradPortApp extends StatefulWidget {
 
 class _GradPortAppState extends State<GradPortApp> {
   late final AuthService _authService;
-  late final bool _ownsAuthService;
-  late final PortfolioService _portfolioService;
-  late final bool _ownsPortfolioService;
   late final DocumentService _documentService;
+  late final PortfolioService _portfolioService;
+  late final bool _ownsAuthService;
   late final bool _ownsDocumentService;
+  late final bool _ownsPortfolioService;
 
   @override
   void initState() {
     super.initState();
     _ownsAuthService = widget.authService == null;
-    _authService = widget.authService ?? AuthService();
+    _ownsDocumentService = widget.documentService == null;
     _ownsPortfolioService = widget.portfolioService == null;
+    _authService = widget.authService ?? AuthService();
     _portfolioService =
         widget.portfolioService ?? PortfolioService(authService: _authService);
-    _ownsDocumentService = widget.documentService == null;
     _documentService =
         widget.documentService ?? DocumentService(authService: _authService);
   }
@@ -70,6 +71,7 @@ class _GradPortAppState extends State<GradPortApp> {
       authService: _authService,
       child: PortfolioScope(
         portfolioService: _portfolioService,
+        exporter: DevicePortfolioExporter(authService: _authService),
         child: DocumentScope(
           documentService: _documentService,
           child: MaterialApp(

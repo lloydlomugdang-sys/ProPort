@@ -79,7 +79,8 @@ class DocumentService extends ChangeNotifier {
   }
 
   Future<DocumentRecord> upload({
-    required PickedDocument file,
+    PickedDocument? file,
+    List<PickedDocument>? files,
     required String categoryKey,
     required String folderKey,
     required String title,
@@ -87,23 +88,55 @@ class DocumentService extends ChangeNotifier {
     String? description,
     String? reflection,
   }) async {
+    final effectiveFiles =
+        files ?? (file != null ? [file] : const <PickedDocument>[]);
+    if (effectiveFiles.isEmpty) {
+      throw const ApiException(
+        code: 'VALIDATION_ERROR',
+        message: 'At least one file is required.',
+        statusCode: 400,
+      );
+    }
     final authGeneration = _authGeneration;
-    final response = await _authService.authenticatedPostMultipart(
-      _documentsPath,
-      fields: {
-        'categoryKey': categoryKey,
-        'folderKey': folderKey,
-        'title': title,
-        'documentDate': _dateOnly(documentDate),
-        if (description != null && description.trim().isNotEmpty)
-          'description': description,
-        if (reflection != null && reflection.trim().isNotEmpty)
-          'reflection': reflection,
-      },
-      fileName: file.name,
-      mimeType: file.mimeType,
-      fileBytes: file.bytes,
-    );
+    final fields = {
+      'categoryKey': categoryKey,
+      'folderKey': folderKey,
+      'title': title,
+      'documentDate': _dateOnly(documentDate),
+      if (description != null && description.trim().isNotEmpty)
+        'description': description,
+      if (reflection != null && reflection.trim().isNotEmpty)
+        'reflection': reflection,
+    };
+
+    final Map<String, dynamic> response;
+    if (effectiveFiles.length == 1) {
+      final single = effectiveFiles.first;
+      response = await _authService.authenticatedPostMultipart(
+        _documentsPath,
+        fields: fields,
+        fileName: single.name,
+        mimeType: single.mimeType,
+        fileBytes: single.bytes,
+      );
+    } else {
+      final multipartFiles = effectiveFiles
+          .map(
+            (f) => ApiMultipartFile(
+              field: 'files',
+              fileName: f.name,
+              mimeType: f.mimeType,
+              bytes: f.bytes,
+            ),
+          )
+          .toList(growable: false);
+      response = await _authService.authenticatedPostMultipartFiles(
+        _documentsPath,
+        fields: fields,
+        files: multipartFiles,
+      );
+    }
+
     final document = _parseDocument(_dataOf(response)['document']);
     if (authGeneration != _authGeneration) return document;
     _documents = [
@@ -146,16 +179,53 @@ class DocumentService extends ChangeNotifier {
     return result;
   }
 
-  Future<DocumentOcrResult> previewOcr(PickedDocument file) async {
+  Future<DocumentOcrResult> previewOcr(dynamic fileOrFiles) async {
+    final List<PickedDocument> effectiveFiles =
+        fileOrFiles is List<PickedDocument>
+        ? fileOrFiles
+        : fileOrFiles is PickedDocument
+        ? [fileOrFiles]
+        : const <PickedDocument>[];
+
+    if (effectiveFiles.isEmpty) {
+      throw const ApiException(
+        code: 'VALIDATION_ERROR',
+        message: 'At least one file is required.',
+        statusCode: 400,
+      );
+    }
+
     final authGeneration = _authGeneration;
-    final response = await _authService.authenticatedPostMultipart(
-      '$_documentsPath/ocr-preview',
-      fields: const {},
-      fileName: file.name,
-      mimeType: file.mimeType,
-      fileBytes: file.bytes,
-      requestTimeout: ocrPreviewTimeout,
-    );
+    final Map<String, dynamic> response;
+    if (effectiveFiles.length == 1) {
+      final single = effectiveFiles.first;
+      response = await _authService.authenticatedPostMultipart(
+        '$_documentsPath/ocr-preview',
+        fields: const {},
+        fileName: single.name,
+        mimeType: single.mimeType,
+        fileBytes: single.bytes,
+        requestTimeout: ocrPreviewTimeout,
+      );
+    } else {
+      final multipartFiles = effectiveFiles
+          .map(
+            (f) => ApiMultipartFile(
+              field: 'files',
+              fileName: f.name,
+              mimeType: f.mimeType,
+              bytes: f.bytes,
+            ),
+          )
+          .toList(growable: false);
+      response = await _authService.authenticatedPostMultipartFiles(
+        '$_documentsPath/ocr-preview',
+        fields: const {},
+        files: multipartFiles,
+        requestTimeout: ocrPreviewTimeout,
+      );
+    }
+
     if (authGeneration != _authGeneration) {
       throw const ApiException(
         code: 'UNAUTHORIZED',

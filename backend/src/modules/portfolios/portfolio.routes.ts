@@ -42,7 +42,7 @@ export async function registerPortfolioRoutes(
   services: AppServices,
 ): Promise<void> {
   const currentUsers = new CurrentUserService(services.database);
-  const portfolios = new PortfolioService(services.database);
+  const portfolios = new PortfolioService(services.database, services.storage);
   const identities = new WeakMap<FastifyRequest, CurrentUserIdentity>();
 
   async function requireCurrentUser(request: FastifyRequest): Promise<void> {
@@ -148,6 +148,46 @@ export async function registerPortfolioRoutes(
         { status: 'deleted' as const, portfolioId: request.params.portfolioId },
         request.id,
       );
+    },
+  );
+
+  app.get<{ Params: PortfolioParams }>(
+    '/api/v1/portfolios/:portfolioId/export/pdf',
+    {
+      onRequest: requireCurrentUser,
+      schema: {
+        params: portfolioPathParamsSchema,
+        querystring: portfolioQuerySchema,
+      },
+    },
+    async (request, reply) => {
+      const { fileName, pdfBytes } = await portfolios.exportPdf(ownerIdFor(request), {
+        portfolioId: request.params.portfolioId,
+      });
+      return reply
+        .type('application/pdf')
+        .header('content-length', pdfBytes.length)
+        .header('content-disposition', `attachment; filename="${fileName}"`)
+        .send(pdfBytes);
+    },
+  );
+
+  app.post<{ Body: PortfolioInput }>(
+    '/api/v1/portfolios/export/pdf',
+    {
+      onRequest: requireCurrentUser,
+      schema: {
+        body: portfolioCreateBodySchema,
+        querystring: portfolioQuerySchema,
+      },
+    },
+    async (request, reply) => {
+      const { fileName, pdfBytes } = await portfolios.exportPdf(ownerIdFor(request), request.body);
+      return reply
+        .type('application/pdf')
+        .header('content-length', pdfBytes.length)
+        .header('content-disposition', `attachment; filename="${fileName}"`)
+        .send(pdfBytes);
     },
   );
 }

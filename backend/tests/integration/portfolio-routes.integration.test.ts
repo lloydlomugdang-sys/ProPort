@@ -1,3 +1,5 @@
+import { Readable } from 'node:stream';
+import { inflateSync } from 'node:zlib';
 import type { FastifyInstance, LightMyRequestResponse } from 'fastify';
 import { Types } from 'mongoose';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
@@ -16,6 +18,81 @@ import {
   createDisposableMongoDatabase,
   type DisposableMongoDatabase,
 } from '../helpers/disposable-mongodb.js';
+
+const SAMPLE_1X1_PNG = Buffer.from(
+  'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==',
+  'base64',
+);
+
+function hexToString(hex: string): string {
+  let str = '';
+  for (let i = 0; i < hex.length; i += 2) {
+    str += String.fromCharCode(parseInt(hex.slice(i, i + 2), 16));
+  }
+  return str;
+}
+
+function extractAllPdfText(pdfBytes: Buffer): string {
+  const raw = pdfBytes.toString('latin1');
+  let accumulated = raw;
+  const regex = /stream\r?\n([\s\S]*?)\r?\nendstream/g;
+  let match: RegExpExecArray | null;
+  while ((match = regex.exec(raw)) !== null) {
+    const streamContent = match[1];
+    if (!streamContent) continue;
+    const streamBuffer = Buffer.from(streamContent, 'latin1');
+    try {
+      const decompressed = inflateSync(streamBuffer).toString('latin1');
+      accumulated += '\n' + decompressed;
+      const hexMatches = decompressed.matchAll(/<([0-9a-fA-F]+)>/g);
+      for (const h of hexMatches) {
+        const hex = h[1];
+        if (hex) accumulated += ' ' + hexToString(hex);
+      }
+    } catch {
+      // Ignore non-zlib streams
+    }
+  }
+  return accumulated;
+}
+
+import type {
+  ObjectStorage,
+  StoredObject,
+} from '../../src/infrastructure/storage/object-storage.js';
+import type { ServiceHealth } from '../../src/common/types/service-health.js';
+
+class InMemoryTestStorage implements ObjectStorage {
+  readonly items = new Map<string, Buffer>();
+
+  async put(key: string, contents: Readable): Promise<StoredObject> {
+    const chunks: Buffer[] = [];
+    for await (const chunk of contents) {
+      chunks.push(typeof chunk === 'string' ? Buffer.from(chunk) : chunk);
+    }
+    const buf = Buffer.concat(chunks);
+    this.items.set(key, buf);
+    return { key, sizeBytes: buf.length };
+  }
+
+  async get(key: string): Promise<Readable> {
+    const data = this.items.get(key);
+    if (!data) throw new Error(`Object not found in test storage: ${key}`);
+    return Readable.from([data]);
+  }
+
+  async delete(key: string): Promise<void> {
+    this.items.delete(key);
+  }
+
+  async exists(key: string): Promise<boolean> {
+    return this.items.has(key);
+  }
+
+  async healthCheck(): Promise<ServiceHealth> {
+    return { status: 'local' };
+  }
+}
 
 interface Credentials {
   readonly userId: string;
@@ -125,6 +202,7 @@ const portfolioInput = {
 describe.sequential('authenticated portfolio API with disposable MongoDB', () => {
   let app: FastifyInstance | undefined;
   let disposable: DisposableMongoDatabase | undefined;
+  let services: AppServices | undefined;
   let firstUser: Credentials;
   let secondUser: Credentials;
   const emailSender = new CapturingEmailSender();
@@ -132,9 +210,10 @@ describe.sequential('authenticated portfolio API with disposable MongoDB', () =>
   beforeAll(async () => {
     disposable = await createDisposableMongoDatabase();
     await runMigrations(disposable.connection.db!);
-    const services: AppServices = {
+    services = {
       ...createTestServices(),
       database: disposable.database,
+      storage: new InMemoryTestStorage(),
       email: emailSender,
     };
     app = await buildApp({
@@ -280,6 +359,114 @@ describe.sequential('authenticated portfolio API with disposable MongoDB', () =>
     });
     expect(secondList.statusCode).toBe(200);
     expect(secondList.json()).toMatchObject({ data: { portfolios: [] } });
+  });
+
+  it('enforces owner-scoped PDF export security on GET and POST endpoints', async () => {
+    // 1. Unauthenticated requests are rejected
+    expectError(
+      await app!.inject({ method: 'GET', url: `/api/v1/portfolios/${portfolioId}/export/pdf` }),
+      401,
+      'UNAUTHORIZED',
+    );
+    expectError(
+      await app!.inject({
+        method: 'POST',
+        url: '/api/v1/portfolios/export/pdf',
+        payload: portfolioInput,
+      }),
+      401,
+      'UNAUTHORIZED',
+    );
+
+    // 2. Second user cannot export first user's portfolio via GET
+    expectError(
+      await app!.inject({
+        method: 'GET',
+        url: `/api/v1/portfolios/${portfolioId}/export/pdf`,
+        headers: bearer(secondUser.accessToken),
+      }),
+      404,
+      'PORTFOLIO_NOT_FOUND',
+    );
+
+    // 3. First user CAN export own portfolio via GET
+    const firstExport = await app!.inject({
+      method: 'GET',
+      url: `/api/v1/portfolios/${portfolioId}/export/pdf`,
+      headers: bearer(firstUser.accessToken),
+    });
+    expect(firstExport.statusCode).toBe(200);
+    expect(firstExport.headers['content-type']).toBe('application/pdf');
+    expect(firstExport.rawPayload.subarray(0, 5).toString()).toBe('%PDF-');
+
+    // 4. Seed documents for both users and test POST /api/v1/portfolios/export/pdf
+    const storage = services!.storage;
+    const doc1Key = `users/${firstUser.userId}/documents/first_owner_cert.png`;
+    const doc2Key = `users/${secondUser.userId}/documents/second_owner_secret.png`;
+    await storage.put(doc1Key, Readable.from([SAMPLE_1X1_PNG]));
+    await storage.put(doc2Key, Readable.from([SAMPLE_1X1_PNG]));
+
+    await disposable!.connection.db!.collection(COLLECTION_NAMES.documents).insertOne({
+      ownerId: new Types.ObjectId(firstUser.userId),
+      categoryKey: 'certificates',
+      folderKey: 'certificate-of-attendance',
+      title: 'FirstUser_AllowedDoc_Title',
+      description: 'First user certificate',
+      reflection: 'First user personal reflection',
+      objectKey: doc1Key,
+      originalFileName: 'first_cert.png',
+      mimeType: 'image/png',
+      fileKind: 'image',
+      extension: 'png',
+      sizeBytes: SAMPLE_1X1_PNG.length,
+      sha256: 'hash1',
+      documentDate: new Date(),
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    });
+
+    await disposable!.connection.db!.collection(COLLECTION_NAMES.documents).insertOne({
+      ownerId: new Types.ObjectId(secondUser.userId),
+      categoryKey: 'certificates',
+      folderKey: 'certificate-of-attendance',
+      title: 'SecondUser_ForbiddenSecret_Title',
+      description: 'Second user secret doc',
+      reflection: 'Second user private reflection',
+      objectKey: doc2Key,
+      originalFileName: 'second_cert.png',
+      mimeType: 'image/png',
+      fileKind: 'image',
+      extension: 'png',
+      sizeBytes: SAMPLE_1X1_PNG.length,
+      sha256: 'hash2',
+      documentDate: new Date(),
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    });
+
+    const postExport = await app!.inject({
+      method: 'POST',
+      url: '/api/v1/portfolios/export/pdf',
+      headers: bearer(firstUser.accessToken),
+      payload: portfolioInput,
+    });
+    expect(postExport.statusCode).toBe(200);
+    expect(postExport.headers['content-type']).toBe('application/pdf');
+
+    const pdfBuffer = postExport.rawPayload;
+    const decompressed = extractAllPdfText(pdfBuffer);
+
+    // Verify first owner's documents are present
+    expect(decompressed).toContain('FirstUser_AllowedDoc_Title');
+
+    // Verify second owner's documents are NEVER included
+    expect(decompressed).not.toContain('SecondUser_ForbiddenSecret_Title');
+    expect(decompressed).not.toContain('Second user secret doc');
+    expect(decompressed).not.toContain('Second user private reflection');
+
+    // Verify raw storage keys / private URLs are not leaked
+    expect(decompressed).not.toContain(doc1Key);
+    expect(decompressed).not.toContain(doc2Key);
   });
 
   it('deletes only the authenticated owner portfolio', async () => {

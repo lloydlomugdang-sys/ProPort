@@ -6,6 +6,7 @@ import type { AppConfig } from '../../config/env.types.js';
 import type { AppServices } from '../../infrastructure/create-services.js';
 import { CurrentUserService, type CurrentUserIdentity } from '../users/user.service.js';
 import {
+  documentAttachmentPathParamsSchema,
   documentCategoryListResponseSchema,
   documentDeleteResponseSchema,
   documentListResponseSchema,
@@ -17,6 +18,7 @@ import {
 } from './document.schemas.js';
 import {
   DocumentService,
+  MAX_DOCUMENT_ATTACHMENTS,
   MAX_DOCUMENT_FILE_SIZE_BYTES,
   type DocumentFileInput,
   type DocumentUploadInput,
@@ -29,6 +31,11 @@ interface AccessTokenClaims {
 
 interface DocumentParams {
   readonly documentId: string;
+}
+
+interface DocumentAttachmentParams {
+  readonly documentId: string;
+  readonly attachmentId: string;
 }
 
 interface DocumentOcrPatchBody {
@@ -95,30 +102,31 @@ async function parseFileParts(request: FastifyRequest, allowedFields: ReadonlySe
   }
 
   const fields: Record<string, string> = {};
-  let file:
-    | {
-        readonly filename: string;
-        readonly mimetype: string;
-        readonly contents: Buffer;
-      }
-    | undefined;
+  const files: DocumentFileInput[] = [];
 
   try {
     for await (const part of request.parts()) {
       if (part.type === 'file') {
-        if (part.fieldname !== 'file') {
+        if (
+          part.fieldname !== 'file' &&
+          part.fieldname !== 'files' &&
+          part.fieldname !== 'files[]'
+        ) {
           part.file.resume();
           throw uploadValidation(part.fieldname, 'is not supported');
         }
-        if (file !== undefined) {
+        if (files.length >= MAX_DOCUMENT_ATTACHMENTS) {
           part.file.resume();
-          throw uploadValidation('file', 'must contain exactly one file');
+          throw uploadValidation(
+            part.fieldname,
+            `exceeds the maximum limit of ${MAX_DOCUMENT_ATTACHMENTS} files`,
+          );
         }
-        file = {
-          filename: part.filename,
-          mimetype: part.mimetype,
+        files.push({
+          originalFileName: part.filename,
+          mimeType: part.mimetype,
           contents: await part.toBuffer(),
-        };
+        });
         continue;
       }
 
@@ -138,17 +146,15 @@ async function parseFileParts(request: FastifyRequest, allowedFields: ReadonlySe
     throw mapMultipartError(error);
   }
 
-  if (file === undefined) throw uploadValidation('file', 'is required');
-  const input: DocumentFileInput = {
-    originalFileName: file.filename,
-    mimeType: file.mimetype,
-    contents: file.contents,
-  };
-  return { fields, file: input };
+  return { fields, files, file: files[0] };
 }
 
 async function parseUpload(request: FastifyRequest): Promise<DocumentUploadInput> {
-  const { fields, file } = await parseFileParts(request, UPLOAD_FIELDS);
+  const { fields, files } = await parseFileParts(request, UPLOAD_FIELDS);
+  const firstFile = files[0];
+  if (files.length === 0 || firstFile === undefined) {
+    throw uploadValidation('file', 'is required');
+  }
   return {
     categoryKey: requiredField(fields, 'categoryKey'),
     folderKey: requiredField(fields, 'folderKey'),
@@ -156,7 +162,14 @@ async function parseUpload(request: FastifyRequest): Promise<DocumentUploadInput
     documentDate: requiredField(fields, 'documentDate'),
     ...(fields.description === undefined ? {} : { description: fields.description }),
     ...(fields.reflection === undefined ? {} : { reflection: fields.reflection }),
-    ...file,
+    ...(files.length === 1
+      ? {
+          originalFileName: firstFile.originalFileName,
+          mimeType: firstFile.mimeType,
+          contents: firstFile.contents,
+        }
+      : {}),
+    files,
   };
 }
 
@@ -258,8 +271,9 @@ export async function registerDocumentRoutes(
       },
     },
     async (request) => {
-      const { file } = await parseFileParts(request, new Set());
-      return successResponse({ ocr: await documents.previewOcr(file, request.id) }, request.id);
+      const { files } = await parseFileParts(request, new Set());
+      if (files.length === 0) throw uploadValidation('file', 'is required');
+      return successResponse({ ocr: await documents.previewOcr(files, request.id) }, request.id);
     },
   );
 
@@ -293,6 +307,29 @@ export async function registerDocumentRoutes(
       const content = await documents.openContent(
         ownerIdFor(request),
         request.params.documentId,
+      );
+      return reply
+        .type(content.document.mimeType)
+        .header('content-length', content.document.sizeBytes)
+        .header('content-disposition', contentDisposition(content.document.originalFileName))
+        .send(content.contents);
+    },
+  );
+
+  app.get<{ Params: DocumentAttachmentParams }>(
+    '/api/v1/documents/:documentId/attachments/:attachmentId/content',
+    {
+      onRequest: requireCurrentUser,
+      schema: {
+        params: documentAttachmentPathParamsSchema,
+        querystring: documentQuerySchema,
+      },
+    },
+    async (request, reply) => {
+      const content = await documents.openContent(
+        ownerIdFor(request),
+        request.params.documentId,
+        request.params.attachmentId,
       );
       return reply
         .type(content.document.mimeType)
@@ -388,8 +425,8 @@ export async function registerDocumentRoutes(
 
 export const documentMultipartLimits = {
   fileSize: MAX_DOCUMENT_FILE_SIZE_BYTES,
-  files: 1,
+  files: 10,
   fields: 6,
-  parts: 7,
+  parts: 20,
   fieldSize: 5_000,
 } as const;

@@ -20,6 +20,8 @@ import { suggestDocumentMetadata, type MetadataSuggestions } from './metadata-su
 import { AiMetadataService, type MetadataAnalysis } from './ai-metadata.service.js';
 
 export const MAX_DOCUMENT_FILE_SIZE_BYTES = 15 * 1024 * 1024;
+export const MAX_DOCUMENT_ATTACHMENTS = 10;
+export const MAX_COMBINED_DOCUMENT_SIZE_BYTES = 45 * 1024 * 1024;
 
 interface SupportedFileType {
   readonly mimeType: string;
@@ -60,13 +62,27 @@ export interface DocumentFileInput {
   readonly contents: Buffer;
 }
 
-export interface DocumentUploadInput extends DocumentFileInput {
+export interface DocumentUploadInput {
   readonly categoryKey: string;
   readonly folderKey: string;
   readonly title: string;
   readonly documentDate: string;
   readonly description?: string;
   readonly reflection?: string;
+  readonly files?: readonly DocumentFileInput[];
+  readonly originalFileName?: string;
+  readonly mimeType?: string;
+  readonly contents?: Buffer;
+}
+
+export interface PublicDocumentAttachment {
+  readonly id: string;
+  readonly originalFileName: string;
+  readonly mimeType: string;
+  readonly fileKind: 'image' | 'pdf';
+  readonly extension: string;
+  readonly sizeBytes: number;
+  readonly order: number;
 }
 
 export interface PublicDocument {
@@ -82,6 +98,7 @@ export interface PublicDocument {
   readonly fileKind: 'image' | 'pdf' | 'docx';
   readonly extension: string;
   readonly sizeBytes: number;
+  readonly attachments?: readonly PublicDocumentAttachment[];
   readonly createdAt: string;
   readonly updatedAt: string;
 }
@@ -104,6 +121,9 @@ export interface PublicDocumentSummary {
 export interface DocumentContent {
   readonly document: PublicDocument;
   readonly contents: Readable;
+  readonly mimeType?: string;
+  readonly originalFileName?: string;
+  readonly sizeBytes?: number;
 }
 
 export interface PublicDocumentOcr {
@@ -279,6 +299,30 @@ function fileTypeFor(fileName: string, mimeType: string, contents: Buffer) {
 }
 
 function publicDocument(document: DocumentRecord): PublicDocument {
+  const attachments: PublicDocumentAttachment[] = (
+    document.attachments && document.attachments.length > 0
+  )
+    ? document.attachments.map((a) => ({
+        id: a.id,
+        originalFileName: a.originalFileName,
+        mimeType: a.mimeType,
+        fileKind: a.fileKind,
+        extension: a.extension,
+        sizeBytes: a.sizeBytes,
+        order: a.order,
+      }))
+    : [
+        {
+          id: '1',
+          originalFileName: document.originalFileName,
+          mimeType: document.mimeType,
+          fileKind: document.fileKind as 'image' | 'pdf',
+          extension: document.extension,
+          sizeBytes: document.sizeBytes,
+          order: 0,
+        },
+      ];
+
   return {
     id: document._id.toString(),
     categoryKey: document.categoryKey,
@@ -292,6 +336,7 @@ function publicDocument(document: DocumentRecord): PublicDocument {
     fileKind: document.fileKind,
     extension: document.extension,
     sizeBytes: document.sizeBytes,
+    attachments,
     createdAt: document.createdAt.toISOString(),
     updatedAt: document.updatedAt.toISOString(),
   };
@@ -306,9 +351,38 @@ export class DocumentService {
   ) {}
 
   async upload(ownerId: Types.ObjectId, input: DocumentUploadInput): Promise<PublicDocument> {
-    if (input.contents.length === 0) throw validationError('file', 'must not be empty');
-    if (input.contents.length > MAX_DOCUMENT_FILE_SIZE_BYTES) {
-      throw new AppError(413, 'FILE_TOO_LARGE', 'The file exceeds the 15 MB upload limit.');
+    const rawFiles: readonly DocumentFileInput[] =
+      input.files && input.files.length > 0
+        ? input.files
+        : input.contents && input.originalFileName && input.mimeType
+          ? [{ contents: input.contents, originalFileName: input.originalFileName, mimeType: input.mimeType }]
+          : [];
+
+    if (rawFiles.length === 0) throw validationError('file', 'must not be empty');
+    if (rawFiles.length > MAX_DOCUMENT_ATTACHMENTS) {
+      throw validationError('files', `cannot contain more than ${MAX_DOCUMENT_ATTACHMENTS} files`);
+    }
+
+    let totalBytes = 0;
+    for (const f of rawFiles) {
+      if (f.contents.length === 0) throw validationError('file', 'must not be empty');
+      if (f.contents.length > MAX_DOCUMENT_FILE_SIZE_BYTES) {
+        throw new AppError(413, 'FILE_TOO_LARGE', 'The file exceeds the 15 MB upload limit.');
+      }
+      totalBytes += f.contents.length;
+    }
+    if (totalBytes > MAX_COMBINED_DOCUMENT_SIZE_BYTES) {
+      throw new AppError(413, 'FILES_TOO_LARGE', 'The combined files exceed the 45 MB upload limit.');
+    }
+
+    if (rawFiles.length > 1) {
+      for (const f of rawFiles) {
+        const leaf = sanitizedFileName(f.originalFileName);
+        const type = fileTypeFor(leaf, f.mimeType, f.contents);
+        if (type.fileKind !== 'image') {
+          throw new AppError(415, 'UNSUPPORTED_FILE_TYPE', 'Multi-page documents support images only (JPG, JPEG, PNG).');
+        }
+      }
     }
 
     const categoryKey = normalizedRequired(input.categoryKey, 'categoryKey', 100);
@@ -316,8 +390,6 @@ export class DocumentService {
     const title = normalizedRequired(input.title, 'title', 250);
     const description = normalizedOptional(input.description, 'description', 2_000);
     const reflection = normalizedOptional(input.reflection, 'reflection', 5_000);
-    const originalFileName = sanitizedFileName(input.originalFileName);
-    const fileType = fileTypeFor(originalFileName, input.mimeType, input.contents);
     const repositories = this.repositories();
 
     let category;
@@ -333,20 +405,55 @@ export class DocumentService {
       throw validationError('folderKey', 'must belong to the selected document category');
     }
 
-    const objectKey = `users/${ownerId.toString()}/documents/${randomUUID()}.${fileType.extension}`;
-    let storedKey: string;
+    const storedAttachments: {
+      id: string;
+      originalFileName: string;
+      objectKey: string;
+      mimeType: string;
+      fileKind: 'image' | 'pdf';
+      extension: string;
+      sizeBytes: number;
+      sha256: string;
+      order: number;
+    }[] = [];
+    const storedKeys: string[] = [];
+
     try {
-      const stored = await this.storage.put(objectKey, Readable.from([input.contents]));
-      if (stored.sizeBytes !== input.contents.length) {
-        await this.bestEffortDelete(stored.key);
-        throw documentUnavailable();
+      for (let i = 0; i < rawFiles.length; i++) {
+        const file = rawFiles[i];
+        if (!file) continue;
+        const originalFileName = sanitizedFileName(file.originalFileName);
+        const fileType = fileTypeFor(originalFileName, file.mimeType, file.contents);
+        const objectKey = `users/${ownerId.toString()}/documents/${randomUUID()}.${fileType.extension}`;
+        const stored = await this.storage.put(objectKey, Readable.from([file.contents]));
+        if (stored.sizeBytes !== file.contents.length) {
+          throw documentUnavailable();
+        }
+        storedKeys.push(stored.key);
+        storedAttachments.push({
+          id: String(i + 1),
+          originalFileName,
+          objectKey: stored.key,
+          mimeType: fileType.mimeType,
+          fileKind: fileType.fileKind,
+          extension: fileType.extension,
+          sizeBytes: file.contents.length,
+          sha256: createHash('sha256').update(file.contents).digest('hex'),
+          order: i,
+        });
       }
-      storedKey = stored.key;
     } catch (error) {
+      for (const key of storedKeys) {
+        await this.bestEffortDelete(key);
+      }
       if (error instanceof AppError) throw error;
       throw documentUnavailable(error);
     }
 
+    const primary = storedAttachments[0];
+    if (!primary) {
+      throw documentUnavailable();
+    }
     try {
       const created = await repositories.documents.create({
         ownerId,
@@ -356,17 +463,20 @@ export class DocumentService {
         documentDate: documentDate(input.documentDate),
         ...(description === undefined ? {} : { description }),
         ...(reflection === undefined ? {} : { reflection }),
-        originalFileName,
-        objectKey: storedKey,
-        mimeType: fileType.mimeType,
-        fileKind: fileType.fileKind,
-        extension: fileType.extension,
-        sizeBytes: input.contents.length,
-        sha256: createHash('sha256').update(input.contents).digest('hex'),
+        originalFileName: primary.originalFileName,
+        objectKey: primary.objectKey,
+        mimeType: primary.mimeType,
+        fileKind: primary.fileKind,
+        extension: primary.extension,
+        sizeBytes: primary.sizeBytes,
+        sha256: primary.sha256,
+        attachments: storedAttachments,
       });
       return publicDocument(created);
     } catch (error) {
-      await this.bestEffortDelete(storedKey);
+      for (const key of storedKeys) {
+        await this.bestEffortDelete(key);
+      }
       if (error instanceof AppError) throw error;
       throw documentUnavailable(error);
     }
@@ -410,12 +520,35 @@ export class DocumentService {
     return publicDocument(await this.ownedDocument(ownerId, documentId));
   }
 
-  async openContent(ownerId: Types.ObjectId, documentId: string): Promise<DocumentContent> {
+  async openContent(
+    ownerId: Types.ObjectId,
+    documentId: string,
+    attachmentId?: string,
+  ): Promise<DocumentContent> {
     const stored = await this.ownedDocument(ownerId, documentId);
+    let targetKey = stored.objectKey;
+    let targetMimeType = stored.mimeType;
+    let targetFileName = stored.originalFileName;
+    let targetSizeBytes = stored.sizeBytes;
+
+    if (attachmentId !== undefined && attachmentId.length > 0) {
+      const match = stored.attachments?.find((candidate) => candidate.id === attachmentId);
+      if (match === undefined) {
+        throw NOT_FOUND;
+      }
+      targetKey = match.objectKey;
+      targetMimeType = match.mimeType;
+      targetFileName = match.originalFileName;
+      targetSizeBytes = match.sizeBytes;
+    }
+
     try {
       return {
         document: publicDocument(stored),
-        contents: await this.storage.get(stored.objectKey),
+        contents: await this.storage.get(targetKey),
+        mimeType: targetMimeType,
+        originalFileName: targetFileName,
+        sizeBytes: targetSizeBytes,
       };
     } catch (error) {
       throw documentUnavailable(error);
@@ -427,20 +560,71 @@ export class DocumentService {
   }
 
   // Pre-upload OCR is transient: no document, object, or guessed metadata is persisted.
-  async previewOcr(input: DocumentFileInput, requestId?: string): Promise<PublicDocumentOcr> {
-    if (input.contents.length === 0) throw validationError('file', 'must not be empty');
-    if (input.contents.length > MAX_DOCUMENT_FILE_SIZE_BYTES) {
-      throw new AppError(413, 'FILE_TOO_LARGE', 'The file exceeds the 15 MB upload limit.');
+  async previewOcr(
+    input: DocumentFileInput | readonly DocumentFileInput[],
+    requestId?: string,
+  ): Promise<PublicDocumentOcr> {
+    const rawFiles: readonly DocumentFileInput[] = Array.isArray(input) ? input : [input];
+    if (rawFiles.length === 0) throw validationError('file', 'must not be empty');
+    if (rawFiles.length > MAX_DOCUMENT_ATTACHMENTS) {
+      throw validationError('files', `cannot contain more than ${MAX_DOCUMENT_ATTACHMENTS} files`);
     }
-    const type = fileTypeFor(sanitizedFileName(input.originalFileName), input.mimeType, input.contents);
+
+    let totalBytes = 0;
+    for (const f of rawFiles) {
+      if (f.contents.length === 0) throw validationError('file', 'must not be empty');
+      if (f.contents.length > MAX_DOCUMENT_FILE_SIZE_BYTES) {
+        throw new AppError(413, 'FILE_TOO_LARGE', 'The file exceeds the 15 MB upload limit.');
+      }
+      totalBytes += f.contents.length;
+    }
+    if (totalBytes > MAX_COMBINED_DOCUMENT_SIZE_BYTES) {
+      throw new AppError(413, 'FILES_TOO_LARGE', 'The combined files exceed the 45 MB upload limit.');
+    }
+
+    if (rawFiles.length > 1) {
+      for (const f of rawFiles) {
+        const type = fileTypeFor(sanitizedFileName(f.originalFileName), f.mimeType, f.contents);
+        if (type.fileKind !== 'image') {
+          throw new AppError(415, 'UNSUPPORTED_FILE_TYPE', 'Multi-page preview supports images only (JPG, JPEG, PNG).');
+        }
+      }
+    }
+
     try {
-      const extracted = await this.extractContents({ ...type, contents: input.contents });
-      return this.withSuggestions({
-        status: 'ready',
-        rawText: extracted.rawText,
-        reviewedText: extracted.rawText,
-        engine: extracted.engine,
-      }, true, requestId);
+      const textChunks: string[] = [];
+      let engine: OcrEngineName = 'tesseract.js';
+      for (let i = 0; i < rawFiles.length; i++) {
+        const file = rawFiles[i];
+        if (!file) continue;
+        const type = fileTypeFor(sanitizedFileName(file.originalFileName), file.mimeType, file.contents);
+        const extracted = await this.extractContents({ ...type, contents: file.contents });
+        engine = extracted.engine;
+        if (extracted.rawText.trim().length > 0) {
+          textChunks.push(
+            rawFiles.length > 1
+              ? `--- Page ${i + 1} ---\n${extracted.rawText.trim()}`
+              : extracted.rawText.trim(),
+          );
+        }
+      }
+      const combinedText = textChunks.join('\n\n');
+      if (combinedText.length === 0) {
+        throw new AppError(422, 'OCR_NO_TEXT_FOUND', 'No readable text was found.');
+      }
+      if (combinedText.length > OCR_MAX_TEXT_LENGTH) {
+        throw new AppError(422, 'OCR_TEXT_TOO_LARGE', 'The extracted text is too large to save.');
+      }
+      return this.withSuggestions(
+        {
+          status: 'ready',
+          rawText: combinedText,
+          reviewedText: combinedText,
+          engine,
+        },
+        true,
+        requestId,
+      );
     } catch (error) {
       if (error instanceof AppError) throw error;
       throw mappedOcrError(error);
@@ -484,21 +668,56 @@ export class DocumentService {
       );
     }
 
+    const attachments =
+      document.attachments && document.attachments.length > 0
+        ? document.attachments
+        : [
+            {
+              id: '1',
+              originalFileName: document.originalFileName,
+              objectKey: document.objectKey,
+              mimeType: document.mimeType,
+              fileKind: document.fileKind as 'image' | 'pdf',
+              extension: document.extension,
+              sizeBytes: document.sizeBytes,
+              order: 0,
+            },
+          ];
+
     try {
-      const stream = await this.storage.get(document.objectKey);
-      const contents = await readableToBoundedBuffer(stream, MAX_DOCUMENT_FILE_SIZE_BYTES);
-      const extracted = await this.extractContents({
-        contents,
-        mimeType: document.mimeType,
-        fileKind: document.fileKind,
-      });
+      const textChunks: string[] = [];
+      for (let i = 0; i < attachments.length; i++) {
+        const att = attachments[i];
+        if (!att) continue;
+        const stream = await this.storage.get(att.objectKey);
+        const contents = await readableToBoundedBuffer(stream, MAX_DOCUMENT_FILE_SIZE_BYTES);
+        const extracted = await this.extractContents({
+          contents,
+          mimeType: att.mimeType,
+          fileKind: att.fileKind,
+        });
+        if (extracted.rawText.trim().length > 0) {
+          textChunks.push(
+            attachments.length > 1
+              ? `--- Page ${i + 1} ---\n${extracted.rawText.trim()}`
+              : extracted.rawText.trim(),
+          );
+        }
+      }
+      const combinedText = textChunks.join('\n\n');
+      if (combinedText.length === 0) {
+        throw new AppError(422, 'OCR_NO_TEXT_FOUND', 'No readable text was found.');
+      }
+      if (combinedText.length > OCR_MAX_TEXT_LENGTH) {
+        throw new AppError(422, 'OCR_TEXT_TOO_LARGE', 'The extracted text is too large to save.');
+      }
       const completed = await repositories.documents.completeOcr(
         ownerId,
         document._id,
         processingId,
         {
-          rawText: extracted.rawText,
-          engine: extracted.engine,
+          rawText: combinedText,
+          engine,
           processedAt: new Date(),
         },
       );
@@ -581,10 +800,19 @@ export class DocumentService {
 
   async delete(ownerId: Types.ObjectId, documentId: string): Promise<void> {
     const document = await this.ownedDocument(ownerId, documentId);
-    try {
-      await this.storage.delete(document.objectKey);
-    } catch (error) {
-      throw documentUnavailable(error);
+    const keysToDelete = new Set<string>();
+    if (document.objectKey) keysToDelete.add(document.objectKey);
+    if (document.attachments) {
+      for (const att of document.attachments) {
+        if (att.objectKey) keysToDelete.add(att.objectKey);
+      }
+    }
+    for (const key of keysToDelete) {
+      try {
+        await this.storage.delete(key);
+      } catch (error) {
+        throw documentUnavailable(error);
+      }
     }
     try {
       const deleted = await this.repositories().documents.deleteByIdForOwner(

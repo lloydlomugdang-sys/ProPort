@@ -14,11 +14,15 @@ class UploadCard extends StatelessWidget {
     required this.onTap,
     this.fileName,
     this.filePath,
+    this.pageCount,
+    this.subtitle,
   });
 
   final VoidCallback onTap;
   final String? fileName;
   final String? filePath;
+  final int? pageCount;
+  final String? subtitle;
 
   bool get _hasPicked => fileName != null;
 
@@ -135,19 +139,49 @@ class UploadCard extends StatelessWidget {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text(
-                fileName!,
-                maxLines: 2,
-                overflow: TextOverflow.ellipsis,
-                style: GoogleFonts.poppins(
-                  fontSize: 13,
-                  fontWeight: FontWeight.w600,
-                  color: AppColors.textPrimary,
-                ),
+              Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      fileName!,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: GoogleFonts.poppins(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w600,
+                        color: AppColors.textPrimary,
+                      ),
+                    ),
+                  ),
+                  if (pageCount != null && pageCount! > 1) ...[
+                    const SizedBox(width: 8),
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 8,
+                        vertical: 2,
+                      ),
+                      decoration: BoxDecoration(
+                        color: AppColors.primary.withValues(alpha: 0.12),
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: Text(
+                        '$pageCount Pages',
+                        style: GoogleFonts.poppins(
+                          fontSize: 10,
+                          fontWeight: FontWeight.w600,
+                          color: AppColors.primary,
+                        ),
+                      ),
+                    ),
+                  ],
+                ],
               ),
               const SizedBox(height: 3),
               Text(
-                'Tap to change file',
+                subtitle ??
+                    (pageCount != null && pageCount! > 1
+                        ? '$pageCount pages selected • Tap to change'
+                        : 'Tap to change file'),
                 style: GoogleFonts.poppins(
                   fontSize: 11,
                   color: AppColors.textMuted,

@@ -3,6 +3,11 @@ import { AppError } from '../../common/errors/app-error.js';
 import type { PortfolioRecord } from '../../database/repositories/portfolio.repository.js';
 import { createRepositories } from '../../database/repositories/index.js';
 import type { DatabaseConnection } from '../../infrastructure/database/database-connection.js';
+import type { ObjectStorage } from '../../infrastructure/storage/object-storage.js';
+import {
+  PortfolioGeneratorService,
+  type PortfolioExportInfo,
+} from './portfolio-generator.service.js';
 
 export interface PortfolioInput {
   readonly fullName: string;
@@ -95,8 +100,41 @@ function publicPortfolio(portfolio: PortfolioRecord): PublicPortfolio {
   };
 }
 
+function sanitizedStudentFileName(fullName: string): string {
+  let student = fullName
+    .replace(/[^a-zA-Z0-9_-]+/g, '_')
+    .replace(/_+/g, '_')
+    .replace(/^_+|_+$/g, '');
+  if (student.length === 0) student = 'Student';
+  if (student.length > 60) student = student.slice(0, 60);
+  return `GradPort_${student}_Portfolio.pdf`;
+}
+
 export class PortfolioService {
-  constructor(private readonly database: DatabaseConnection) {}
+  constructor(
+    private readonly database: DatabaseConnection,
+    private readonly storage?: ObjectStorage,
+  ) {}
+
+  async exportPdf(
+    ownerId: Types.ObjectId,
+    target: { portfolioId: string } | PortfolioInput,
+  ): Promise<{ fileName: string; pdfBytes: Buffer }> {
+    if (this.storage === undefined) {
+      throw new AppError(503, 'STORAGE_UNAVAILABLE', 'Storage is unavailable for portfolio export.');
+    }
+    let info: PortfolioExportInfo;
+    if ('portfolioId' in target) {
+      const stored = await this.get(ownerId, target.portfolioId);
+      info = stored;
+    } else {
+      info = normalizeInput(target);
+    }
+    const generator = new PortfolioGeneratorService(this.database, this.storage);
+    const pdfBytes = await generator.generate(ownerId, info);
+    const fileName = sanitizedStudentFileName(info.fullName);
+    return { fileName, pdfBytes };
+  }
 
   async create(ownerId: Types.ObjectId, input: PortfolioInput): Promise<PublicPortfolio> {
     const created = await this.repositories().portfolios.create({

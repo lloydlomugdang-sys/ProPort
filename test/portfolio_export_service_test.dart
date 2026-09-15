@@ -146,15 +146,21 @@ void main() {
         final again = await store.write(bytes, name, format);
         expect(again.path, isNot(file.path));
         expect(file.path, startsWith(root.path));
-        // Exercise real compute-isolate generation, bundled fonts and disk I/O.
-        final generated = await exporter.generate(_content(), format);
-        expect(await File(generated.path).length(), greaterThan(1000));
         if (format == ExportFormat.pdf) {
-          expect(
-            _pdfText(await File(generated.path).readAsBytes()),
-            contains('Test José Student'),
+          // DevicePortfolioExporter must NEVER silently fall back to metadata-only PDF
+          await expectLater(
+            exporter.generate(_content(), format),
+            throwsA(
+              isA<PortfolioExportException>().having(
+                (e) => e.message,
+                'message',
+                'Unable to generate your complete portfolio. Check your connection and try again.',
+              ),
+            ),
           );
         } else {
+          final generated = await exporter.generate(_content(), format);
+          expect(await File(generated.path).length(), greaterThan(1000));
           expect(
             ZipDecoder()
                 .decodeBytes(await File(generated.path).readAsBytes())

@@ -31,7 +31,9 @@ class AddFileScreen extends StatefulWidget {
 class _AddFileScreenState extends State<AddFileScreen>
     with SingleTickerProviderStateMixin {
   // ─── Upload state ─────────────────────────────────────────────────────────
-  PickedDocument? _pickedFile;
+  List<PickedDocument> _pickedFiles = const [];
+  PickedDocument? get _pickedFile =>
+      _pickedFiles.isNotEmpty ? _pickedFiles.first : null;
   late final DocumentPicker _filePicker;
 
   // ─── Form state ───────────────────────────────────────────────────────────
@@ -144,19 +146,49 @@ class _AddFileScreenState extends State<AddFileScreen>
   Future<void> _onUploadTap() async {
     if (_isSubmitting) return;
     try {
-      final selected = await _filePicker.pickDocument();
-      if (selected == null || !mounted) return;
-      if (!selected.hasSupportedUploadType) {
-        _showSnack('Please select a PDF, JPG, JPEG, or PNG file.');
+      final selected = await _filePicker.pickDocuments(allowMultiple: true);
+      if (selected == null || selected.isEmpty || !mounted) return;
+
+      final hasPdf = selected.any((f) => f.mimeType == 'application/pdf');
+      final hasImage = selected.any((f) => f.mimeType.startsWith('image/'));
+
+      if (hasPdf && hasImage) {
+        _showSnack(
+          'Please select either a PDF document or image pages, not both.',
+        );
         return;
       }
-      if (selected.sizeBytes > DocumentService.maxUploadBytes) {
-        _showSnack('The selected file exceeds the 15 MB upload limit.');
+      if (hasPdf && selected.length > 1) {
+        _showSnack('A PDF document must be uploaded as a single file.');
         return;
       }
+      if (selected.length > 10) {
+        _showSnack('You can attach up to 10 image pages.');
+        return;
+      }
+      for (final f in selected) {
+        if (!f.hasSupportedUploadType) {
+          _showSnack('Please select a PDF, JPG, JPEG, or PNG file.');
+          return;
+        }
+        if (f.sizeBytes > DocumentService.maxUploadBytes) {
+          _showSnack(
+            selected.length == 1
+                ? 'The selected file exceeds the 15 MB upload limit.'
+                : '${f.name} exceeds the 15 MB upload limit.',
+          );
+          return;
+        }
+      }
+      final totalBytes = selected.fold(0, (sum, f) => sum + f.sizeBytes);
+      if (totalBytes > 45 * 1024 * 1024) {
+        _showSnack('The combined files exceed the 45 MB upload limit.');
+        return;
+      }
+
       setState(() {
         _clearAutomaticFields();
-        _pickedFile = selected;
+        _pickedFiles = selected;
         _previewOperation++;
         _isSuggesting = false;
         _suggestions = null;
@@ -172,11 +204,44 @@ class _AddFileScreenState extends State<AddFileScreen>
     }
   }
 
+  void _movePageUp(int index) {
+    if (index <= 0 || _isSubmitting) return;
+    setState(() {
+      final list = List<PickedDocument>.from(_pickedFiles);
+      final item = list.removeAt(index);
+      list.insert(index - 1, item);
+      _pickedFiles = list;
+    });
+  }
+
+  void _movePageDown(int index) {
+    if (index >= _pickedFiles.length - 1 || _isSubmitting) return;
+    setState(() {
+      final list = List<PickedDocument>.from(_pickedFiles);
+      final item = list.removeAt(index);
+      list.insert(index + 1, item);
+      _pickedFiles = list;
+    });
+  }
+
+  void _removePage(int index) {
+    if (_isSubmitting) return;
+    setState(() {
+      final list = List<PickedDocument>.from(_pickedFiles);
+      list.removeAt(index);
+      _pickedFiles = list;
+      if (_pickedFiles.isEmpty) {
+        _clearAutomaticFields();
+        _suggestions = null;
+        _suggestionMessage = null;
+      }
+    });
+  }
+
   // ─── Validation + submit ──────────────────────────────────────────────────
   Future<void> _onAddFile() async {
     if (_isSubmitting) return;
-    final file = _pickedFile;
-    if (file == null) {
+    if (_pickedFiles.isEmpty) {
       _showSnack('Please select a PDF, JPG, JPEG, or PNG file.');
       return;
     }
@@ -218,7 +283,8 @@ class _AddFileScreenState extends State<AddFileScreen>
     _previewOperation++;
     try {
       await service.upload(
-        file: file,
+        file: _pickedFile,
+        files: _pickedFiles,
         categoryKey: category.key,
         folderKey: folder.key,
         title: _titleCtrl.text.trim(),
@@ -253,8 +319,7 @@ class _AddFileScreenState extends State<AddFileScreen>
   }
 
   Future<void> _suggestDetails() async {
-    final file = _pickedFile;
-    if (file == null || _isSuggesting || _isSubmitting) return;
+    if (_pickedFiles.isEmpty || _isSuggesting || _isSubmitting) return;
     final operation = ++_previewOperation;
     final service = DocumentScope.of(context);
     setState(() {
@@ -263,7 +328,7 @@ class _AddFileScreenState extends State<AddFileScreen>
       _suggestionFailed = false;
     });
     try {
-      final result = await service.previewOcr(file);
+      final result = await service.previewOcr(_pickedFiles);
       if (!mounted || operation != _previewOperation) return;
       if (!result.isReady) {
         throw const ApiException(
@@ -452,9 +517,125 @@ class _AddFileScreenState extends State<AddFileScreen>
                 // ── Section 1: Upload ─────────────────────────────
                 Text('1. Upload file', style: AppTextStyles.h4),
                 const SizedBox(height: 10),
-                UploadCard(onTap: _onUploadTap, fileName: _pickedFile?.name),
+                UploadCard(
+                  onTap: _onUploadTap,
+                  fileName: _pickedFiles.isEmpty
+                      ? null
+                      : _pickedFiles.length == 1
+                      ? _pickedFiles.first.name
+                      : '${_pickedFiles.first.name} (+${_pickedFiles.length - 1} pages)',
+                  pageCount: _pickedFiles.length,
+                ),
 
-                if (_pickedFile != null) ...[
+                if (_pickedFiles.length > 1) ...[
+                  const SizedBox(height: 12),
+                  Container(
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(color: AppColors.cardBorder),
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            Text(
+                              'Document Pages (${_pickedFiles.length})',
+                              style: GoogleFonts.poppins(
+                                fontSize: 13,
+                                fontWeight: FontWeight.w600,
+                                color: AppColors.textPrimary,
+                              ),
+                            ),
+                            Text(
+                              'Reorder pages in logical sequence',
+                              style: GoogleFonts.poppins(
+                                fontSize: 11,
+                                color: AppColors.textMuted,
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 8),
+                        for (var i = 0; i < _pickedFiles.length; i++)
+                          Padding(
+                            padding: const EdgeInsets.symmetric(vertical: 4),
+                            child: Row(
+                              children: [
+                                Container(
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 8,
+                                    vertical: 2,
+                                  ),
+                                  decoration: BoxDecoration(
+                                    color: AppColors.primary.withValues(
+                                      alpha: 0.1,
+                                    ),
+                                    borderRadius: BorderRadius.circular(6),
+                                  ),
+                                  child: Text(
+                                    'Page ${i + 1}',
+                                    style: GoogleFonts.poppins(
+                                      fontSize: 11,
+                                      fontWeight: FontWeight.w600,
+                                      color: AppColors.primary,
+                                    ),
+                                  ),
+                                ),
+                                const SizedBox(width: 8),
+                                Expanded(
+                                  child: Text(
+                                    _pickedFiles[i].name,
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: GoogleFonts.poppins(
+                                      fontSize: 12,
+                                      color: AppColors.textPrimary,
+                                    ),
+                                  ),
+                                ),
+                                if (i > 0)
+                                  IconButton(
+                                    icon: const Icon(
+                                      Icons.arrow_upward,
+                                      size: 16,
+                                    ),
+                                    visualDensity: VisualDensity.compact,
+                                    onPressed: () => _movePageUp(i),
+                                    tooltip: 'Move page up',
+                                  ),
+                                if (i < _pickedFiles.length - 1)
+                                  IconButton(
+                                    icon: const Icon(
+                                      Icons.arrow_downward,
+                                      size: 16,
+                                    ),
+                                    visualDensity: VisualDensity.compact,
+                                    onPressed: () => _movePageDown(i),
+                                    tooltip: 'Move page down',
+                                  ),
+                                IconButton(
+                                  icon: const Icon(
+                                    Icons.close,
+                                    size: 16,
+                                    color: Colors.red,
+                                  ),
+                                  visualDensity: VisualDensity.compact,
+                                  onPressed: () => _removePage(i),
+                                  tooltip: 'Remove page',
+                                ),
+                              ],
+                            ),
+                          ),
+                      ],
+                    ),
+                  ),
+                ],
+
+                if (_pickedFiles.isNotEmpty) ...[
                   if (_isSuggesting)
                     const Row(
                       children: [
