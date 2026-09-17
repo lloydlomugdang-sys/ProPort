@@ -198,6 +198,55 @@ void main() {
     );
     auth.dispose();
   });
+
+  testWidgets(
+    'displays user initials in ProfileAvatar and opens action sheet on tap',
+    (tester) async {
+      final auth = _FakeAuthService(
+        user: _user(firstName: 'John', lastName: 'Lloyd'),
+      );
+      await tester.pumpWidget(_testApp(auth));
+      await tester.pumpAndSettle();
+
+      expect(find.text('JL'), findsOneWidget);
+
+      await tester.tap(find.text('JL'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Profile Photo'), findsOneWidget);
+      expect(find.text('Take Photo'), findsOneWidget);
+      expect(find.text('Choose from Gallery'), findsOneWidget);
+      expect(find.text('Cancel'), findsOneWidget);
+      expect(find.text('Remove Photo'), findsNothing);
+
+      await tester.tap(find.text('Cancel'));
+      await tester.pumpAndSettle();
+      expect(find.text('Profile Photo'), findsNothing);
+
+      auth.dispose();
+    },
+  );
+
+  testWidgets('shows Remove Photo in action sheet when user has an avatar', (
+    tester,
+  ) async {
+    final auth = _FakeAuthService(
+      user: _user(firstName: 'John', lastName: 'Lloyd', hasAvatar: true),
+    );
+    await tester.pumpWidget(_testApp(auth));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('JL'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Profile Photo'), findsOneWidget);
+    expect(find.text('Remove Photo'), findsOneWidget);
+
+    await tester.tap(find.text('Cancel'));
+    await tester.pumpAndSettle();
+
+    auth.dispose();
+  });
 }
 
 Widget _testApp(AuthService auth) {
@@ -308,6 +357,7 @@ AuthUser _user({
   String program = 'Information Technology',
   String yearLevel = '3rd Year',
   String school = 'New Era University',
+  bool hasAvatar = false,
 }) {
   return AuthUser(
     id: 'user-1',
@@ -319,5 +369,6 @@ AuthUser _user({
     school: school,
     status: 'active',
     emailVerifiedAt: DateTime.utc(2030),
+    hasAvatar: hasAvatar,
   );
 }

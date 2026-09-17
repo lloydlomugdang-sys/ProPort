@@ -61,6 +61,7 @@ export interface AuthUser {
   readonly school: string;
   readonly status: User['status'];
   readonly emailVerifiedAt: string | null;
+  readonly hasAvatar: boolean;
 }
 
 export interface TokenBundle {
@@ -114,6 +115,7 @@ function authUser(record: SafeUserRecord | PersistedRecord<User>): AuthUser {
     school: record.school,
     status: record.status,
     emailVerifiedAt: record.emailVerifiedAt?.toISOString() ?? null,
+    hasAvatar: typeof record.avatarObjectKey === 'string' && record.avatarObjectKey.trim().length > 0,
   };
 }
 

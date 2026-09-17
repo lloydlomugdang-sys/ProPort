@@ -7,8 +7,10 @@ import '../../services/form_validation.dart';
 import '../../services/profile_options.dart';
 import '../auth/widgets/auth_form_feedback.dart';
 import '../../services/auth_scope.dart';
+import '../../services/auth_service.dart';
 import '../../widgets/grad_app_bar.dart';
 import 'models/user_profile_model.dart';
+import 'widgets/avatar_action_sheet.dart';
 import 'widgets/profile_avatar.dart';
 import 'widgets/profile_info_row.dart';
 
@@ -31,6 +33,7 @@ class _EditProfileScreenState extends State<EditProfileScreen>
 
   bool _hasChanges = false;
   bool _isSaving = false;
+  bool _isAvatarLoading = false;
   bool _optionsRequested = false;
   ProfileOptions? _options;
   String? _optionsError;
@@ -314,8 +317,23 @@ class _EditProfileScreenState extends State<EditProfileScreen>
     );
   }
 
+  Future<void> _handleAvatarTap(AuthService auth) async {
+    await showAvatarActionSheet(
+      context: context,
+      authService: auth,
+      onLoadingChanged: (loading) {
+        if (mounted) setState(() => _isAvatarLoading = loading);
+      },
+      onFeedback: (message, {bool isError = false}) {
+        if (mounted) _showSnackBar(message, isError: isError);
+      },
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
+    final auth = AuthScope.of(context);
+
     return Scaffold(
       backgroundColor: AppColors.background,
       appBar: GradBackAppBar(
@@ -351,7 +369,14 @@ class _EditProfileScreenState extends State<EditProfileScreen>
           padding: const EdgeInsets.fromLTRB(20, 32, 20, 32),
           child: Column(
             children: [
-              const ProfileAvatar(size: 110),
+              ProfileAvatar(
+                size: 110,
+                avatarBytes: auth.avatarBytes,
+                initials: widget.profile.initials,
+                showEditBadge: true,
+                isLoading: _isAvatarLoading,
+                onTap: () => _handleAvatarTap(auth),
+              ),
               const SizedBox(height: 16),
               GestureDetector(
                 onTap: _editName,

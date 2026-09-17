@@ -219,6 +219,23 @@ describe('validated grounded recommendations and fallback', () => {
     expect(validateAiMetadata({ ...result, classificationEvidence: 'Invented evidence' }, text, CATEGORY_SEEDS)).not.toHaveProperty('categoryKey');
   });
 
+  it('maps internal document type aliases to canonical GradPort categories and folders', () => {
+    expect(validateAiMetadata({ ...result, content: 'resume', folder: null }, text, CATEGORY_SEEDS))
+      .toMatchObject({ categoryKey: 'curriculum-vitae', folderKey: 'curriculum-vitae' });
+    expect(validateAiMetadata({ ...result, content: 'transcripts', folder: null }, text, CATEGORY_SEEDS))
+      .toMatchObject({ categoryKey: 'scholastic-record', folderKey: 'unofficial-tor-with-reflections' });
+    expect(validateAiMetadata({ ...result, content: 'certifications', folder: null }, text, CATEGORY_SEEDS))
+      .toMatchObject({ categoryKey: 'certificates', folderKey: 'trainings' });
+    expect(validateAiMetadata({ ...result, content: 'thesis', folder: null }, text, CATEGORY_SEEDS))
+      .toMatchObject({ categoryKey: 'accomplishments', folderKey: 'thesis-capstone' });
+    expect(validateAiMetadata({ ...result, content: 'award', folder: null }, text, CATEGORY_SEEDS))
+      .toMatchObject({ categoryKey: 'other-achievements', folderKey: 'projects' });
+    expect(validateAiMetadata({ ...result, content: 'OJT', folder: null }, text, CATEGORY_SEEDS))
+      .toMatchObject({ categoryKey: 'college-report', folderKey: 'college-report' });
+    expect(validateAiMetadata({ ...result, content: 'creative title artifact', folder: null }, text, CATEGORY_SEEDS))
+      .toMatchObject({ categoryKey: 'curriculum-vitae', folderKey: 'creative-title' });
+  });
+
   it('rejects unsupported dates, invented titles/organizations, markup and recipient titles', () => {
     for (const date of ['tomorrow', '2026-02-30', '2026-09-15', '2026-9-14']) {
       expect(validateAiMetadata({ ...result, date }, text, CATEGORY_SEEDS)).not.toHaveProperty('documentDate');

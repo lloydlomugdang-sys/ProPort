@@ -11,6 +11,7 @@ class AuthUser {
     required this.school,
     required this.status,
     required this.emailVerifiedAt,
+    this.hasAvatar = false,
   });
 
   factory AuthUser.fromJson(Map<String, dynamic> json) {
@@ -24,6 +25,7 @@ class AuthUser {
       school: json['school'] as String? ?? '',
       status: json['status'] as String,
       emailVerifiedAt: _optionalDateTime(json['emailVerifiedAt']),
+      hasAvatar: json['hasAvatar'] as bool? ?? false,
     );
   }
 
@@ -36,6 +38,16 @@ class AuthUser {
   final String school;
   final String status;
   final DateTime? emailVerifiedAt;
+  final bool hasAvatar;
+
+  String get initials {
+    final first = firstName.trim().isNotEmpty ? firstName.trim()[0] : '';
+    final last = lastName.trim().isNotEmpty ? lastName.trim()[0] : '';
+    final result = '$first$last'.toUpperCase();
+    return result.isNotEmpty
+        ? result
+        : (email.isNotEmpty ? email[0].toUpperCase() : 'U');
+  }
 
   static DateTime? _optionalDateTime(Object? value) {
     if (value == null) return null;

@@ -1,3 +1,5 @@
+import { randomUUID } from 'node:crypto';
+import { Readable } from 'node:stream';
 import type { FastifyInstance, LightMyRequestResponse } from 'fastify';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { buildApp } from '../../src/app.js';
@@ -10,6 +12,10 @@ import type {
   EmailSendResult,
   EmailSender,
 } from '../../src/infrastructure/email/email-sender.js';
+import type {
+  ObjectStorage,
+  StoredObject,
+} from '../../src/infrastructure/storage/object-storage.js';
 import { createTestServices } from '../helpers/build-test-app.js';
 import {
   createDisposableMongoDatabase,
@@ -123,11 +129,70 @@ async function registerVerifiedUser(
   };
 }
 
+class InMemoryTestStorage implements ObjectStorage {
+  readonly items = new Map<string, Buffer>();
+
+  async put(key: string, contents: Readable): Promise<StoredObject> {
+    const chunks: Buffer[] = [];
+    for await (const chunk of contents) {
+      chunks.push(typeof chunk === 'string' ? Buffer.from(chunk) : chunk);
+    }
+    const buf = Buffer.concat(chunks);
+    this.items.set(key, buf);
+    return { key, sizeBytes: buf.length };
+  }
+
+  async get(key: string): Promise<Readable> {
+    const data = this.items.get(key);
+    if (!data) throw new Error(`Object not found in test storage: ${key}`);
+    return Readable.from([data]);
+  }
+
+  async delete(key: string): Promise<void> {
+    this.items.delete(key);
+  }
+
+  async exists(key: string): Promise<boolean> {
+    return this.items.has(key);
+  }
+
+  async healthCheck() {
+    return { status: 'up' as const };
+  }
+}
+
+const samplePng = Buffer.from(
+  'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=',
+  'base64',
+);
+const sampleJpeg = Buffer.from(
+  '/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAP//////////////////////////////////////////////////////////////////////////////////////2wBDAf//////////////////////////////////////////////////////////////////////////////////////wAARCAABAAEDASIAAhEBAxEB/8QAFQABAQAAAAAAAAAAAAAAAAAAAAf/xAAUEAEAAAAAAAAAAAAAAAAAAAAA/9oACAEBAAE/AH//2Q==',
+  'base64',
+);
+
+function multipartAvatarUpload(
+  file: { readonly name: string; readonly mimeType: string; readonly contents: Buffer },
+) {
+  const boundary = `gradport-avatar-${randomUUID()}`;
+  const chunks: Buffer[] = [
+    Buffer.from(
+      `--${boundary}\r\nContent-Disposition: form-data; name="file"; filename="${file.name}"\r\nContent-Type: ${file.mimeType}\r\n\r\n`,
+    ),
+    file.contents,
+    Buffer.from(`\r\n--${boundary}--\r\n`),
+  ];
+  return {
+    headers: { 'content-type': `multipart/form-data; boundary=${boundary}` },
+    payload: Buffer.concat(chunks),
+  };
+}
+
 let app: FastifyInstance | undefined;
 let disposable: DisposableMongoDatabase | undefined;
 let firstUser: SessionCredentials | undefined;
 let secondUser: SessionCredentials | undefined;
 const emailSender = new CapturingEmailSender();
+const testStorage = new InMemoryTestStorage();
 
 describe('authenticated current-user API with disposable MongoDB', () => {
   beforeAll(async () => {
@@ -138,6 +203,7 @@ describe('authenticated current-user API with disposable MongoDB', () => {
       ...baseServices,
       database: disposable.database,
       email: emailSender,
+      storage: testStorage,
     };
     app = await buildApp({
       config: loadConfig({ NODE_ENV: 'test', LOG_LEVEL: 'silent' }),
@@ -302,5 +368,132 @@ describe('authenticated current-user API with disposable MongoDB', () => {
       headers: bearer(firstUser!.accessToken),
     });
     expectError(response, 401, 'UNAUTHORIZED');
+  });
+
+  it('rejects unauthenticated avatar requests', async () => {
+    const getAvatar = await app!.inject({ method: 'GET', url: '/api/v1/users/me/avatar' });
+    expectError(getAvatar, 401, 'UNAUTHORIZED');
+
+    const postAvatar = await app!.inject({ method: 'POST', url: '/api/v1/users/me/avatar' });
+    expectError(postAvatar, 401, 'UNAUTHORIZED');
+
+    const deleteAvatar = await app!.inject({ method: 'DELETE', url: '/api/v1/users/me/avatar' });
+    expectError(deleteAvatar, 401, 'UNAUTHORIZED');
+  });
+
+  it('manages avatar lifecycle: upload, isolated retrieval, replacement, and deletion', async () => {
+    // 1. Initially secondUser has no avatar -> 404 NOT_FOUND
+    const initialGet = await app!.inject({
+      method: 'GET',
+      url: '/api/v1/users/me/avatar',
+      headers: bearer(secondUser!.accessToken),
+    });
+    expectError(initialGet, 404, 'AVATAR_NOT_FOUND');
+
+    // 2. Upload invalid image format -> 400 VALIDATION_ERROR
+    const invalidUpload = multipartAvatarUpload({
+      name: 'corrupt.png',
+      mimeType: 'image/png',
+      contents: Buffer.from('Not a real PNG image file!'),
+    });
+    const invalidResponse = await app!.inject({
+      method: 'POST',
+      url: '/api/v1/users/me/avatar',
+      headers: { ...bearer(secondUser!.accessToken), ...invalidUpload.headers },
+      payload: invalidUpload.payload,
+    });
+    expectError(invalidResponse, 400, 'VALIDATION_ERROR');
+
+    // 3. Upload valid PNG -> 200 OK with hasAvatar: true
+    const validUpload = multipartAvatarUpload({
+      name: 'avatar.png',
+      mimeType: 'image/png',
+      contents: samplePng,
+    });
+    const uploadResponse = await app!.inject({
+      method: 'POST',
+      url: '/api/v1/users/me/avatar',
+      headers: { ...bearer(secondUser!.accessToken), ...validUpload.headers },
+      payload: validUpload.payload,
+    });
+    expect(uploadResponse.statusCode).toBe(200);
+    const uploadBody = uploadResponse.json<{ data: { user: { id: string; hasAvatar: boolean } } }>();
+    expect(uploadBody.data.user.id).toBe(secondUser!.userId);
+    expect(uploadBody.data.user.hasAvatar).toBe(true);
+
+    // Verify raw secrets/keys not exposed
+    const serializedUpload = JSON.stringify(uploadBody);
+    expect(serializedUpload).not.toContain('avatarObjectKey');
+
+    // 4. Retrieve avatar -> 200 image/png matching samplePng
+    const retrievedAvatar = await app!.inject({
+      method: 'GET',
+      url: '/api/v1/users/me/avatar',
+      headers: bearer(secondUser!.accessToken),
+    });
+    expect(retrievedAvatar.statusCode).toBe(200);
+    expect(retrievedAvatar.headers['content-type']).toBe('image/png');
+    expect(retrievedAvatar.rawPayload).toEqual(samplePng);
+
+    // 5. GET /api/v1/users/me reports hasAvatar: true
+    const profileResponse = await app!.inject({
+      method: 'GET',
+      url: '/api/v1/users/me',
+      headers: bearer(secondUser!.accessToken),
+    });
+    expect(profileResponse.statusCode).toBe(200);
+    const profileBody = profileResponse.json<{ data: { user: { hasAvatar: boolean } } }>();
+    expect(profileBody.data.user.hasAvatar).toBe(true);
+
+    // 6. User isolation: Re-register or login a 3rd user without avatar, cannot access secondUser's avatar
+    const thirdUser = await registerVerifiedUser(app!, 'profile.three@example.edu', 'Third');
+    const thirdUserAvatar = await app!.inject({
+      method: 'GET',
+      url: '/api/v1/users/me/avatar',
+      headers: bearer(thirdUser.accessToken),
+    });
+    expectError(thirdUserAvatar, 404, 'AVATAR_NOT_FOUND');
+
+    // 7. Replace avatar with JPEG -> 200 OK
+    const replaceUpload = multipartAvatarUpload({
+      name: 'avatar.jpg',
+      mimeType: 'image/jpeg',
+      contents: sampleJpeg,
+    });
+    const replaceResponse = await app!.inject({
+      method: 'POST',
+      url: '/api/v1/users/me/avatar',
+      headers: { ...bearer(secondUser!.accessToken), ...replaceUpload.headers },
+      payload: replaceUpload.payload,
+    });
+    expect(replaceResponse.statusCode).toBe(200);
+
+    const updatedAvatar = await app!.inject({
+      method: 'GET',
+      url: '/api/v1/users/me/avatar',
+      headers: bearer(secondUser!.accessToken),
+    });
+    expect(updatedAvatar.statusCode).toBe(200);
+    expect(updatedAvatar.headers['content-type']).toBe('image/jpeg');
+    expect(updatedAvatar.rawPayload).toEqual(sampleJpeg);
+
+    // 8. Delete avatar -> 200 OK with hasAvatar: false
+    const deleteResponse = await app!.inject({
+      method: 'DELETE',
+      url: '/api/v1/users/me/avatar',
+      headers: bearer(secondUser!.accessToken),
+    });
+    expect(deleteResponse.statusCode).toBe(200);
+    const deleteBody = deleteResponse.json<{ data: { user: { hasAvatar: boolean } } }>();
+    expect(deleteBody.data.user.hasAvatar).toBe(false);
+
+    // 9. Now GET avatar returns 404 and storage is empty
+    const finalGet = await app!.inject({
+      method: 'GET',
+      url: '/api/v1/users/me/avatar',
+      headers: bearer(secondUser!.accessToken),
+    });
+    expectError(finalGet, 404, 'AVATAR_NOT_FOUND');
+    expect(testStorage.items.size).toBe(0);
   });
 });

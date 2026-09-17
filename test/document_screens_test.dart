@@ -879,6 +879,118 @@ void main() {
 
     oversizedService.disposeWithAuth();
   });
+
+  testWidgets(
+    'suggests Curriculum Vitae for CV documents and maps folder properly',
+    (tester) async {
+      final cvCategories = [
+        const DocumentCategory(
+          key: 'curriculum-vitae',
+          name: 'Curriculum Vitae',
+          folders: [
+            DocumentFolder(key: 'curriculum-vitae', name: 'Curriculum Vitae'),
+          ],
+        ),
+        const DocumentCategory(
+          key: 'certificates',
+          name: 'Certificates',
+          folders: [
+            DocumentFolder(key: 'seminars', name: 'Seminars'),
+            DocumentFolder(key: 'trainings', name: 'Trainings'),
+          ],
+        ),
+      ];
+      final cvOcr = DocumentOcrResult(
+        status: DocumentOcrStatus.ready,
+        metadataSuggestions: DocumentMetadataSuggestions(
+          categoryKey: 'curriculum-vitae',
+          folderKey: 'curriculum-vitae',
+          title: 'Curriculum Vitae - Juan Dela Cruz',
+          documentDate: DateTime(2026, 9, 15),
+          description: 'Professional resume and curriculum vitae.',
+        ),
+      );
+      final service = _ScreenDocumentService(
+        categories: cvCategories,
+        ocr: cvOcr,
+      );
+      await _openSuggestionForm(tester, service);
+      await tester.pumpAndSettle();
+
+      expect(
+        tester
+            .widget<DropdownButton<String>>(
+              find.byType(DropdownButton<String>).first,
+            )
+            .value,
+        'Curriculum Vitae',
+      );
+      expect(
+        tester
+            .widget<DropdownButton<String>>(
+              find.byType(DropdownButton<String>).last,
+            )
+            .value,
+        'Curriculum Vitae',
+      );
+      expect(
+        tester.widget<TextField>(find.byType(TextField).first).controller!.text,
+        'Curriculum Vitae - Juan Dela Cruz',
+      );
+      service.disposeWithAuth();
+    },
+  );
+
+  testWidgets(
+    'manual reflection is never overwritten or cleared when suggestions apply or reapply',
+    (tester) async {
+      final pending = Completer<DocumentOcrResult>();
+      final service = _ScreenDocumentService(extraction: pending);
+      await _openSuggestionForm(tester, service, settle: false);
+      await tester.pump();
+
+      // Enable and type a manual reflection
+      await tester.ensureVisible(find.text('Reflection'));
+      await tester.tap(find.text('Reflection'));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 300));
+
+      final reflectionField = find.byWidgetPredicate(
+        (widget) =>
+            widget is TextField &&
+            widget.decoration?.hintText == 'Enter reflection',
+      );
+      expect(reflectionField, findsOneWidget);
+      await tester.enterText(
+        reflectionField,
+        'My sacred personal reflection on learning.',
+      );
+      await tester.pump();
+
+      // Now complete the OCR suggestions
+      pending.complete(_suggestedOcr());
+      await tester.pumpAndSettle();
+
+      // Reflection remains intact!
+      expect(
+        find.text('My sacred personal reflection on learning.'),
+        findsOneWidget,
+      );
+
+      // Reapply suggestions if available
+      final reapply = find.text('Reapply OCR suggestions');
+      if (reapply.evaluate().isNotEmpty) {
+        await tester.tap(reapply);
+        await tester.pumpAndSettle();
+        expect(
+          find.text('My sacred personal reflection on learning.'),
+          findsOneWidget,
+        );
+      }
+
+      service.disposeWithAuth();
+    },
+  );
 }
 
 Widget _viewFiles() => const ViewFilesScreen(
@@ -980,6 +1092,7 @@ class _FakePicker implements DocumentPicker {
 
 class _ScreenDocumentService extends DocumentService {
   factory _ScreenDocumentService({
+    List<DocumentCategory>? categories,
     List<DocumentRecord> documents = const [],
     DocumentSummary summary = DocumentSummary.empty,
     ApiException? uploadFailure,
@@ -992,6 +1105,7 @@ class _ScreenDocumentService extends DocumentService {
     final auth = _NoopAuthService();
     return _ScreenDocumentService._(
       auth,
+      categories: categories ?? _categories,
       documents: documents,
       summary: summary,
       uploadFailure: uploadFailure,
@@ -1003,13 +1117,15 @@ class _ScreenDocumentService extends DocumentService {
 
   _ScreenDocumentService._(
     this._auth, {
+    required List<DocumentCategory> categories,
     required List<DocumentRecord> documents,
     required DocumentSummary summary,
     required this.uploadFailure,
     required DocumentOcrResult ocr,
     required this.extraction,
     required this.extractionFailure,
-  }) : _documents = documents,
+  }) : _activeCategories = categories,
+       _documents = documents,
        _summary = summary,
        _ocr = ocr,
        super(authService: _auth);
@@ -1031,6 +1147,7 @@ class _ScreenDocumentService extends DocumentService {
   ];
 
   final _NoopAuthService _auth;
+  final List<DocumentCategory> _activeCategories;
   List<DocumentRecord> _documents;
   DocumentSummary _summary;
   final ApiException? uploadFailure;
@@ -1052,7 +1169,7 @@ class _ScreenDocumentService extends DocumentService {
   String? uploadedReflection;
 
   @override
-  List<DocumentCategory> get categories => _categories;
+  List<DocumentCategory> get categories => _activeCategories;
 
   @override
   List<DocumentRecord> get documents => List.unmodifiable(_documents);

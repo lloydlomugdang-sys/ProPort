@@ -9,6 +9,7 @@ class UserProfile {
     required this.program,
     required this.yearLevel,
     required this.school,
+    this.hasAvatar = false,
   });
 
   factory UserProfile.fromAuthUser(AuthUser user) {
@@ -19,6 +20,7 @@ class UserProfile {
       program: user.program,
       yearLevel: user.yearLevel,
       school: user.school,
+      hasAvatar: user.hasAvatar,
     );
   }
 
@@ -28,6 +30,16 @@ class UserProfile {
   final String program;
   final String yearLevel;
   final String school;
+  final bool hasAvatar;
 
   String get fullName => '$firstName $lastName'.trim();
+
+  String get initials {
+    final first = firstName.trim().isNotEmpty ? firstName.trim()[0] : '';
+    final last = lastName.trim().isNotEmpty ? lastName.trim()[0] : '';
+    final result = '$first$last'.toUpperCase();
+    return result.isNotEmpty
+        ? result
+        : (email.isNotEmpty ? email[0].toUpperCase() : 'U');
+  }
 }

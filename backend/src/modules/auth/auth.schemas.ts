@@ -42,6 +42,7 @@ const authUserSchema = {
     'school',
     'status',
     'emailVerifiedAt',
+    'hasAvatar',
   ],
   additionalProperties: false,
   properties: {
@@ -56,6 +57,7 @@ const authUserSchema = {
     emailVerifiedAt: {
       anyOf: [{ type: 'string', format: 'date-time' }, { type: 'null' }],
     },
+    hasAvatar: { type: 'boolean' },
   },
 } as const;
 

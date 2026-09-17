@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -146,12 +147,101 @@ void main() {
       findsOneWidget,
     );
     expect(find.text('4th Year'), findsOneWidget);
+    expect(find.text('MS'), findsOneWidget);
     expect(find.text('John Dela Cruz'), findsNothing);
     expect(find.text('BS Information Technology'), findsNothing);
     expect(find.text('3rd year'), findsNothing);
     documents.dispose();
     auth.dispose();
   });
+
+  testWidgets(
+    'shows avatar image in dashboard user card when avatarBytes is present',
+    (tester) async {
+      final sampleBytes = Uint8List.fromList([
+        0x89,
+        0x50,
+        0x4E,
+        0x47,
+        0x0D,
+        0x0A,
+        0x1A,
+        0x0A,
+        0x00,
+        0x00,
+        0x00,
+        0x0D,
+        0x49,
+        0x48,
+        0x44,
+        0x52,
+        0x00,
+        0x00,
+        0x00,
+        0x01,
+        0x00,
+        0x00,
+        0x00,
+        0x01,
+        0x08,
+        0x06,
+        0x00,
+        0x00,
+        0x00,
+        0x1F,
+        0x15,
+        0xC4,
+        0x89,
+        0x00,
+        0x00,
+        0x00,
+        0x0A,
+        0x49,
+        0x44,
+        0x41,
+        0x54,
+        0x78,
+        0x9C,
+        0x63,
+        0x00,
+        0x01,
+        0x00,
+        0x00,
+        0x05,
+        0x00,
+        0x01,
+        0x0D,
+        0x0A,
+        0x2D,
+        0xB4,
+        0x00,
+        0x00,
+        0x00,
+        0x00,
+        0x49,
+        0x45,
+        0x4E,
+        0x44,
+        0xAE,
+        0x42,
+        0x60,
+        0x82,
+      ]);
+      final auth = _DashboardAuthService(
+        _user(firstName: 'Maria', lastName: 'Santos'),
+        avatarBytes: sampleBytes,
+      );
+      final documents = _DashboardDocumentService(auth);
+      await tester.pumpWidget(_testApp(auth, documents));
+      await tester.pumpAndSettle();
+
+      expect(find.byType(Image), findsOneWidget);
+      expect(find.text('MS'), findsNothing);
+
+      documents.dispose();
+      auth.dispose();
+    },
+  );
 
   testWidgets(
     'updates immediately when the shared authenticated user changes',
@@ -317,8 +407,9 @@ Widget _testApp(AuthService auth, DocumentService documents) {
 }
 
 class _DashboardAuthService extends AuthService {
-  _DashboardAuthService(this._currentUser)
-    : super(
+  _DashboardAuthService(this._currentUser, {Uint8List? avatarBytes})
+    : _currentAvatarBytes = avatarBytes,
+      super(
         apiClient: ApiClient(
           baseUrl: 'http://example.test:3000',
           client: MockClient(
@@ -335,9 +426,13 @@ class _DashboardAuthService extends AuthService {
       );
 
   AuthUser? _currentUser;
+  final Uint8List? _currentAvatarBytes;
 
   @override
   AuthUser? get user => _currentUser;
+
+  @override
+  Uint8List? get avatarBytes => _currentAvatarBytes;
 
   @override
   Future<Map<String, dynamic>> authenticatedGetJson(String path) async {

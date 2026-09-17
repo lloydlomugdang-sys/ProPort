@@ -1,3 +1,6 @@
+import { randomUUID } from 'node:crypto';
+import { Readable } from 'node:stream';
+import type { FastifyBaseLogger } from 'fastify';
 import type { Types } from 'mongoose';
 import { AppError } from '../../common/errors/app-error.js';
 import { normalizePersonalName } from '../../common/validation/personal-name.js';
@@ -9,12 +12,45 @@ import type {
   UpdateUserProfileInput,
 } from '../../database/repositories/user.repository.js';
 import type { DatabaseConnection } from '../../infrastructure/database/database-connection.js';
+import type { ObjectStorage } from '../../infrastructure/storage/object-storage.js';
 
 const UNAUTHORIZED = new AppError(
   401,
   'UNAUTHORIZED',
   'Authentication is required to access this resource.',
 );
+
+export const MAX_AVATAR_FILE_SIZE_BYTES = 5 * 1024 * 1024; // 5 MB
+
+export function validateAvatarImage(contents: Buffer): { extension: 'jpg' | 'png' | 'webp'; mimeType: string } {
+  if (contents.length === 0) {
+    throw new AppError(400, 'VALIDATION_ERROR', 'The request is invalid.', { avatar: ['image file is empty'] });
+  }
+  if (contents.length > MAX_AVATAR_FILE_SIZE_BYTES) {
+    throw new AppError(413, 'FILE_TOO_LARGE', 'The profile image exceeds the 5 MB upload limit.');
+  }
+
+  // Magic bytes check
+  const isJpeg = contents.length >= 3 && contents[0] === 0xff && contents[1] === 0xd8 && contents[2] === 0xff;
+  const isPng = contents.length >= 8 && contents[0] === 0x89 && contents[1] === 0x50 && contents[2] === 0x4e && contents[3] === 0x47;
+  const isWebp = contents.length >= 12 &&
+    contents[0] === 0x52 && contents[1] === 0x49 && contents[2] === 0x46 && contents[3] === 0x46 && // RIFF
+    contents[8] === 0x57 && contents[9] === 0x45 && contents[10] === 0x42 && contents[11] === 0x50; // WEBP
+
+  if (isJpeg) {
+    return { extension: 'jpg', mimeType: 'image/jpeg' };
+  }
+  if (isPng) {
+    return { extension: 'png', mimeType: 'image/png' };
+  }
+  if (isWebp) {
+    return { extension: 'webp', mimeType: 'image/webp' };
+  }
+
+  throw new AppError(400, 'VALIDATION_ERROR', 'The request is invalid.', {
+    avatar: ['must be a valid JPEG, PNG, or WEBP image'],
+  });
+}
 
 export interface CurrentUserProfile {
   readonly id: string;
@@ -26,6 +62,7 @@ export interface CurrentUserProfile {
   readonly school: string;
   readonly status: User['status'];
   readonly emailVerifiedAt: string | null;
+  readonly hasAvatar: boolean;
 }
 
 export interface CurrentUserIdentity {
@@ -52,6 +89,7 @@ function publicProfile(user: SafeUserRecord): CurrentUserProfile {
     school: user.school,
     status: user.status,
     emailVerifiedAt: user.emailVerifiedAt?.toISOString() ?? null,
+    hasAvatar: typeof user.avatarObjectKey === 'string' && user.avatarObjectKey.trim().length > 0,
   };
 }
 
@@ -90,7 +128,11 @@ function normalizePatch(input: UpdateCurrentUserProfileInput): UpdateUserProfile
 }
 
 export class CurrentUserService {
-  constructor(private readonly database: DatabaseConnection) {}
+  constructor(
+    private readonly database: DatabaseConnection,
+    private readonly storage?: ObjectStorage,
+    private readonly logger?: Pick<FastifyBaseLogger, 'warn' | 'error' | 'info'>,
+  ) {}
 
   async authenticate(
     userId: Types.ObjectId,
@@ -139,6 +181,101 @@ export class CurrentUserService {
     if (updated === null || updated.status !== 'active') {
       throw UNAUTHORIZED;
     }
+    return publicProfile(updated);
+  }
+
+  async uploadAvatar(
+    userId: Types.ObjectId,
+    file: { contents: Buffer; mimeType?: string },
+  ): Promise<CurrentUserProfile> {
+    if (!this.storage) {
+      throw new AppError(503, 'STORAGE_UNAVAILABLE', 'Storage service is unavailable.');
+    }
+    const { extension, mimeType } = validateAvatarImage(file.contents);
+    const repositories = this.repositories();
+    const existing = await repositories.users.findById(userId);
+    if (existing === null || existing.status !== 'active') throw UNAUTHORIZED;
+
+    const previousKey = existing.avatarObjectKey;
+    const newKey = `users/${userId.toString()}/avatar/${randomUUID()}.${extension}`;
+
+    // 1. Upload new avatar first
+    try {
+      await this.storage.put(newKey, Readable.from([file.contents]));
+    } catch {
+      throw new AppError(503, 'STORAGE_ERROR', 'Unable to upload profile picture. Please try again.');
+    }
+
+    // 2. Update user profile in database
+    let updated: SafeUserRecord | null;
+    try {
+      updated = await repositories.users.updateById(userId, {
+        avatarObjectKey: newKey,
+        avatarMimeType: mimeType,
+      });
+      if (updated === null || updated.status !== 'active') {
+        throw UNAUTHORIZED;
+      }
+    } catch (error) {
+      // Clean up newly uploaded object so it does not become an orphan
+      await this.storage.delete(newKey).catch(() => undefined);
+      if (error instanceof AppError) throw error;
+      throw new AppError(500, 'DATABASE_ERROR', 'Failed to update profile picture record.');
+    }
+
+    // 3. Delete previous R2 avatar only after new reference has been persisted
+    if (previousKey && previousKey !== newKey) {
+      try {
+        await this.storage.delete(previousKey);
+      } catch (err) {
+        // Safe logging; do not roll back the valid new avatar
+        this.logger?.warn({ err, previousKey }, 'Failed to delete previous avatar object after successful update');
+      }
+    }
+
+    return publicProfile(updated);
+  }
+
+  async getAvatar(userId: Types.ObjectId): Promise<{ stream: Readable; mimeType: string }> {
+    if (!this.storage) {
+      throw new AppError(503, 'STORAGE_UNAVAILABLE', 'Storage service is unavailable.');
+    }
+    const repositories = this.repositories();
+    const user = await repositories.users.findById(userId);
+    if (user === null || user.status !== 'active') throw UNAUTHORIZED;
+
+    if (!user.avatarObjectKey || user.avatarObjectKey.trim().length === 0) {
+      throw new AppError(404, 'AVATAR_NOT_FOUND', 'The user does not have a profile picture.');
+    }
+
+    try {
+      const stream = await this.storage.get(user.avatarObjectKey);
+      return { stream, mimeType: user.avatarMimeType || 'image/jpeg' };
+    } catch {
+      throw new AppError(404, 'AVATAR_NOT_FOUND', 'Profile picture is no longer available.');
+    }
+  }
+
+  async deleteAvatar(userId: Types.ObjectId): Promise<CurrentUserProfile> {
+    const repositories = this.repositories();
+    const existing = await repositories.users.findById(userId);
+    if (existing === null || existing.status !== 'active') throw UNAUTHORIZED;
+
+    const previousKey = existing.avatarObjectKey;
+    const updated = await repositories.users.updateById(userId, {
+      avatarObjectKey: '',
+      avatarMimeType: '',
+    });
+    if (updated === null) throw UNAUTHORIZED;
+
+    if (this.storage && previousKey && previousKey.trim().length > 0) {
+      try {
+        await this.storage.delete(previousKey);
+      } catch (err) {
+        this.logger?.warn({ err, previousKey }, 'Failed to delete avatar object during deletion');
+      }
+    }
+
     return publicProfile(updated);
   }
 

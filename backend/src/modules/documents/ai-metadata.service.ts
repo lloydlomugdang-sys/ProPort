@@ -2,7 +2,7 @@ import type { FastifyBaseLogger } from 'fastify';
 import type { MetadataProvider } from '../../infrastructure/ai/metadata-provider.js';
 import { MetadataProviderError, metadataRecommendationSchema } from '../../infrastructure/ai/metadata-provider.js';
 import type { PublicDocumentCategory } from './document.service.js';
-import { suggestDocumentMetadata, type MetadataSuggestions } from './metadata-suggestion.service.js';
+import { resolveCanonicalTaxonomy, suggestDocumentMetadata, type MetadataSuggestions } from './metadata-suggestion.service.js';
 
 export const AI_MAX_INPUT_LENGTH = 12_000;
 
@@ -50,26 +50,49 @@ export function validateAiMetadata(value: unknown, text: string, categories: rea
   const evidence = plainText(record.classificationEvidence, 500);
   const content = plainText(record.content, 100);
   const folder = plainText(record.folder, 100);
-  const category = grounded(evidence, text) && content !== undefined
-    ? categories.find((item) => [item.key, item.name].some((key) => comparable(key) === comparable(content))) : undefined;
-  const matchedFolder = category?.folders.find((item) => folder !== undefined &&
-    [item.key, item.name].some((key) => comparable(key) === comparable(folder)));
+  const resolved = grounded(evidence, text) && content !== undefined
+    ? resolveCanonicalTaxonomy(content, folder, categories)
+    : {};
+  const category = resolved.category;
+  const matchedFolderKey = resolved.folderKey;
   const title = plainText(record.title, 250);
   // Recipient lines are evidence of identity, not of an activity title.
   const recipients = [...text.matchAll(/(?:presented|awarded|issued)\s+to[^\S\n]*\n?([^\n]+)/gi)]
     .map((match) => comparable(match[1]!.split(/\s+for\b/i)[0]!));
-  const safeTitle = grounded(title, text) && !recipients.includes(comparable(title)) &&
-    !/^certificate\s+of\s+/i.test(title) ? title : undefined;
+  const isCertificateCategory = category?.key === 'certificates';
+  const safeTitle = grounded(title, text) &&
+    (!isCertificateCategory || (!recipients.includes(comparable(title)) && !/^certificate\s+of\s+/i.test(title)))
+    ? title : undefined;
+
   const date = plainText(record.date, 10);
-  // Conservative calendar/evidence check also excludes DOB, expiry and ambiguous dates.
-  const supportedDate = suggestDocumentMetadata({ rawText: text }, []).documentDate;
-  const documentDate = date !== undefined && /^\d{4}-\d{2}-\d{2}$/.test(date) && date === supportedDate ? date : undefined;
+  let documentDate: string | undefined;
+  if (date !== undefined && /^\d{4}-\d{2}-\d{2}$/.test(date)) {
+    const supportedDate = suggestDocumentMetadata({ rawText: text }, []).documentDate;
+    if (date === supportedDate) {
+      documentDate = date;
+    } else {
+      const [y, m, d] = date.split('-').map(Number);
+      if (y && m && d && y >= 1990 && y <= 2100 && m >= 1 && m <= 12 && d >= 1 && d <= 31) {
+        const testDate = new Date(Date.UTC(y, m - 1, d));
+        if (testDate.getUTCFullYear() === y && testDate.getUTCMonth() === m - 1 && testDate.getUTCDate() === d) {
+          const yearStr = String(y);
+          const dayStr = String(d);
+          if (text.includes(yearStr) && (text.includes(dayStr) || text.toLowerCase().includes(String(m)))) {
+            const beforeMatch = text.slice(0, Math.max(0, text.indexOf(yearStr)));
+            if (!/\b(?:birth|born|expires?|expiry|expiration|valid until)\b/i.test(beforeMatch)) {
+              documentDate = date;
+            }
+          }
+        }
+      }
+    }
+  }
   const quotes = record.descriptionQuotes.map((quote: unknown) => plainText(quote, 600));
   const description = quotes.length > 0 && quotes.every((quote) => grounded(quote, text))
     ? quotes.join(' — ') : undefined;
   return {
     ...(category === undefined ? {} : { categoryKey: category.key }),
-    ...(matchedFolder === undefined ? {} : { folderKey: matchedFolder.key }),
+    ...(matchedFolderKey === undefined ? {} : { folderKey: matchedFolderKey }),
     ...(safeTitle === undefined ? {} : { title: safeTitle }),
     ...(documentDate === undefined ? {} : { documentDate }),
     ...(description === undefined ? {} : { description }),

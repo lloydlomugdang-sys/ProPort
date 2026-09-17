@@ -1,12 +1,15 @@
 import 'package:flutter/material.dart';
+import 'package:google_fonts/google_fonts.dart';
 
 import '../../constants/app_colors.dart';
 import '../../constants/app_text_styles.dart';
 import '../auth/widgets/auth_form_feedback.dart';
 import '../../services/auth_scope.dart';
+import '../../services/auth_service.dart';
 import '../../widgets/grad_app_bar.dart';
 import 'edit_profile_screen.dart';
 import 'models/user_profile_model.dart';
+import 'widgets/avatar_action_sheet.dart';
 import 'widgets/profile_avatar.dart';
 import 'widgets/profile_info_row.dart';
 
@@ -20,6 +23,7 @@ class ProfileScreen extends StatefulWidget {
 class _ProfileScreenState extends State<ProfileScreen> {
   bool _loadStarted = false;
   bool _isLoading = true;
+  bool _isAvatarLoading = false;
   String? _errorMessage;
 
   @override
@@ -101,11 +105,39 @@ class _ProfileScreenState extends State<ProfileScreen> {
           ),
         ],
       ),
-      body: _buildBody(profile),
+      body: _buildBody(profile, auth),
     );
   }
 
-  Widget _buildBody(UserProfile? profile) {
+  Future<void> _handleAvatarTap(AuthService auth) async {
+    await showAvatarActionSheet(
+      context: context,
+      authService: auth,
+      onLoadingChanged: (loading) {
+        if (mounted) setState(() => _isAvatarLoading = loading);
+      },
+      onFeedback: (message, {bool isError = false}) {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              message,
+              style: GoogleFonts.poppins(fontSize: 13, color: Colors.white),
+            ),
+            backgroundColor: isError ? Colors.red.shade700 : AppColors.success,
+            behavior: SnackBarBehavior.floating,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(10),
+            ),
+            margin: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+            duration: const Duration(seconds: 2),
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildBody(UserProfile? profile, AuthService auth) {
     if (_isLoading) {
       return const Center(
         child: CircularProgressIndicator(color: AppColors.primary),
@@ -140,7 +172,14 @@ class _ProfileScreenState extends State<ProfileScreen> {
       padding: const EdgeInsets.fromLTRB(20, 32, 20, 32),
       child: Column(
         children: [
-          const ProfileAvatar(size: 110),
+          ProfileAvatar(
+            size: 110,
+            avatarBytes: auth.avatarBytes,
+            initials: profile.initials,
+            showEditBadge: true,
+            isLoading: _isAvatarLoading,
+            onTap: () => _handleAvatarTap(auth),
+          ),
           const SizedBox(height: 16),
           Text(
             profile.fullName,

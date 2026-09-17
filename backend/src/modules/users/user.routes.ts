@@ -11,6 +11,7 @@ import {
 } from './user.schemas.js';
 import {
   CurrentUserService,
+  MAX_AVATAR_FILE_SIZE_BYTES,
   type CurrentUserIdentity,
   type UpdateCurrentUserProfileInput,
 } from './user.service.js';
@@ -33,11 +34,65 @@ function objectId(value: unknown): Types.ObjectId {
   return new Types.ObjectId(value);
 }
 
+function mapAvatarMultipartError(error: unknown): AppError {
+  const code =
+    typeof error === 'object' && error !== null && 'code' in error
+      ? String(error.code)
+      : '';
+  if (code.includes('FILE_TOO_LARGE')) {
+    return new AppError(413, 'FILE_TOO_LARGE', 'The profile image exceeds the 5 MB upload limit.');
+  }
+  return new AppError(
+    400,
+    'INVALID_MULTIPART_REQUEST',
+    'The upload request is invalid.',
+  );
+}
+
+async function parseAvatarFile(request: FastifyRequest): Promise<{ contents: Buffer; mimeType: string }> {
+  if (!request.isMultipart()) {
+    throw new AppError(
+      415,
+      'UNSUPPORTED_MEDIA_TYPE',
+      'Avatar upload must use multipart/form-data.',
+    );
+  }
+
+  let fileBuffer: Buffer | undefined;
+  let fileMimeType: string | undefined;
+
+  try {
+    for await (const part of request.parts({ limits: { fileSize: MAX_AVATAR_FILE_SIZE_BYTES } })) {
+      if (part.type === 'file') {
+        if (fileBuffer !== undefined) {
+          part.file.resume();
+          throw new AppError(400, 'VALIDATION_ERROR', 'The request is invalid.', {
+            avatar: ['only a single image file may be uploaded'],
+          });
+        }
+        fileBuffer = await part.toBuffer();
+        fileMimeType = part.mimetype;
+      }
+    }
+  } catch (error) {
+    if (error instanceof AppError) throw error;
+    throw mapAvatarMultipartError(error);
+  }
+
+  if (!fileBuffer || fileBuffer.length === 0) {
+    throw new AppError(400, 'VALIDATION_ERROR', 'The request is invalid.', {
+      avatar: ['image file is required'],
+    });
+  }
+
+  return { contents: fileBuffer, mimeType: fileMimeType ?? 'image/jpeg' };
+}
+
 export async function registerCurrentUserRoutes(
   app: FastifyInstance,
   services: AppServices,
 ): Promise<void> {
-  const currentUsers = new CurrentUserService(services.database);
+  const currentUsers = new CurrentUserService(services.database, services.storage, app.log);
   const identities = new WeakMap<FastifyRequest, CurrentUserIdentity>();
 
   async function requireCurrentUser(request: FastifyRequest): Promise<void> {
@@ -84,6 +139,54 @@ export async function registerCurrentUserRoutes(
     },
     async (request) => {
       const user = await currentUsers.updateProfile(identityFor(request).userId, request.body);
+      return successResponse({ user, profileOptions: PROFILE_OPTIONS }, request.id);
+    },
+  );
+
+  app.get(
+    '/api/v1/users/me/avatar',
+    {
+      onRequest: requireCurrentUser,
+      schema: {
+        querystring: currentUserQuerySchema,
+      },
+    },
+    async (request, reply) => {
+      const avatar = await currentUsers.getAvatar(identityFor(request).userId);
+      return reply
+        .type(avatar.mimeType)
+        .header('cache-control', 'private, max-age=300')
+        .send(avatar.stream);
+    },
+  );
+
+  app.post(
+    '/api/v1/users/me/avatar',
+    {
+      onRequest: requireCurrentUser,
+      schema: {
+        querystring: currentUserQuerySchema,
+        response: { 200: currentUserResponseSchema },
+      },
+    },
+    async (request) => {
+      const file = await parseAvatarFile(request);
+      const user = await currentUsers.uploadAvatar(identityFor(request).userId, file);
+      return successResponse({ user, profileOptions: PROFILE_OPTIONS }, request.id);
+    },
+  );
+
+  app.delete(
+    '/api/v1/users/me/avatar',
+    {
+      onRequest: requireCurrentUser,
+      schema: {
+        querystring: currentUserQuerySchema,
+        response: { 200: currentUserResponseSchema },
+      },
+    },
+    async (request) => {
+      const user = await currentUsers.deleteAvatar(identityFor(request).userId);
       return successResponse({ user, profileOptions: PROFILE_OPTIONS }, request.id);
     },
   );

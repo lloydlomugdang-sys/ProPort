@@ -25,6 +25,7 @@ class AuthService extends ChangeNotifier {
 
   static const _authPath = '/api/v1/auth';
   static const _currentUserPath = '/api/v1/users/me';
+  static const _avatarPath = '/api/v1/users/me/avatar';
 
   final ApiClient _apiClient;
   final SecureTokenStore _tokenStore;
@@ -36,8 +37,10 @@ class AuthService extends ChangeNotifier {
   DateTime? _accessTokenExpiresAt;
   String? _refreshToken;
   DateTime? _refreshTokenExpiresAt;
+  Uint8List? _avatarBytes;
 
   AuthUser? get user => _user;
+  Uint8List? get avatarBytes => _avatarBytes;
   String? get accessToken => _accessToken;
   DateTime? get accessTokenExpiresAt => _accessTokenExpiresAt;
   DateTime? get refreshTokenExpiresAt => _refreshTokenExpiresAt;
@@ -143,7 +146,17 @@ class AuthService extends ChangeNotifier {
     if (data['profileOptions'] != null) {
       _profileOptions = ProfileOptions.fromJson(data['profileOptions']);
     }
-    return _applyCurrentUser(data['user']);
+    final user = _applyCurrentUser(data['user']);
+    if (user.hasAvatar) {
+      try {
+        await fetchAvatar();
+      } catch (_) {
+        // Best effort: profile remains displayed even if avatar fetch fails.
+      }
+    } else {
+      _avatarBytes = null;
+    }
+    return user;
   }
 
   Future<ProfileOptions> fetchProfileOptions() async {
@@ -188,6 +201,48 @@ class AuthService extends ChangeNotifier {
       ),
     );
     return _applyCurrentUser(_dataOf(response)['user']);
+  }
+
+  Future<Uint8List?> fetchAvatar() async {
+    try {
+      final bytes = await authenticatedGetBytes(_avatarPath);
+      _avatarBytes = bytes;
+      notifyListeners();
+      return bytes;
+    } on ApiException catch (error) {
+      if (error.statusCode == 404) {
+        _avatarBytes = null;
+        notifyListeners();
+        return null;
+      }
+      rethrow;
+    }
+  }
+
+  Future<AuthUser> updateAvatar({
+    required Uint8List bytes,
+    required String filename,
+    required String mimeType,
+  }) async {
+    final response = await authenticatedPostMultipart(
+      _avatarPath,
+      fields: const {},
+      fileName: filename,
+      mimeType: mimeType,
+      fileBytes: bytes,
+    );
+    _avatarBytes = bytes;
+    final user = _applyCurrentUser(_dataOf(response)['user']);
+    notifyListeners();
+    return user;
+  }
+
+  Future<AuthUser> deleteAvatar() async {
+    final response = await authenticatedDeleteJson(_avatarPath);
+    _avatarBytes = null;
+    final user = _applyCurrentUser(_dataOf(response)['user']);
+    notifyListeners();
+    return user;
   }
 
   Future<Map<String, dynamic>> authenticatedGetJson(String path) {
@@ -443,6 +498,9 @@ class AuthService extends ChangeNotifier {
   AuthUser _applyCurrentUser(Object? value) {
     final user = _parseUser(value);
     _user = user;
+    if (!user.hasAvatar) {
+      _avatarBytes = null;
+    }
     notifyListeners();
     return user;
   }
@@ -472,7 +530,15 @@ class AuthService extends ChangeNotifier {
     _accessTokenExpiresAt = session.accessTokenExpiresAt;
     _refreshToken = session.refreshToken;
     _refreshTokenExpiresAt = session.refreshTokenExpiresAt;
+    _avatarBytes = null;
     notifyListeners();
+    if (session.user.hasAvatar) {
+      try {
+        await fetchAvatar();
+      } catch (_) {
+        // Best effort: login succeeds even if avatar fetch fails.
+      }
+    }
   }
 
   Future<void> _clearLocalSession() async {
@@ -482,6 +548,7 @@ class AuthService extends ChangeNotifier {
     _accessTokenExpiresAt = null;
     _refreshToken = null;
     _refreshTokenExpiresAt = null;
+    _avatarBytes = null;
     notifyListeners();
     try {
       await _tokenStore.deleteRefreshToken();

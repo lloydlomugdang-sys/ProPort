@@ -1,5 +1,6 @@
 // LOCATION: lib/screens/home/home_screen.dart
 
+import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import '../../constants/app_colors.dart';
 import '../../constants/app_text_styles.dart';
@@ -16,6 +17,7 @@ import '../../widgets/primary_button.dart';
 import '../portfolio/portfolio_list_screen.dart';
 import '../portfolio/portfolio_info_screen.dart';
 import '../files/files_screen.dart';
+import '../profile/widgets/profile_avatar.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -73,7 +75,8 @@ class _HomeScreenState extends State<HomeScreen>
 
   @override
   Widget build(BuildContext context) {
-    final currentUser = AuthScope.of(context).user;
+    final auth = AuthScope.of(context);
+    final currentUser = auth.user;
     final documents = DocumentScope.of(context);
 
     return Scaffold(
@@ -96,7 +99,7 @@ class _HomeScreenState extends State<HomeScreen>
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                _buildUserCard(currentUser),
+                _buildUserCard(currentUser, auth.avatarBytes),
                 const SizedBox(height: 20),
                 if (!documents.hasLoadedDocuments)
                   _DocumentMetricsState(
@@ -170,7 +173,7 @@ class _HomeScreenState extends State<HomeScreen>
     );
   }
 
-  Widget _buildUserCard(AuthUser? user) {
+  Widget _buildUserCard(AuthUser? user, [Uint8List? avatarBytes]) {
     final fullName = user == null
         ? null
         : '${user.firstName} ${user.lastName}'.trim();
@@ -193,22 +196,10 @@ class _HomeScreenState extends State<HomeScreen>
       ),
       child: Row(
         children: [
-          Container(
-            width: 56,
-            height: 56,
-            decoration: BoxDecoration(
-              color: AppColors.primary.withValues(alpha: 0.12),
-              shape: BoxShape.circle,
-              border: Border.all(
-                color: AppColors.primary.withValues(alpha: 0.25),
-                width: 2,
-              ),
-            ),
-            child: const Icon(
-              Icons.person_rounded,
-              color: AppColors.primary,
-              size: 30,
-            ),
+          ProfileAvatar(
+            size: 56,
+            avatarBytes: avatarBytes,
+            initials: user?.initials,
           ),
           const SizedBox(width: 14),
           Expanded(
