@@ -205,10 +205,30 @@ describe('validated grounded recommendations and fallback', () => {
     const recommend = vi.fn().mockResolvedValue(result);
     const response = await new AiMetadataService({ recommend }).recommend({ rawText: 'Ignored original', reviewedText: text }, CATEGORY_SEEDS);
     expect(response.metadataAnalysis).toEqual({ source: 'gemini', aiStatus: 'success' });
-    expect(response.metadataSuggestions).toMatchObject({ categoryKey: 'certificates', folderKey: 'trainings', title: result.title, documentDate: '2026-09-14' });
+    expect(response.metadataSuggestions).toMatchObject({ categoryKey: 'certificates', folderKey: 'trainings', title: result.title, documentDate: '2026-09-14', confidence: 'high' });
     expect(response.metadataSuggestions.description).toContain('GradPort Learning and Development Center');
     expect(response.metadataSuggestions).not.toHaveProperty('reflection');
     expect(recommend).toHaveBeenCalledWith(text, CATEGORY_SEEDS);
+  });
+
+  it('evaluates confidence level: high, medium, or low based on field presence and grounding', () => {
+    // High: category + title + date
+    const high = validateAiMetadata(result, text, CATEGORY_SEEDS);
+    expect(high.confidence).toBe('high');
+
+    // Medium: category + title, no date
+    const mediumWithTitle = validateAiMetadata({ ...result, date: null }, text, CATEGORY_SEEDS);
+    expect(mediumWithTitle.confidence).toBe('medium');
+
+    // Medium: category + folder, no title or date
+    const mediumWithFolder = validateAiMetadata({ ...result, title: null, date: null }, text, CATEGORY_SEEDS);
+    expect(mediumWithFolder.confidence).toBe('medium');
+
+    // Low: ungrounded/unknown category with only grounded title
+    const lowNoCategory = validateAiMetadata({ ...result, content: 'Invented Category', classificationEvidence: 'completing the course', date: null }, text, CATEGORY_SEEDS);
+    expect(lowNoCategory.confidence).toBe('low');
+    expect(lowNoCategory).not.toHaveProperty('categoryKey');
+    expect(lowNoCategory).toHaveProperty('title');
   });
 
   it('accepts only current content/folder pairs, ignoring unknown or inactive values', () => {

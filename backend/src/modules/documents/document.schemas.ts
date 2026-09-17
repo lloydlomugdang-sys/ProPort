@@ -219,6 +219,7 @@ const documentOcrSchema = {
         title: { type: 'string' },
         documentDate: { type: 'string', format: 'date' },
         description: { type: 'string' },
+        confidence: { enum: ['high', 'medium', 'low'] },
       },
     },
   },

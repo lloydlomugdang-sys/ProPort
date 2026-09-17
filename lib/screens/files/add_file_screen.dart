@@ -6,12 +6,14 @@ import 'package:google_fonts/google_fonts.dart';
 import '../../constants/app_colors.dart';
 import '../../constants/app_text_styles.dart';
 import '../../services/api_client.dart';
+import '../../services/batch_upload_queue.dart';
 import '../../services/document_models.dart';
 import '../../services/document_picker.dart';
 import '../../services/document_scope.dart';
 import '../../services/document_service.dart';
 import '../../widgets/grad_app_bar.dart';
 import '../../widgets/primary_button.dart';
+import 'batch_review_screen.dart';
 import 'widgets/custom_dropdown.dart';
 import 'widgets/date_picker_field.dart';
 import 'widgets/optional_field.dart';
@@ -201,6 +203,87 @@ class _AddFileScreenState extends State<AddFileScreen>
     } catch (_) {
       if (!mounted) return;
       _showSnack('Unable to read the selected file. Please try another file.');
+    }
+  }
+
+  Future<void> _onCameraCaptureTap() async {
+    if (_isSubmitting) return;
+    try {
+      final photo = await _filePicker.pickFromCamera();
+      if (photo == null || !mounted) return;
+
+      if (!photo.hasSupportedUploadType) {
+        _showSnack('Please capture a JPG, JPEG, or PNG image.');
+        return;
+      }
+      if (photo.sizeBytes > DocumentService.maxUploadBytes) {
+        _showSnack('The captured photo exceeds the 15 MB upload limit.');
+        return;
+      }
+
+      setState(() {
+        _clearAutomaticFields();
+        _pickedFiles = [photo];
+        _previewOperation++;
+        _isSuggesting = false;
+        _suggestions = null;
+        _suggestionMessage = null;
+        _suggestionFailed = false;
+        _suggestedByAi = false;
+        _hasEditedAiSuggestion = false;
+      });
+      await _suggestDetails();
+    } catch (_) {
+      if (!mounted) return;
+      _showSnack('Unable to capture from camera. Please try again.');
+    }
+  }
+
+  Future<void> _onBatchUploadTap() async {
+    if (_isSubmitting) return;
+    try {
+      final selected = await _filePicker.pickDocuments(allowMultiple: true);
+      if (selected == null || selected.isEmpty || !mounted) return;
+
+      if (selected.length > 20) {
+        _showSnack(
+          'A batch cannot exceed 20 documents. Selected: ${selected.length}.',
+        );
+        return;
+      }
+
+      for (final f in selected) {
+        if (!f.hasSupportedUploadType) {
+          _showSnack('${f.name}: Please select a PDF, JPG, JPEG, or PNG file.');
+          return;
+        }
+        if (f.sizeBytes > DocumentService.maxUploadBytes) {
+          _showSnack('${f.name} exceeds the 15 MB upload limit.');
+          return;
+        }
+      }
+
+      final service = DocumentScope.of(context);
+      final queue = BatchUploadQueue(documentService: service);
+      queue.initialize(selected);
+
+      final result = await Navigator.push<bool>(
+        context,
+        MaterialPageRoute(
+          builder: (context) => DocumentScope(
+            documentService: service,
+            child: BatchReviewScreen(queue: queue),
+          ),
+        ),
+      );
+
+      if (result == true && mounted) {
+        await service.load(force: true);
+        if (mounted) Navigator.pop(context, true);
+      }
+    } catch (_) {
+      if (!mounted) return;
+      _showSnack('Unable to process the batch. Please try again.');
     }
   }
 
@@ -526,6 +609,69 @@ class _AddFileScreenState extends State<AddFileScreen>
                       : '${_pickedFiles.first.name} (+${_pickedFiles.length - 1} pages)',
                   pageCount: _pickedFiles.length,
                 ),
+
+                if (_pickedFiles.isEmpty) ...[
+                  const SizedBox(height: 10),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: OutlinedButton.icon(
+                          onPressed: _onCameraCaptureTap,
+                          icon: const Icon(Icons.camera_alt_rounded, size: 18),
+                          label: Text(
+                            'Scan Camera',
+                            style: GoogleFonts.poppins(
+                              fontSize: 12,
+                              fontWeight: FontWeight.w500,
+                            ),
+                          ),
+                          style: OutlinedButton.styleFrom(
+                            foregroundColor: AppColors.primary,
+                            side: const BorderSide(color: AppColors.primary),
+                            padding: const EdgeInsets.symmetric(vertical: 10),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(10),
+                            ),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: OutlinedButton.icon(
+                          onPressed: _onBatchUploadTap,
+                          icon: const Icon(
+                            Icons.dynamic_feed_rounded,
+                            size: 18,
+                          ),
+                          label: Text(
+                            'Batch Upload',
+                            style: GoogleFonts.poppins(
+                              fontSize: 12,
+                              fontWeight: FontWeight.w500,
+                            ),
+                          ),
+                          style: OutlinedButton.styleFrom(
+                            foregroundColor: AppColors.primary,
+                            side: const BorderSide(color: AppColors.primary),
+                            padding: const EdgeInsets.symmetric(vertical: 10),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(10),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 6),
+                  Text(
+                    'Tip: Batch Upload processes up to 20 independent documents. Single upload with multiple images creates a multi-page document.',
+                    style: GoogleFonts.poppins(
+                      fontSize: 11,
+                      color: AppColors.textMuted,
+                      height: 1.3,
+                    ),
+                  ),
+                ],
 
                 if (_pickedFiles.length > 1) ...[
                   const SizedBox(height: 12),

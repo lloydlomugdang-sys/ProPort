@@ -34,6 +34,7 @@ class DocumentMetadataSuggestions {
     this.title,
     this.documentDate,
     this.description,
+    this.confidence,
   });
 
   final String? categoryKey;
@@ -41,6 +42,7 @@ class DocumentMetadataSuggestions {
   final String? title;
   final DateTime? documentDate;
   final String? description;
+  final String? confidence;
 
   bool get isEmpty =>
       categoryKey == null &&
@@ -48,6 +50,8 @@ class DocumentMetadataSuggestions {
       title == null &&
       documentDate == null &&
       description == null;
+
+  bool get isLowConfidence => confidence == 'low';
 
   factory DocumentMetadataSuggestions.fromJson(Map<String, dynamic> json) {
     final date = _optionalString(json, 'documentDate');
@@ -58,12 +62,17 @@ class DocumentMetadataSuggestions {
             parsed.toIso8601String().substring(0, 10) != date)) {
       throw const FormatException();
     }
+    final conf = _optionalString(json, 'confidence');
+    if (conf != null && !const ['high', 'medium', 'low'].contains(conf)) {
+      throw const FormatException();
+    }
     return DocumentMetadataSuggestions(
       categoryKey: _optionalString(json, 'categoryKey'),
       folderKey: _optionalString(json, 'folderKey'),
       title: _optionalString(json, 'title'),
       documentDate: parsed,
       description: _optionalString(json, 'description'),
+      confidence: conf,
     );
   }
 }

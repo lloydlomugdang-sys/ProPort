@@ -504,14 +504,14 @@ export function loadConfig(environment: Environment = process.env): AppConfig {
     issues,
   );
   const documentUploadRateLimitMax = parseInteger(
-    environment.DOCUMENT_UPLOAD_RATE_LIMIT_MAX ?? (nodeEnv === 'test' ? '10000' : '10'),
+    environment.DOCUMENT_UPLOAD_RATE_LIMIT_MAX ?? (nodeEnv === 'test' ? '10000' : '60'),
     'DOCUMENT_UPLOAD_RATE_LIMIT_MAX',
     1,
     10_000,
     issues,
   );
   const documentOcrRateLimitMax = parseInteger(
-    environment.DOCUMENT_OCR_RATE_LIMIT_MAX ?? (nodeEnv === 'test' ? '10000' : '5'),
+    environment.DOCUMENT_OCR_RATE_LIMIT_MAX ?? (nodeEnv === 'test' ? '10000' : '30'),
     'DOCUMENT_OCR_RATE_LIMIT_MAX',
     1,
     10_000,

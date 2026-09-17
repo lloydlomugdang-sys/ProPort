@@ -2,6 +2,8 @@ import 'dart:io';
 
 import 'package:file_picker/file_picker.dart';
 
+import 'package:image_picker/image_picker.dart';
+
 import 'document_models.dart';
 
 abstract class DocumentPicker {
@@ -13,13 +15,44 @@ abstract class DocumentPicker {
     final single = await pickDocument();
     return single == null ? null : [single];
   }
+
+  Future<PickedDocument?> pickFromCamera() async => null;
 }
 
 class DeviceDocumentPicker implements DocumentPicker {
+  DeviceDocumentPicker({ImagePicker? imagePicker})
+    : _imagePicker = imagePicker ?? ImagePicker();
+
+  final ImagePicker _imagePicker;
+
   @override
   Future<PickedDocument?> pickDocument() async {
     final docs = await pickDocuments(allowMultiple: false);
     return docs?.firstOrNull;
+  }
+
+  @override
+  Future<PickedDocument?> pickFromCamera() async {
+    final photo = await _imagePicker.pickImage(
+      source: ImageSource.camera,
+      maxWidth: 2048,
+      maxHeight: 2048,
+      imageQuality: 90,
+    );
+    if (photo == null) return null;
+
+    final bytes = await photo.readAsBytes();
+    final ext = photo.name.contains('.')
+        ? photo.name.split('.').last.toLowerCase()
+        : 'jpg';
+    final name = photo.name.isNotEmpty
+        ? photo.name
+        : 'scan_${DateTime.now().millisecondsSinceEpoch}.jpg';
+    return PickedDocument(
+      name: name,
+      mimeType: _mimeTypeFor(ext),
+      bytes: bytes,
+    );
   }
 
   @override

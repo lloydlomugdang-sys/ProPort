@@ -204,8 +204,8 @@ describe('loadConfig', () => {
       storageDriver: 'r2',
       emailDriver: 'brevo',
       ocrMaxConcurrentJobs: 1,
-      documentUploadRateLimitMax: 10,
-      documentOcrRateLimitMax: 5,
+      documentUploadRateLimitMax: 60,
+      documentOcrRateLimitMax: 30,
     });
   });
 

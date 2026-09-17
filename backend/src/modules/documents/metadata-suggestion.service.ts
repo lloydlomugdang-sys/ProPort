@@ -222,6 +222,7 @@ export interface MetadataSuggestions {
   readonly title?: string;
   readonly documentDate?: string;
   readonly description?: string;
+  readonly confidence?: 'high' | 'medium' | 'low';
 }
 
 interface OcrText {

@@ -90,12 +90,32 @@ export function validateAiMetadata(value: unknown, text: string, categories: rea
   const quotes = record.descriptionQuotes.map((quote: unknown) => plainText(quote, 600));
   const description = quotes.length > 0 && quotes.every((quote) => grounded(quote, text))
     ? quotes.join(' — ') : undefined;
+
+  const hasMeaningfulField = category !== undefined || safeTitle !== undefined || documentDate !== undefined || description !== undefined;
+  if (!hasMeaningfulField) {
+    return {};
+  }
+
+  let confidence: 'high' | 'medium' | 'low';
+  if (category !== undefined) {
+    if (safeTitle !== undefined && documentDate !== undefined) {
+      confidence = 'high';
+    } else if (safeTitle !== undefined || matchedFolderKey !== undefined) {
+      confidence = 'medium';
+    } else {
+      confidence = 'low';
+    }
+  } else {
+    confidence = 'low';
+  }
+
   return {
     ...(category === undefined ? {} : { categoryKey: category.key }),
     ...(matchedFolderKey === undefined ? {} : { folderKey: matchedFolderKey }),
     ...(safeTitle === undefined ? {} : { title: safeTitle }),
     ...(documentDate === undefined ? {} : { documentDate }),
     ...(description === undefined ? {} : { description }),
+    confidence,
   };
 }
 
@@ -142,6 +162,22 @@ export class AiMetadataService {
     let metadataSuggestions: MetadataSuggestions = {};
     try {
       metadataSuggestions = suggestDocumentMetadata(ocr, categories);
+      if (Object.keys(metadataSuggestions).length > 0 && !metadataSuggestions.confidence) {
+        const hasCategory = metadataSuggestions.categoryKey !== undefined;
+        const hasTitle = metadataSuggestions.title !== undefined;
+        const hasDate = metadataSuggestions.documentDate !== undefined;
+        let confidence: 'high' | 'medium' | 'low';
+        if (hasCategory && hasTitle && hasDate) {
+          confidence = 'high';
+        } else if (hasCategory && (hasTitle || metadataSuggestions.folderKey !== undefined)) {
+          confidence = 'medium';
+        } else if (hasCategory) {
+          confidence = 'medium';
+        } else {
+          confidence = 'low';
+        }
+        metadataSuggestions = { ...metadataSuggestions, confidence };
+      }
     } catch {
       // Even if neither recommender can help, the extracted text remains usable.
     }

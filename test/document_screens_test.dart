@@ -1088,6 +1088,12 @@ class _FakePicker implements DocumentPicker {
     final single = await pickDocument();
     return single == null ? null : [single];
   }
+
+  @override
+  Future<PickedDocument?> pickFromCamera() async {
+    calls++;
+    return result;
+  }
 }
 
 class _ScreenDocumentService extends DocumentService {
