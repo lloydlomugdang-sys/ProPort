@@ -96,8 +96,8 @@ class _LoginScreenState extends State<LoginScreen>
         context,
         PageRouteBuilder(
           transitionDuration: const Duration(milliseconds: 400),
-          pageBuilder: (_, __, ___) => const MainScreen(),
-          transitionsBuilder: (_, anim, __, child) =>
+          pageBuilder: (_, _, _) => const MainScreen(),
+          transitionsBuilder: (_, anim, _, child) =>
               FadeTransition(opacity: anim, child: child),
         ),
         (route) => false,
@@ -109,11 +109,11 @@ class _LoginScreenState extends State<LoginScreen>
           context,
           PageRouteBuilder(
             transitionDuration: const Duration(milliseconds: 320),
-            pageBuilder: (_, __, ___) => VerificationCodeScreen(
+            pageBuilder: (_, _, _) => VerificationCodeScreen(
               email: email,
               purpose: VerificationPurpose.emailVerification,
             ),
-            transitionsBuilder: (_, anim, __, child) => FadeTransition(
+            transitionsBuilder: (_, anim, _, child) => FadeTransition(
               opacity: CurvedAnimation(parent: anim, curve: Curves.easeOut),
               child: child,
             ),
@@ -157,8 +157,8 @@ class _LoginScreenState extends State<LoginScreen>
       context,
       PageRouteBuilder(
         transitionDuration: const Duration(milliseconds: 320),
-        pageBuilder: (_, __, ___) => const ForgotPasswordScreen(),
-        transitionsBuilder: (_, anim, __, child) => FadeTransition(
+        pageBuilder: (_, _, _) => const ForgotPasswordScreen(),
+        transitionsBuilder: (_, anim, _, child) => FadeTransition(
           opacity: CurvedAnimation(parent: anim, curve: Curves.easeOut),
           child: child,
         ),
@@ -298,8 +298,8 @@ class _LoginScreenState extends State<LoginScreen>
                     context,
                     PageRouteBuilder(
                       transitionDuration: const Duration(milliseconds: 300),
-                      pageBuilder: (_, __, ___) => const SignupScreen(),
-                      transitionsBuilder: (_, anim, __, child) =>
+                      pageBuilder: (_, _, _) => const SignupScreen(),
+                      transitionsBuilder: (_, anim, _, child) =>
                           FadeTransition(opacity: anim, child: child),
                     ),
                   ),

@@ -103,7 +103,7 @@ class _PortfolioTextFieldState extends State<PortfolioTextField>
         // Input field
         AnimatedBuilder(
           animation: _borderCtrl,
-          builder: (_, __) => Container(
+          builder: (_, _) => Container(
             decoration: BoxDecoration(
               color: Colors.white,
               borderRadius: BorderRadius.circular(10),

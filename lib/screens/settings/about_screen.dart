@@ -129,7 +129,7 @@ class _AboutScreenState extends State<AboutScreen>
               child: Image.asset(
                 'assets/images/proport_logo.png',
                 fit: BoxFit.cover,
-                errorBuilder: (_, __, ___) => const Icon(
+                errorBuilder: (_, _, _) => const Icon(
                   Icons.school_rounded,
                   color: Colors.white,
                   size: 48,

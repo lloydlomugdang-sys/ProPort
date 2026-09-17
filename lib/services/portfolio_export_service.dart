@@ -213,18 +213,6 @@ class DevicePortfolioExporter implements PortfolioExporter {
 Uint8List _renderDocxOnly(PortfolioExportContent content) =>
     PortfolioFileRenderer.docx(content);
 
-Future<Uint8List> _render(
-  ({
-    PortfolioExportContent content,
-    ExportFormat format,
-    ByteData? regular,
-    ByteData? bold,
-  })
-  input,
-) async => input.format == ExportFormat.pdf
-    ? PortfolioFileRenderer.pdf(input.content, input.regular!, input.bold!)
-    : PortfolioFileRenderer.docx(input.content);
-
 String portfolioFileName(String fullName, ExportFormat format) {
   var student = fullName
       .replaceAll(RegExp(r'[^a-zA-Z0-9_-]+'), '_')

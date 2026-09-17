@@ -159,8 +159,8 @@ class _VerificationCodeScreenState extends State<VerificationCodeScreen>
         );
         Navigator.of(context).pushAndRemoveUntil(
           PageRouteBuilder(
-            pageBuilder: (_, animation, __) => const MainScreen(),
-            transitionsBuilder: (_, animation, __, child) =>
+            pageBuilder: (_, animation, _) => const MainScreen(),
+            transitionsBuilder: (_, animation, _, child) =>
                 FadeTransition(opacity: animation, child: child),
             transitionDuration: const Duration(milliseconds: 350),
           ),
@@ -173,9 +173,9 @@ class _VerificationCodeScreenState extends State<VerificationCodeScreen>
         if (!mounted) return;
         Navigator.of(context).push(
           PageRouteBuilder(
-            pageBuilder: (_, animation, __) =>
+            pageBuilder: (_, animation, _) =>
                 NewPasswordScreen(resetToken: resetToken),
-            transitionsBuilder: (_, animation, __, child) {
+            transitionsBuilder: (_, animation, _, child) {
               return FadeTransition(
                 opacity: animation,
                 child: SlideTransition(

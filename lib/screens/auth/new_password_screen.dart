@@ -78,8 +78,8 @@ class _NewPasswordScreenState extends State<NewPasswordScreen>
       if (!mounted) return;
       Navigator.of(context).pushAndRemoveUntil(
         PageRouteBuilder(
-          pageBuilder: (_, animation, __) => const LoginScreen(),
-          transitionsBuilder: (_, animation, __, child) {
+          pageBuilder: (_, animation, _) => const LoginScreen(),
+          transitionsBuilder: (_, animation, _, child) {
             return FadeTransition(
               opacity: animation,
               child: SlideTransition(

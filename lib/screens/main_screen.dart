@@ -40,8 +40,8 @@ class _MainScreenState extends State<MainScreen> {
       context,
       PageRouteBuilder(
         transitionDuration: const Duration(milliseconds: 350),
-        pageBuilder: (_, __, ___) => const AddFileScreen(),
-        transitionsBuilder: (_, anim, __, child) => FadeTransition(
+        pageBuilder: (_, _, _) => const AddFileScreen(),
+        transitionsBuilder: (_, anim, _, child) => FadeTransition(
           opacity: CurvedAnimation(parent: anim, curve: Curves.easeOut),
           child: SlideTransition(
             position: Tween<Offset>(

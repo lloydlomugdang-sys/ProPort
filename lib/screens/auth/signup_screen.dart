@@ -174,11 +174,11 @@ class _SignupScreenState extends State<SignupScreen>
         context,
         PageRouteBuilder(
           transitionDuration: const Duration(milliseconds: 320),
-          pageBuilder: (_, __, ___) => VerificationCodeScreen(
+          pageBuilder: (_, _, _) => VerificationCodeScreen(
             email: email,
             purpose: VerificationPurpose.emailVerification,
           ),
-          transitionsBuilder: (_, anim, __, child) => FadeTransition(
+          transitionsBuilder: (_, anim, _, child) => FadeTransition(
             opacity: CurvedAnimation(parent: anim, curve: Curves.easeOut),
             child: child,
           ),

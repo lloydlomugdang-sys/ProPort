@@ -87,8 +87,8 @@ class _SplashScreenState extends State<SplashScreen>
       context,
       PageRouteBuilder(
         transitionDuration: const Duration(milliseconds: 450),
-        pageBuilder: (_, __, ___) => destination,
-        transitionsBuilder: (_, anim, __, child) => FadeTransition(
+        pageBuilder: (_, _, _) => destination,
+        transitionsBuilder: (_, anim, _, child) => FadeTransition(
           opacity: CurvedAnimation(parent: anim, curve: Curves.easeOut),
           child: child,
         ),
