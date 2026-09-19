@@ -156,6 +156,7 @@ class _VerificationCodeScreenState extends State<VerificationCodeScreen>
         );
         Navigator.of(context).pushAndRemoveUntil(
           PageRouteBuilder(
+            settings: const RouteSettings(name: MainScreen.routeName),
             pageBuilder: (_, animation, _) => const MainScreen(),
             transitionsBuilder: (_, animation, _, child) =>
                 FadeTransition(opacity: animation, child: child),

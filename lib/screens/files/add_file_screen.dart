@@ -22,9 +22,14 @@ import 'widgets/upload_card.dart';
 enum _OcrField { content, folder, title, date, description }
 
 class AddFileScreen extends StatefulWidget {
-  const AddFileScreen({super.key, this.filePicker});
+  const AddFileScreen({
+    super.key,
+    this.filePicker,
+    this.initialFiles,
+  });
 
   final DocumentPicker? filePicker;
+  final List<PickedDocument>? initialFiles;
 
   @override
   State<AddFileScreen> createState() => _AddFileScreenState();
@@ -72,6 +77,9 @@ class _AddFileScreenState extends State<AddFileScreen>
   void initState() {
     super.initState();
     _filePicker = widget.filePicker ?? DeviceDocumentPicker();
+    if (widget.initialFiles != null && widget.initialFiles!.isNotEmpty) {
+      _pickedFiles = List.from(widget.initialFiles!);
+    }
     _titleCtrl.addListener(() {
       if (_titleCtrl.text == _observedTitle) return;
       _observedTitle = _titleCtrl.text;
@@ -105,6 +113,9 @@ class _AddFileScreenState extends State<AddFileScreen>
       if (!mounted) return;
       _entranceCtrl.forward();
       DocumentScope.of(context).load().catchError((_) {});
+      if (_pickedFiles.isNotEmpty) {
+        _validateAndSuggestInitialFiles();
+      }
     });
   }
 
@@ -144,6 +155,32 @@ class _AddFileScreenState extends State<AddFileScreen>
       )?.folders.map((folder) => folder.name).toList() ??
       const [];
 
+  // ─── Initial files validation + OCR schedule ─────────────────────────────
+  Future<void> _validateAndSuggestInitialFiles() async {
+    if (!mounted || _isSubmitting || _isSuggesting) return;
+    final file = _pickedFile;
+    if (file == null) return;
+    if (!file.hasSupportedUploadType) {
+      _showSnack(
+        file.mimeType.startsWith('image/')
+            ? 'Please capture a JPG, JPEG, or PNG image.'
+            : 'Please select a PDF, JPG, JPEG, or PNG file.',
+      );
+      if (mounted) setState(() => _pickedFiles = const []);
+      return;
+    }
+    if (file.sizeBytes > DocumentService.maxUploadBytes) {
+      _showSnack(
+        file.mimeType.startsWith('image/')
+            ? 'The captured photo exceeds the 15 MB upload limit.'
+            : 'The selected file exceeds the 15 MB upload limit.',
+      );
+      if (mounted) setState(() => _pickedFiles = const []);
+      return;
+    }
+    await _suggestDetails();
+  }
+
   // ─── Upload handler ───────────────────────────────────────────────────────
   Future<void> _onUploadTap() async {
     if (_isSubmitting) return;
@@ -151,58 +188,107 @@ class _AddFileScreenState extends State<AddFileScreen>
       final selected = await _filePicker.pickDocuments(allowMultiple: true);
       if (selected == null || selected.isEmpty || !mounted) return;
 
-      final hasPdf = selected.any((f) => f.mimeType == 'application/pdf');
-      final hasImage = selected.any((f) => f.mimeType.startsWith('image/'));
-
-      if (hasPdf && hasImage) {
+      if (selected.length > 20) {
         _showSnack(
-          'Please select either a PDF document or image pages, not both.',
+          'You can select up to 20 documents. Selected: ${selected.length}.',
         );
         return;
       }
-      if (hasPdf && selected.length > 1) {
-        _showSnack('A PDF document must be uploaded as a single file.');
-        return;
-      }
-      if (selected.length > 10) {
-        _showSnack('You can attach up to 10 image pages.');
-        return;
-      }
-      for (final f in selected) {
-        if (!f.hasSupportedUploadType) {
+
+      if (selected.length == 1) {
+        final file = selected.first;
+        if (!file.hasSupportedUploadType) {
           _showSnack('Please select a PDF, JPG, JPEG, or PNG file.');
           return;
         }
-        if (f.sizeBytes > DocumentService.maxUploadBytes) {
-          _showSnack(
-            selected.length == 1
-                ? 'The selected file exceeds the 15 MB upload limit.'
-                : '${f.name} exceeds the 15 MB upload limit.',
-          );
+        if (file.sizeBytes > DocumentService.maxUploadBytes) {
+          _showSnack('The selected file exceeds the 15 MB upload limit.');
           return;
         }
-      }
-      final totalBytes = selected.fold(0, (sum, f) => sum + f.sizeBytes);
-      if (totalBytes > 45 * 1024 * 1024) {
-        _showSnack('The combined files exceed the 45 MB upload limit.');
-        return;
-      }
 
-      setState(() {
-        _clearAutomaticFields();
-        _pickedFiles = selected;
-        _previewOperation++;
-        _isSuggesting = false;
-        _suggestions = null;
-        _suggestionMessage = null;
-        _suggestionFailed = false;
-        _suggestedByAi = false;
-        _hasEditedAiSuggestion = false;
-      });
-      await _suggestDetails();
+        setState(() {
+          _clearAutomaticFields();
+          _pickedFiles = [file];
+          _previewOperation++;
+          _isSuggesting = false;
+          _suggestions = null;
+          _suggestionMessage = null;
+          _suggestionFailed = false;
+          _suggestedByAi = false;
+          _hasEditedAiSuggestion = false;
+        });
+        await _suggestDetails();
+      } else {
+        // 2–20 files: automatic multi-file queue/review
+        for (final f in selected) {
+          if (!f.hasSupportedUploadType) {
+            _showSnack(
+              '${f.name}: Please select a PDF, JPG, JPEG, or PNG file.',
+            );
+            return;
+          }
+          if (f.sizeBytes > DocumentService.maxUploadBytes) {
+            _showSnack('${f.name} exceeds the 15 MB upload limit.');
+            return;
+          }
+        }
+
+        final service = DocumentScope.of(context);
+        final queue = BatchUploadQueue(documentService: service);
+        queue.initialize(selected);
+
+        final result = await Navigator.push<bool>(
+          context,
+          MaterialPageRoute(
+            builder: (context) => DocumentScope(
+              documentService: service,
+              child: BatchReviewScreen(queue: queue),
+            ),
+          ),
+        );
+
+        if (result == true && mounted) {
+          await service.load(force: true);
+          if (mounted) Navigator.pop(context, true);
+        }
+      }
     } catch (_) {
       if (!mounted) return;
       _showSnack('Unable to read the selected file. Please try another file.');
+    }
+  }
+
+  Future<void> _onAddPageTap() async {
+    if (_isSubmitting) return;
+    if (_pickedFiles.length >= 10) {
+      _showSnack('You can attach up to 10 image pages.');
+      return;
+    }
+    try {
+      final selected = await _filePicker.pickDocuments(allowMultiple: false);
+      if (selected == null || selected.isEmpty || !mounted) return;
+      final newPage = selected.first;
+      if (!newPage.hasSupportedUploadType ||
+          !newPage.mimeType.startsWith('image/')) {
+        _showSnack('Please select a JPG, JPEG, or PNG image page.');
+        return;
+      }
+      if (newPage.sizeBytes > DocumentService.maxUploadBytes) {
+        _showSnack('${newPage.name} exceeds the 15 MB upload limit.');
+        return;
+      }
+      final currentBytes =
+          _pickedFiles.fold(0, (sum, f) => sum + f.sizeBytes);
+      if (currentBytes + newPage.sizeBytes > 45 * 1024 * 1024) {
+        _showSnack('The combined files exceed the 45 MB upload limit.');
+        return;
+      }
+      setState(() {
+        _pickedFiles = [..._pickedFiles, newPage];
+      });
+    } catch (_) {
+      if (!mounted) return;
+      _showSnack('Unable to read the page image. Please try another file.');
     }
   }
 
@@ -241,54 +327,6 @@ class _AddFileScreenState extends State<AddFileScreen>
           ? 'Camera permission was denied. Please allow camera access in device settings.'
           : 'Unable to capture from camera. Please try again.';
       _showSnack(msg);
-    }
-  }
-
-  Future<void> _onBatchUploadTap() async {
-    if (_isSubmitting) return;
-    try {
-      final selected = await _filePicker.pickDocuments(allowMultiple: true);
-      if (selected == null || selected.isEmpty || !mounted) return;
-
-      if (selected.length > 20) {
-        _showSnack(
-          'A batch cannot exceed 20 documents. Selected: ${selected.length}.',
-        );
-        return;
-      }
-
-      for (final f in selected) {
-        if (!f.hasSupportedUploadType) {
-          _showSnack('${f.name}: Please select a PDF, JPG, JPEG, or PNG file.');
-          return;
-        }
-        if (f.sizeBytes > DocumentService.maxUploadBytes) {
-          _showSnack('${f.name} exceeds the 15 MB upload limit.');
-          return;
-        }
-      }
-
-      final service = DocumentScope.of(context);
-      final queue = BatchUploadQueue(documentService: service);
-      queue.initialize(selected);
-
-      final result = await Navigator.push<bool>(
-        context,
-        MaterialPageRoute(
-          builder: (context) => DocumentScope(
-            documentService: service,
-            child: BatchReviewScreen(queue: queue),
-          ),
-        ),
-      );
-
-      if (result == true && mounted) {
-        await service.load(force: true);
-        if (mounted) Navigator.pop(context, true);
-      }
-    } catch (_) {
-      if (!mounted) return;
-      _showSnack('Unable to process the batch. Please try again.');
     }
   }
 
@@ -630,76 +668,38 @@ class _AddFileScreenState extends State<AddFileScreen>
 
                 if (_pickedFiles.isEmpty) ...[
                   const SizedBox(height: 10),
-                  Row(
-                    children: [
-                      Expanded(
-                        child: OutlinedButton.icon(
-                          onPressed: _onCameraCaptureTap,
-                          icon: const Icon(Icons.camera_alt_rounded, size: 18),
-                          label: Text(
-                            'Scan Camera',
-                            style: GoogleFonts.poppins(
-                              fontSize: 12.5,
-                              fontWeight: FontWeight.w600,
-                            ),
-                          ),
-                          style: OutlinedButton.styleFrom(
-                            backgroundColor: Colors.white,
-                            foregroundColor: AppColors.primary,
-                            side: const BorderSide(
-                              color: AppColors.primary,
-                              width: 1.2,
-                            ),
-                            padding: const EdgeInsets.symmetric(vertical: 12),
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(12),
-                            ),
-                          ),
+                  SizedBox(
+                    width: double.infinity,
+                    child: OutlinedButton.icon(
+                      onPressed: _onCameraCaptureTap,
+                      icon: const Icon(Icons.camera_alt_rounded, size: 18),
+                      label: Text(
+                        'Scan Camera',
+                        style: GoogleFonts.poppins(
+                          fontSize: 12.5,
+                          fontWeight: FontWeight.w600,
                         ),
                       ),
-                      const SizedBox(width: 10),
-                      Expanded(
-                        child: OutlinedButton.icon(
-                          onPressed: _onBatchUploadTap,
-                          icon: const Icon(
-                            Icons.dynamic_feed_rounded,
-                            size: 18,
-                          ),
-                          label: Text(
-                            'Batch Upload',
-                            style: GoogleFonts.poppins(
-                              fontSize: 12.5,
-                              fontWeight: FontWeight.w600,
-                            ),
-                          ),
-                          style: OutlinedButton.styleFrom(
-                            backgroundColor: Colors.white,
-                            foregroundColor: AppColors.primary,
-                            side: const BorderSide(
-                              color: AppColors.primary,
-                              width: 1.2,
-                            ),
-                            padding: const EdgeInsets.symmetric(vertical: 12),
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(12),
-                            ),
-                          ),
+                      style: OutlinedButton.styleFrom(
+                        backgroundColor: Colors.white,
+                        foregroundColor: AppColors.primary,
+                        side: const BorderSide(
+                          color: AppColors.primary,
+                          width: 1.2,
+                        ),
+                        padding: const EdgeInsets.symmetric(vertical: 12),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12),
                         ),
                       ),
-                    ],
-                  ),
-                  const SizedBox(height: 6),
-                  Text(
-                    'Tip: Batch Upload processes up to 20 independent documents. Single upload with multiple images creates a multi-page document.',
-                    style: GoogleFonts.poppins(
-                      fontSize: 11,
-                      color: AppColors.textMuted,
-                      height: 1.3,
                     ),
                   ),
                 ],
 
-                if (_pickedFiles.length > 1) ...[
+                if (_pickedFiles.isNotEmpty &&
+                    !_pickedFiles.any(
+                      (f) => f.mimeType == 'application/pdf',
+                    )) ...[
                   const SizedBox(height: 12),
                   Container(
                     padding: const EdgeInsets.all(12),
@@ -723,7 +723,7 @@ class _AddFileScreenState extends State<AddFileScreen>
                               ),
                             ),
                             Text(
-                              'Reorder pages in logical sequence',
+                              'Max 10 pages',
                               style: GoogleFonts.poppins(
                                 fontSize: 11,
                                 color: AppColors.textMuted,
@@ -731,77 +731,110 @@ class _AddFileScreenState extends State<AddFileScreen>
                             ),
                           ],
                         ),
-                        const SizedBox(height: 8),
-                        for (var i = 0; i < _pickedFiles.length; i++)
-                          Padding(
-                            padding: const EdgeInsets.symmetric(vertical: 4),
-                            child: Row(
-                              children: [
-                                Container(
-                                  padding: const EdgeInsets.symmetric(
-                                    horizontal: 8,
-                                    vertical: 2,
-                                  ),
-                                  decoration: BoxDecoration(
-                                    color: AppColors.primary.withValues(
-                                      alpha: 0.1,
+                        if (_pickedFiles.length > 1) ...[
+                          const SizedBox(height: 8),
+                          for (var i = 0; i < _pickedFiles.length; i++)
+                            Padding(
+                              padding: const EdgeInsets.symmetric(vertical: 4),
+                              child: Row(
+                                children: [
+                                  Container(
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 8,
+                                      vertical: 2,
                                     ),
-                                    borderRadius: BorderRadius.circular(6),
-                                  ),
-                                  child: Text(
-                                    'Page ${i + 1}',
-                                    style: GoogleFonts.poppins(
-                                      fontSize: 11,
-                                      fontWeight: FontWeight.w600,
-                                      color: AppColors.primary,
+                                    decoration: BoxDecoration(
+                                      color: AppColors.primary.withValues(
+                                        alpha: 0.1,
+                                      ),
+                                      borderRadius: BorderRadius.circular(6),
                                     ),
-                                  ),
-                                ),
-                                const SizedBox(width: 8),
-                                Expanded(
-                                  child: Text(
-                                    _pickedFiles[i].name,
-                                    maxLines: 1,
-                                    overflow: TextOverflow.ellipsis,
-                                    style: GoogleFonts.poppins(
-                                      fontSize: 12,
-                                      color: AppColors.textPrimary,
+                                    child: Text(
+                                      'Page ${i + 1}',
+                                      style: GoogleFonts.poppins(
+                                        fontSize: 11,
+                                        fontWeight: FontWeight.w600,
+                                        color: AppColors.primary,
+                                      ),
                                     ),
                                   ),
-                                ),
-                                if (i > 0)
+                                  const SizedBox(width: 8),
+                                  Expanded(
+                                    child: Text(
+                                      _pickedFiles[i].name,
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: GoogleFonts.poppins(
+                                        fontSize: 12,
+                                        color: AppColors.textPrimary,
+                                      ),
+                                    ),
+                                  ),
+                                  if (i > 0)
+                                    IconButton(
+                                      icon: const Icon(
+                                        Icons.arrow_upward,
+                                        size: 16,
+                                      ),
+                                      visualDensity: VisualDensity.compact,
+                                      onPressed: () => _movePageUp(i),
+                                      tooltip: 'Move page up',
+                                    ),
+                                  if (i < _pickedFiles.length - 1)
+                                    IconButton(
+                                      icon: const Icon(
+                                        Icons.arrow_downward,
+                                        size: 16,
+                                      ),
+                                      visualDensity: VisualDensity.compact,
+                                      onPressed: () => _movePageDown(i),
+                                      tooltip: 'Move page down',
+                                    ),
                                   IconButton(
                                     icon: const Icon(
-                                      Icons.arrow_upward,
+                                      Icons.close,
                                       size: 16,
+                                      color: Colors.red,
                                     ),
                                     visualDensity: VisualDensity.compact,
-                                    onPressed: () => _movePageUp(i),
-                                    tooltip: 'Move page up',
+                                    onPressed: () => _removePage(i),
+                                    tooltip: 'Remove page',
                                   ),
-                                if (i < _pickedFiles.length - 1)
-                                  IconButton(
-                                    icon: const Icon(
-                                      Icons.arrow_downward,
-                                      size: 16,
-                                    ),
-                                    visualDensity: VisualDensity.compact,
-                                    onPressed: () => _movePageDown(i),
-                                    tooltip: 'Move page down',
-                                  ),
-                                IconButton(
-                                  icon: const Icon(
-                                    Icons.close,
-                                    size: 16,
-                                    color: Colors.red,
-                                  ),
-                                  visualDensity: VisualDensity.compact,
-                                  onPressed: () => _removePage(i),
-                                  tooltip: 'Remove page',
-                                ),
-                              ],
+                                ],
+                              ),
+                            ),
+                        ],
+                        if (_pickedFiles.length < 10) ...[
+                          const SizedBox(height: 8),
+                          OutlinedButton.icon(
+                            onPressed: _onAddPageTap,
+                            icon: const Icon(
+                              Icons.add_photo_alternate_rounded,
+                              size: 16,
+                            ),
+                            label: Text(
+                              'Add Page (${_pickedFiles.length}/10)',
+                              style: GoogleFonts.poppins(
+                                fontSize: 12,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                            style: OutlinedButton.styleFrom(
+                              foregroundColor: AppColors.primary,
+                              side: const BorderSide(
+                                color: AppColors.cardBorder,
+                                width: 1.2,
+                              ),
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(10),
+                              ),
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 12,
+                                vertical: 8,
+                              ),
                             ),
                           ),
+                        ],
                       ],
                     ),
                   ),

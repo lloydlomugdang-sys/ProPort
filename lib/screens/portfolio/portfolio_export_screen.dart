@@ -10,6 +10,7 @@ import '../../services/portfolio_scope.dart';
 import '../../widgets/grad_app_bar.dart';
 import '../../widgets/primary_button.dart';
 
+import '../main_screen.dart';
 import 'models/portfolio_models.dart';
 import 'portfolio_preview_screen.dart';
 import 'widgets/export_option_card.dart';
@@ -137,12 +138,16 @@ class _PortfolioExportScreenState extends State<PortfolioExportScreen>
     if (_previewOpen || _isExporting) return;
     _previewOpen = true;
     try {
+      final documents = DocumentScope.of(context);
       await Navigator.push<void>(
         context,
         MaterialPageRoute(
-          builder: (_) => PortfolioPreviewScreen(
-            portfolioInfo: widget.portfolioInfo,
-            exportFormat: _exportedFile?.format,
+          builder: (_) => DocumentScope(
+            documentService: documents,
+            child: PortfolioPreviewScreen(
+              portfolioInfo: widget.portfolioInfo,
+              exportFormat: _exportedFile?.format,
+            ),
           ),
         ),
       );
@@ -229,13 +234,14 @@ class _PortfolioExportScreenState extends State<PortfolioExportScreen>
         SizedBox(
           width: double.infinity,
           child: Builder(
-            builder: (buttonContext) => OutlinedButton.icon(
+            builder: (buttonContext) => ElevatedButton.icon(
               onPressed: _isSharing ? null : () => _onShare(buttonContext),
-              icon: const Icon(Icons.share_outlined, size: 18),
+              icon: const Icon(Icons.share_rounded, size: 18),
               label: Text(_isSharing ? 'Sharing...' : 'Share'),
-              style: OutlinedButton.styleFrom(
-                foregroundColor: AppColors.primary,
-                side: const BorderSide(color: AppColors.cardBorder),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: AppColors.primary,
+                foregroundColor: Colors.white,
+                elevation: 0,
                 shape: _roundedBorder(),
                 padding: const EdgeInsets.symmetric(vertical: 12),
                 textStyle: GoogleFonts.poppins(
@@ -249,10 +255,13 @@ class _PortfolioExportScreenState extends State<PortfolioExportScreen>
         const SizedBox(height: 8),
         SizedBox(
           width: double.infinity,
-          child: TextButton(
+          child: OutlinedButton.icon(
             onPressed: _onPreview,
-            style: TextButton.styleFrom(
+            icon: const Icon(Icons.visibility_outlined, size: 18),
+            label: const Text('Preview Portfolio'),
+            style: OutlinedButton.styleFrom(
               foregroundColor: AppColors.primary,
+              side: const BorderSide(color: AppColors.cardBorder, width: 1.2),
               shape: _roundedBorder(),
               padding: const EdgeInsets.symmetric(vertical: 12),
               textStyle: GoogleFonts.poppins(
@@ -260,7 +269,24 @@ class _PortfolioExportScreenState extends State<PortfolioExportScreen>
                 fontWeight: FontWeight.w600,
               ),
             ),
-            child: const Text('Preview Portfolio'),
+          ),
+        ),
+        const SizedBox(height: 8),
+        SizedBox(
+          width: double.infinity,
+          child: TextButton.icon(
+            onPressed: () => MainScreen.returnToDashboard(context),
+            icon: const Icon(Icons.dashboard_rounded, size: 18),
+            label: const Text('Back to Dashboard'),
+            style: TextButton.styleFrom(
+              foregroundColor: AppColors.primary,
+              shape: _roundedBorder(),
+              padding: const EdgeInsets.symmetric(vertical: 10),
+              textStyle: GoogleFonts.poppins(
+                fontSize: 13,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
           ),
         ),
       ],

@@ -154,7 +154,7 @@ void main() {
             isA<ArgumentError>().having(
               (e) => e.message,
               'message',
-              contains('cannot exceed 20 documents'),
+              contains('You can select up to 20 documents'),
             ),
           ),
         );

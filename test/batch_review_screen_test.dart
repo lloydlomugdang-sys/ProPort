@@ -149,7 +149,7 @@ void main() {
 
       // Verify progress banner
       expect(
-        find.textContaining('Batch Processing: 2 Documents'),
+        find.textContaining('Processing: 2 Documents'),
         findsOneWidget,
       );
       expect(find.textContaining('ready'), findsOneWidget);
@@ -183,7 +183,7 @@ void main() {
       expect(service.uploadCalls, 2);
       expect(queue.savedCount, 2);
       expect(queue.isAllSaved, isTrue);
-      expect(find.text('Finish Batch'), findsOneWidget);
+      expect(find.text('Finish Review'), findsOneWidget);
     },
   );
 
@@ -217,7 +217,7 @@ void main() {
       await tester.tap(find.byTooltip('Remove'));
       await tester.pumpAndSettle();
 
-      expect(find.text('No documents in this batch.'), findsOneWidget);
+      expect(find.text('No documents selected.'), findsOneWidget);
       expect(queue.totalCount, 0);
     },
   );

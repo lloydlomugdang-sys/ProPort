@@ -150,7 +150,7 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(find.text('Scan Camera'), findsOneWidget);
-      expect(find.text('Batch Upload'), findsOneWidget);
+      expect(find.text('Batch Upload'), findsNothing);
 
       // Tap Scan Camera
       await tester.tap(find.text('Scan Camera'));

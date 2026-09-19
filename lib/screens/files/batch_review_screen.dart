@@ -45,7 +45,7 @@ class _BatchReviewScreenState extends State<BatchReviewScreen> {
     return Scaffold(
       backgroundColor: AppColors.background,
       appBar: GradBackAppBar(
-        title: 'Batch Review (${queue.savedCount}/${queue.totalCount})',
+        title: 'Review Files (${queue.savedCount}/${queue.totalCount})',
       ),
       body: Column(
         children: [
@@ -57,7 +57,7 @@ class _BatchReviewScreenState extends State<BatchReviewScreen> {
             child: items.isEmpty
                 ? Center(
                     child: Text(
-                      'No documents in this batch.',
+                      'No documents selected.',
                       style: GoogleFonts.poppins(
                         fontSize: 14,
                         color: AppColors.textMuted,
@@ -138,7 +138,7 @@ class _BatchReviewScreenState extends State<BatchReviewScreen> {
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
               Text(
-                'Batch Processing: ${queue.totalCount} Documents',
+                'Processing: ${queue.totalCount} Documents',
                 style: GoogleFonts.poppins(
                   fontSize: 13,
                   fontWeight: FontWeight.w600,
@@ -224,7 +224,7 @@ class _BatchReviewScreenState extends State<BatchReviewScreen> {
               ElevatedButton.icon(
                 onPressed: () => Navigator.pop(context, true),
                 icon: const Icon(Icons.done_all_rounded, size: 18),
-                label: const Text('Finish Batch'),
+                label: const Text('Finish Review'),
                 style: ElevatedButton.styleFrom(
                   backgroundColor: AppColors.success,
                   foregroundColor: Colors.white,

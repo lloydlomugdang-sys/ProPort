@@ -92,6 +92,7 @@ class _LoginScreenState extends State<LoginScreen>
       Navigator.pushAndRemoveUntil(
         context,
         PageRouteBuilder(
+          settings: const RouteSettings(name: MainScreen.routeName),
           transitionDuration: const Duration(milliseconds: 400),
           pageBuilder: (_, _, _) => const MainScreen(),
           transitionsBuilder: (_, anim, _, child) =>

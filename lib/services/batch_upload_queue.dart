@@ -39,7 +39,7 @@ class BatchUploadQueue extends ChangeNotifier {
   void initialize(List<PickedDocument> files) {
     if (files.length > maxBatchSize) {
       throw ArgumentError(
-        'A batch cannot exceed $maxBatchSize documents. Selected: ${files.length}',
+        'You can select up to $maxBatchSize documents. Selected: ${files.length}.',
       );
     }
     _items.clear();

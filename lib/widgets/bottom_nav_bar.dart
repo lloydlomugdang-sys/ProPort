@@ -12,12 +12,14 @@ class GradBottomNavBar extends StatelessWidget {
     required this.currentIndex,
     required this.onTabChanged,
     required this.onAddTapped,
+    this.isAddExpanded = false,
   });
 
   /// 0=Home  1=Files  2=Profile  3=Settings
   final int currentIndex;
   final ValueChanged<int> onTabChanged;
   final VoidCallback onAddTapped;
+  final bool isAddExpanded;
 
   @override
   Widget build(BuildContext context) {
@@ -84,10 +86,15 @@ class GradBottomNavBar extends StatelessWidget {
                           ),
                         ],
                       ),
-                      child: const Icon(
-                        Icons.add_rounded,
-                        color: Colors.white,
-                        size: 28,
+                      child: AnimatedRotation(
+                        turns: isAddExpanded ? 0.125 : 0,
+                        duration: const Duration(milliseconds: 180),
+                        curve: Curves.easeOutCubic,
+                        child: const Icon(
+                          Icons.add_rounded,
+                          color: Colors.white,
+                          size: 28,
+                        ),
                       ),
                     ),
                     const SizedBox(height: 3),
