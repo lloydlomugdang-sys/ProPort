@@ -61,20 +61,20 @@ class UploadCard extends StatelessWidget {
       child: AnimatedContainer(
         duration: const Duration(milliseconds: 250),
         width: double.infinity,
-        padding: const EdgeInsets.symmetric(vertical: 24, horizontal: 16),
+        padding: const EdgeInsets.symmetric(vertical: 24, horizontal: 18),
         decoration: BoxDecoration(
           color: _hasPicked
-              ? AppColors.primary.withValues(alpha: 0.05)
+              ? AppColors.statusCompleteBg
               : Colors.white,
-          borderRadius: BorderRadius.circular(14),
+          borderRadius: BorderRadius.circular(16),
           border: Border.all(
-            color: _hasPicked ? AppColors.primary : AppColors.cardBorder,
-            width: _hasPicked ? 1.5 : 1.0,
+            color: _hasPicked ? AppColors.success : AppColors.cardBorder,
+            width: 1.5,
           ),
           boxShadow: [
             BoxShadow(
-              color: Colors.black.withValues(alpha: 0.04),
-              blurRadius: 6,
+              color: Colors.black.withValues(alpha: 0.03),
+              blurRadius: 10,
               offset: const Offset(0, 2),
             ),
           ],

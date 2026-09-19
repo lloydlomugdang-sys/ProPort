@@ -1,8 +1,8 @@
 // LOCATION: lib/widgets/filter_chip_bar.dart
 
 import 'package:flutter/material.dart';
+import 'package:google_fonts/google_fonts.dart';
 import '../constants/app_colors.dart';
-import '../constants/app_text_styles.dart';
 
 class FilterChipBar extends StatelessWidget {
   const FilterChipBar({
@@ -28,27 +28,36 @@ class FilterChipBar extends StatelessWidget {
             child: GestureDetector(
               onTap: () => onSelected(option),
               child: AnimatedContainer(
-                duration: const Duration(milliseconds: 200),
+                duration: const Duration(milliseconds: 180),
                 padding: const EdgeInsets.symmetric(
-                    horizontal: 18, vertical: 8),
+                  horizontal: 16,
+                  vertical: 7,
+                ),
                 decoration: BoxDecoration(
-                  color: isSelected
-                      ? AppColors.primary
-                      : AppColors.cardBackground,
+                  color: isSelected ? AppColors.primary : Colors.white,
                   borderRadius: BorderRadius.circular(20),
                   border: Border.all(
                     color: isSelected
                         ? AppColors.primary
                         : AppColors.cardBorder,
-                    width: 1.5,
+                    width: 1.2,
                   ),
+                  boxShadow: isSelected
+                      ? [
+                          BoxShadow(
+                            color: AppColors.primary.withValues(alpha: 0.25),
+                            blurRadius: 8,
+                            offset: const Offset(0, 2),
+                          ),
+                        ]
+                      : null,
                 ),
                 child: Text(
                   option,
-                  style: AppTextStyles.chipText.copyWith(
-                    color: isSelected
-                        ? Colors.white
-                        : AppColors.textSecondary,
+                  style: GoogleFonts.poppins(
+                    fontSize: 12.5,
+                    fontWeight: isSelected ? FontWeight.w600 : FontWeight.w500,
+                    color: isSelected ? Colors.white : AppColors.textSecondary,
                   ),
                 ),
               ),

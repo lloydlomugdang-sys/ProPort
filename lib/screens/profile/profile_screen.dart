@@ -183,10 +183,14 @@ class _ProfileScreenState extends State<ProfileScreen> {
           const SizedBox(height: 16),
           Text(
             profile.fullName,
-            style: AppTextStyles.h2.copyWith(color: AppColors.primary),
+            style: GoogleFonts.poppins(
+              fontSize: 22,
+              fontWeight: FontWeight.w700,
+              color: AppColors.textPrimary,
+            ),
             textAlign: TextAlign.center,
           ),
-          const SizedBox(height: 28),
+          const SizedBox(height: 26),
           Container(
             decoration: BoxDecoration(
               color: Colors.white,
@@ -194,8 +198,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
               border: Border.all(color: AppColors.cardBorder),
               boxShadow: [
                 BoxShadow(
-                  color: Colors.black.withValues(alpha: 0.04),
-                  blurRadius: 8,
+                  color: Colors.black.withValues(alpha: 0.03),
+                  blurRadius: 10,
                   offset: const Offset(0, 2),
                 ),
               ],

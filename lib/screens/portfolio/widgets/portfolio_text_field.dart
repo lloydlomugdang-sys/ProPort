@@ -49,8 +49,8 @@ class _PortfolioTextFieldState extends State<PortfolioTextField>
       duration: const Duration(milliseconds: 180),
     );
     _borderColor = ColorTween(
-      begin: AppColors.inputBorder,
-      end: AppColors.inputBorderFocus,
+      begin: AppColors.cardBorder,
+      end: AppColors.primary,
     ).animate(CurvedAnimation(
       parent: _borderCtrl,
       curve: Curves.easeOut,
@@ -106,17 +106,17 @@ class _PortfolioTextFieldState extends State<PortfolioTextField>
           builder: (_, _) => Container(
             decoration: BoxDecoration(
               color: Colors.white,
-              borderRadius: BorderRadius.circular(10),
+              borderRadius: BorderRadius.circular(12),
               border: Border.all(
-                color: _borderColor.value ?? AppColors.inputBorder,
-                width: _isFocused ? 1.5 : 1.0,
+                color: _borderColor.value ?? AppColors.cardBorder,
+                width: _isFocused ? 1.8 : 1.2,
               ),
               boxShadow: [
                 BoxShadow(
                   color: _isFocused
-                      ? AppColors.primary.withValues(alpha: 0.08)
+                      ? AppColors.primary.withValues(alpha: 0.10)
                       : Colors.black.withValues(alpha: 0.03),
-                  blurRadius: _isFocused ? 8 : 4,
+                  blurRadius: _isFocused ? 10 : 6,
                   offset: const Offset(0, 2),
                 ),
               ],

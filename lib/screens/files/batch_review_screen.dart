@@ -124,11 +124,11 @@ class _BatchReviewScreenState extends State<BatchReviewScreen> {
         : 0.0;
 
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
       decoration: const BoxDecoration(
         color: Colors.white,
         border: Border(
-          bottom: BorderSide(color: AppColors.cardBorder),
+          bottom: BorderSide(color: AppColors.divider, width: 1.2),
         ),
       ),
       child: Column(
@@ -154,18 +154,18 @@ class _BatchReviewScreenState extends State<BatchReviewScreen> {
               ),
             ],
           ),
-          const SizedBox(height: 8),
+          const SizedBox(height: 10),
           ClipRRect(
-            borderRadius: BorderRadius.circular(4),
+            borderRadius: BorderRadius.circular(6),
             child: LinearProgressIndicator(
               value: queue.isAllProcessed
                   ? 1.0
                   : (progress > 0 ? progress : null),
-              backgroundColor: AppColors.cardBorder,
+              backgroundColor: AppColors.divider,
               valueColor: const AlwaysStoppedAnimation<Color>(
                 AppColors.primary,
               ),
-              minHeight: 6,
+              minHeight: 7,
             ),
           ),
         ],
@@ -177,14 +177,14 @@ class _BatchReviewScreenState extends State<BatchReviewScreen> {
     final canSave = queue.validToSaveCount > 0 && !queue.isSavingAll;
 
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
       decoration: BoxDecoration(
         color: Colors.white,
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withValues(alpha: 0.06),
-            blurRadius: 10,
-            offset: const Offset(0, -3),
+            color: AppColors.primary.withValues(alpha: 0.06),
+            blurRadius: 16,
+            offset: const Offset(0, -4),
           ),
         ],
       ),
@@ -229,7 +229,7 @@ class _BatchReviewScreenState extends State<BatchReviewScreen> {
                   backgroundColor: AppColors.success,
                   foregroundColor: Colors.white,
                   shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(10),
+                    borderRadius: BorderRadius.circular(12),
                   ),
                 ),
               )
@@ -256,7 +256,7 @@ class _BatchReviewScreenState extends State<BatchReviewScreen> {
                     vertical: 12,
                   ),
                   shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(10),
+                    borderRadius: BorderRadius.circular(12),
                   ),
                 ),
               ),
@@ -394,19 +394,19 @@ class _BatchItemCardState extends State<_BatchItemCard> {
       margin: const EdgeInsets.only(bottom: 14),
       decoration: BoxDecoration(
         color: Colors.white,
-        borderRadius: BorderRadius.circular(14),
+        borderRadius: BorderRadius.circular(16),
         border: Border.all(
           color: item.isSaved
-              ? AppColors.success.withValues(alpha: 0.5)
+              ? AppColors.success.withValues(alpha: 0.6)
               : item.isFailed
-              ? AppColors.danger.withValues(alpha: 0.5)
+              ? AppColors.danger.withValues(alpha: 0.6)
               : AppColors.cardBorder,
-          width: item.isSaved || item.isFailed ? 1.5 : 1.0,
+          width: item.isSaved || item.isFailed ? 1.5 : 1.2,
         ),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withValues(alpha: 0.03),
-            blurRadius: 6,
+            color: AppColors.primary.withValues(alpha: 0.04),
+            blurRadius: 10,
             offset: const Offset(0, 2),
           ),
         ],

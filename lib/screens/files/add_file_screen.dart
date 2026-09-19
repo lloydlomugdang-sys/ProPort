@@ -639,16 +639,20 @@ class _AddFileScreenState extends State<AddFileScreen>
                           label: Text(
                             'Scan Camera',
                             style: GoogleFonts.poppins(
-                              fontSize: 12,
-                              fontWeight: FontWeight.w500,
+                              fontSize: 12.5,
+                              fontWeight: FontWeight.w600,
                             ),
                           ),
                           style: OutlinedButton.styleFrom(
+                            backgroundColor: Colors.white,
                             foregroundColor: AppColors.primary,
-                            side: const BorderSide(color: AppColors.primary),
-                            padding: const EdgeInsets.symmetric(vertical: 10),
+                            side: const BorderSide(
+                              color: AppColors.primary,
+                              width: 1.2,
+                            ),
+                            padding: const EdgeInsets.symmetric(vertical: 12),
                             shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(10),
+                              borderRadius: BorderRadius.circular(12),
                             ),
                           ),
                         ),
@@ -664,16 +668,20 @@ class _AddFileScreenState extends State<AddFileScreen>
                           label: Text(
                             'Batch Upload',
                             style: GoogleFonts.poppins(
-                              fontSize: 12,
-                              fontWeight: FontWeight.w500,
+                              fontSize: 12.5,
+                              fontWeight: FontWeight.w600,
                             ),
                           ),
                           style: OutlinedButton.styleFrom(
+                            backgroundColor: Colors.white,
                             foregroundColor: AppColors.primary,
-                            side: const BorderSide(color: AppColors.primary),
-                            padding: const EdgeInsets.symmetric(vertical: 10),
+                            side: const BorderSide(
+                              color: AppColors.primary,
+                              width: 1.2,
+                            ),
+                            padding: const EdgeInsets.symmetric(vertical: 12),
                             shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(10),
+                              borderRadius: BorderRadius.circular(12),
                             ),
                           ),
                         ),
@@ -981,12 +989,12 @@ class _AddFileScreenState extends State<AddFileScreen>
         Container(
           decoration: BoxDecoration(
             color: Colors.white,
-            borderRadius: BorderRadius.circular(10),
-            border: Border.all(color: AppColors.inputBorder),
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(color: AppColors.cardBorder, width: 1.2),
             boxShadow: [
               BoxShadow(
-                color: Colors.black.withValues(alpha: 0.03),
-                blurRadius: 4,
+                color: AppColors.primary.withValues(alpha: 0.03),
+                blurRadius: 6,
                 offset: const Offset(0, 2),
               ),
             ],

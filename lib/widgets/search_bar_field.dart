@@ -19,16 +19,24 @@ class SearchBarField extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      height: 42,
+      height: 46,
       decoration: BoxDecoration(
-        color: const Color(0xFFE6EEF3),
-        borderRadius: BorderRadius.circular(10),
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: AppColors.cardBorder),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.03),
+            blurRadius: 8,
+            offset: const Offset(0, 2),
+          ),
+        ],
       ),
       child: TextField(
         controller: controller,
         onChanged: onChanged,
         style: GoogleFonts.poppins(
-          fontSize: 13,
+          fontSize: 13.5,
           color: AppColors.textPrimary,
         ),
         textAlignVertical: TextAlignVertical.center,
@@ -36,29 +44,24 @@ class SearchBarField extends StatelessWidget {
           border: InputBorder.none,
           enabledBorder: InputBorder.none,
           focusedBorder: InputBorder.none,
-
           hintText: hintText,
-
           hintStyle: GoogleFonts.poppins(
             fontSize: 13,
             color: AppColors.textMuted,
           ),
-
           prefixIcon: const Icon(
-            Icons.search,
-            size: 19,
-            color: Color(0xFF3A4A5A),
+            Icons.search_rounded,
+            size: 20,
+            color: AppColors.primary,
           ),
-
           prefixIconConstraints: const BoxConstraints(
-            minWidth: 42,
-            minHeight: 42,
+            minWidth: 44,
+            minHeight: 46,
           ),
-
           contentPadding: const EdgeInsets.only(
-            top: 9,
-            bottom: 9,
-            right: 12,
+            top: 10,
+            bottom: 10,
+            right: 14,
           ),
         ),
       ),

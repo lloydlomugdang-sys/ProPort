@@ -86,16 +86,16 @@ class DatePickerField extends StatelessWidget {
         GestureDetector(
           onTap: () => _pickDate(context),
           child: Container(
-            height: 48,
+            height: 50,
             padding: const EdgeInsets.symmetric(horizontal: 14),
             decoration: BoxDecoration(
               color: Colors.white,
-              borderRadius: BorderRadius.circular(10),
-              border: Border.all(color: AppColors.inputBorder),
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: AppColors.cardBorder),
               boxShadow: [
                 BoxShadow(
                   color: Colors.black.withValues(alpha: 0.03),
-                  blurRadius: 4,
+                  blurRadius: 6,
                   offset: const Offset(0, 2),
                 ),
               ],
@@ -114,9 +114,9 @@ class DatePickerField extends StatelessWidget {
                   ),
                 ),
                 const Icon(
-                  Icons.calendar_today_outlined,
+                  Icons.calendar_today_rounded,
                   size: 18,
-                  color: AppColors.textMuted,
+                  color: AppColors.primary,
                 ),
               ],
             ),

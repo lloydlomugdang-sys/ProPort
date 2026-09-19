@@ -1,9 +1,9 @@
 // LOCATION: lib/screens/portfolio/portfolio_export_screen.dart
 
 import 'package:flutter/material.dart';
+import 'package:google_fonts/google_fonts.dart';
 
 import '../../constants/app_colors.dart';
-import '../../constants/app_text_styles.dart';
 import '../../services/document_scope.dart';
 import '../../services/portfolio_export_service.dart';
 import '../../services/portfolio_scope.dart';
@@ -152,37 +152,123 @@ class _PortfolioExportScreenState extends State<PortfolioExportScreen>
   }
 
   // ─────────────────────────────────────────────────────────────────────────────
-  // Preview dialog
+  // Result container
   // ─────────────────────────────────────────────────────────────────────────────
-  Widget _buildExportResult() => Column(
+  Widget _buildExportResult() => Container(
     key: const Key('portfolio-export-success'),
-    children: [
-      const SizedBox(height: 16),
-      Text('Portfolio file created', style: AppTextStyles.h4),
-      Text(
-        _exportedFile!.name,
-        textAlign: TextAlign.center,
-        style: AppTextStyles.bodySmall,
+    margin: const EdgeInsets.only(top: 20),
+    padding: const EdgeInsets.all(20),
+    decoration: BoxDecoration(
+      color: AppColors.statusCompleteBg,
+      borderRadius: BorderRadius.circular(16),
+      border: Border.all(
+        color: AppColors.success.withValues(alpha: 0.30),
+        width: 1.2,
       ),
-      Text(
-        _coverageNote!,
-        textAlign: TextAlign.center,
-        style: AppTextStyles.labelSmall,
-      ),
-      Text(
-        'Temporary copy. Use Share to send or save it.',
-        style: AppTextStyles.labelSmall,
-      ),
-      Builder(
-        builder: (buttonContext) => TextButton.icon(
-          onPressed: _isSharing ? null : () => _onShare(buttonContext),
-          icon: const Icon(Icons.share_outlined),
-          label: Text(_isSharing ? 'Sharing...' : 'Share'),
+      boxShadow: [
+        BoxShadow(
+          color: AppColors.success.withValues(alpha: 0.08),
+          blurRadius: 10,
+          offset: const Offset(0, 2),
         ),
-      ),
-      TextButton(onPressed: _onPreview, child: const Text('Preview Portfolio')),
-    ],
+      ],
+    ),
+    child: Column(
+      children: [
+        Container(
+          width: 44,
+          height: 44,
+          decoration: BoxDecoration(
+            color: AppColors.success.withValues(alpha: 0.15),
+            shape: BoxShape.circle,
+          ),
+          child: const Icon(
+            Icons.check_circle_rounded,
+            color: AppColors.success,
+            size: 26,
+          ),
+        ),
+        const SizedBox(height: 12),
+        Text(
+          'Portfolio file created',
+          style: GoogleFonts.poppins(
+            fontSize: 16,
+            fontWeight: FontWeight.w700,
+            color: AppColors.statusCompleteText,
+          ),
+        ),
+        const SizedBox(height: 4),
+        Text(
+          _exportedFile!.name,
+          textAlign: TextAlign.center,
+          style: GoogleFonts.poppins(
+            fontSize: 13,
+            fontWeight: FontWeight.w600,
+            color: AppColors.textPrimary,
+          ),
+        ),
+        const SizedBox(height: 4),
+        Text(
+          _coverageNote!,
+          textAlign: TextAlign.center,
+          style: GoogleFonts.poppins(
+            fontSize: 12,
+            color: AppColors.textSecondary,
+          ),
+        ),
+        const SizedBox(height: 4),
+        Text(
+          'Temporary copy. Use Share to send or save it.',
+          textAlign: TextAlign.center,
+          style: GoogleFonts.poppins(
+            fontSize: 11,
+            color: AppColors.textMuted,
+          ),
+        ),
+        const SizedBox(height: 16),
+        SizedBox(
+          width: double.infinity,
+          child: Builder(
+            builder: (buttonContext) => OutlinedButton.icon(
+              onPressed: _isSharing ? null : () => _onShare(buttonContext),
+              icon: const Icon(Icons.share_outlined, size: 18),
+              label: Text(_isSharing ? 'Sharing...' : 'Share'),
+              style: OutlinedButton.styleFrom(
+                foregroundColor: AppColors.primary,
+                side: const BorderSide(color: AppColors.cardBorder),
+                shape: _roundedBorder(),
+                padding: const EdgeInsets.symmetric(vertical: 12),
+                textStyle: GoogleFonts.poppins(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ),
+          ),
+        ),
+        const SizedBox(height: 8),
+        SizedBox(
+          width: double.infinity,
+          child: TextButton(
+            onPressed: _onPreview,
+            style: TextButton.styleFrom(
+              foregroundColor: AppColors.primary,
+              shape: _roundedBorder(),
+              padding: const EdgeInsets.symmetric(vertical: 12),
+              textStyle: GoogleFonts.poppins(
+                fontSize: 13,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+            child: const Text('Preview Portfolio'),
+          ),
+        ),
+      ],
+    ),
   );
+
+  static RoundedRectangleBorder _roundedBorder() =>
+      RoundedRectangleBorder(borderRadius: BorderRadius.circular(12));
 
   // ─────────────────────────────────────────────────────────────────────────────
   // Build
@@ -208,7 +294,7 @@ class _PortfolioExportScreenState extends State<PortfolioExportScreen>
                   child: Column(
                     children: [
                       _buildExportCard(),
-                      const SizedBox(height: 28),
+                      const SizedBox(height: 24),
 
                       PrimaryButton(
                         label: 'Export Portfolio',
@@ -217,19 +303,62 @@ class _PortfolioExportScreenState extends State<PortfolioExportScreen>
                         height: 52,
                       ),
                       if (_isExporting) ...[
-                        const SizedBox(height: 12),
-                        const Text(
-                          'Generating portfolio...',
-                          key: Key('portfolio-export-progress'),
+                        const SizedBox(height: 14),
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            const SizedBox(
+                              width: 16,
+                              height: 16,
+                              child: CircularProgressIndicator(
+                                strokeWidth: 2,
+                                valueColor: AlwaysStoppedAnimation(AppColors.primary),
+                              ),
+                            ),
+                            const SizedBox(width: 8),
+                            Text(
+                              'Generating portfolio...',
+                              key: const Key('portfolio-export-progress'),
+                              style: GoogleFonts.poppins(
+                                fontSize: 13,
+                                fontWeight: FontWeight.w500,
+                                color: AppColors.textSecondary,
+                              ),
+                            ),
+                          ],
                         ),
                       ],
                       if (_error != null) ...[
-                        const SizedBox(height: 12),
-                        Text(
-                          _error!,
-                          key: const Key('portfolio-export-error'),
-                          style: AppTextStyles.bodySmall.copyWith(
-                            color: AppColors.danger,
+                        const SizedBox(height: 14),
+                        Container(
+                          padding: const EdgeInsets.all(12),
+                          decoration: BoxDecoration(
+                            color: AppColors.danger.withValues(alpha: 0.08),
+                            borderRadius: BorderRadius.circular(12),
+                            border: Border.all(
+                              color: AppColors.danger.withValues(alpha: 0.25),
+                            ),
+                          ),
+                          child: Row(
+                            children: [
+                              const Icon(
+                                Icons.error_outline_rounded,
+                                size: 18,
+                                color: AppColors.danger,
+                              ),
+                              const SizedBox(width: 8),
+                              Expanded(
+                                child: Text(
+                                  _error!,
+                                  key: const Key('portfolio-export-error'),
+                                  style: GoogleFonts.poppins(
+                                    fontSize: 12,
+                                    color: AppColors.danger,
+                                    fontWeight: FontWeight.w500,
+                                  ),
+                                ),
+                              ),
+                            ],
                           ),
                         ),
                       ],
@@ -254,29 +383,43 @@ class _PortfolioExportScreenState extends State<PortfolioExportScreen>
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: AppColors.primary, width: 1.5),
+        border: Border.all(color: AppColors.cardBorder),
         boxShadow: [
           BoxShadow(
-            color: AppColors.primary.withValues(alpha: 0.08),
-            blurRadius: 12,
-            offset: const Offset(0, 3),
+            color: Colors.black.withValues(alpha: 0.03),
+            blurRadius: 10,
+            offset: const Offset(0, 2),
           ),
         ],
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text('Export Portfolio', style: AppTextStyles.h3),
+          Text(
+            'Export Portfolio',
+            style: GoogleFonts.poppins(
+              fontSize: 18,
+              fontWeight: FontWeight.w700,
+              color: AppColors.textPrimary,
+            ),
+          ),
           const SizedBox(height: 4),
 
           Text(
             'Choose the file format you want to export.',
-            style: AppTextStyles.bodySmall,
+            style: GoogleFonts.poppins(
+              fontSize: 13,
+              color: AppColors.textSecondary,
+            ),
           ),
           const SizedBox(height: 8),
           Text(
             'Export your saved title page and current document details. Original uploaded images and PDF pages are not embedded.',
-            style: AppTextStyles.labelSmall,
+            style: GoogleFonts.poppins(
+              fontSize: 11,
+              color: AppColors.textMuted,
+              height: 1.4,
+            ),
           ),
           const SizedBox(height: 20),
 

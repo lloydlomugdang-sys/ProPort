@@ -30,11 +30,7 @@ class _LoginScreenState extends State<LoginScreen>
   final _passwordCtrl = TextEditingController();
   bool _isLoading = false;
 
-  static const Color _bg = Color(0xFFDBE9EE);
-  static const Color _cardColor = Color(0xFF166088);
-  static const Color _btnColor = Color(0xFF7ECDF7);
-  static const Color _btnText = Color(0xFF166088);
-  static const Color _titleColor = Color(0xFF006677);
+
 
   late final AnimationController _fadeCtrl;
   late final Animation<double> _fadeAnim;
@@ -142,7 +138,7 @@ class _LoginScreenState extends State<LoginScreen>
             msg,
             style: GoogleFonts.poppins(fontSize: 12, color: Colors.white),
           ),
-          backgroundColor: _cardColor,
+          backgroundColor: AppColors.danger,
           behavior: SnackBarBehavior.floating,
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(10),
@@ -169,49 +165,100 @@ class _LoginScreenState extends State<LoginScreen>
 
   @override
   Widget build(BuildContext context) {
+    final canPop = Navigator.canPop(context);
     return Scaffold(
-      backgroundColor: _bg,
+      backgroundColor: Colors.white,
       resizeToAvoidBottomInset: true,
       body: SafeArea(
         child: FadeTransition(
           opacity: _fadeAnim,
           child: AuthFormScrollView(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.center,
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                // ── Title ─────────────────────────────────────
-                RichText(
-                  text: TextSpan(
-                    children: [
-                      TextSpan(
-                        text: 'Log ',
-                        style: GoogleFonts.poppins(
-                          fontSize: 28,
-                          fontWeight: FontWeight.w700,
-                          color: _titleColor,
-                        ),
-                      ),
-                      TextSpan(
-                        text: 'In',
-                        style: GoogleFonts.poppins(
-                          fontSize: 28,
-                          fontWeight: FontWeight.w400,
-                          color: _titleColor,
-                        ),
-                      ),
-                    ],
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  if (canPop) ...[
+                    IconButton(
+                      tooltip: 'Back',
+                      padding: EdgeInsets.zero,
+                      constraints: const BoxConstraints(),
+                      icon: const Icon(Icons.arrow_back_ios_new, size: 20),
+                      color: AppColors.textPrimary,
+                      onPressed: () => Navigator.pop(context),
+                    ),
+                    const SizedBox(height: 24),
+                  ] else
+                    const SizedBox(height: 16),
+
+                  // ── Title & Subtitle matching mockup ───────────
+                  Text(
+                    'Welcome Back!',
+                    style: GoogleFonts.poppins(
+                      fontSize: 26,
+                      fontWeight: FontWeight.w700,
+                      color: AppColors.textPrimary,
+                      height: 1.25,
+                    ),
                   ),
-                ),
+                  const SizedBox(height: 6),
+                  Text(
+                    'Sign in to continue your journey.',
+                    style: GoogleFonts.poppins(
+                      fontSize: 14,
+                      fontWeight: FontWeight.w400,
+                      color: AppColors.textSecondary,
+                    ),
+                  ),
 
-                const SizedBox(height: 18),
+                  const SizedBox(height: 28),
 
-                // ── Card ───────────────────────────────────────
-                Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 20),
-                  child: _buildCard(),
-                ),
-              ],
+                  // ── Form Surface Card ──────────────────────────
+                  _buildFormCard(),
+
+                  const SizedBox(height: 24),
+
+                  // ── Don't have an account? Sign Up ─────────────
+                  Center(
+                    child: Wrap(
+                      alignment: WrapAlignment.center,
+                      crossAxisAlignment: WrapCrossAlignment.center,
+                      children: [
+                        Text(
+                          "Don't have an account? ",
+                          style: GoogleFonts.poppins(
+                            fontSize: 13,
+                            fontWeight: FontWeight.w400,
+                            color: AppColors.textSecondary,
+                          ),
+                        ),
+                        GestureDetector(
+                          onTap: () => Navigator.push(
+                            context,
+                            PageRouteBuilder(
+                              transitionDuration:
+                                  const Duration(milliseconds: 300),
+                              pageBuilder: (_, _, _) => const SignupScreen(),
+                              transitionsBuilder: (_, anim, _, child) =>
+                                  FadeTransition(opacity: anim, child: child),
+                            ),
+                          ),
+                          child: Text(
+                            'Sign Up',
+                            style: GoogleFonts.poppins(
+                              fontSize: 13,
+                              fontWeight: FontWeight.w700,
+                              color: AppColors.primary,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                ],
+              ),
             ),
           ),
         ),
@@ -219,40 +266,47 @@ class _LoginScreenState extends State<LoginScreen>
     );
   }
 
-  Widget _buildCard() {
+  Widget _buildFormCard() {
     return Container(
       width: double.infinity,
       decoration: BoxDecoration(
-        color: _cardColor,
-        borderRadius: BorderRadius.circular(14),
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: AppColors.cardBorder),
         boxShadow: [
           BoxShadow(
-            color: AppColors.primary.withValues(alpha: 0.18),
-            blurRadius: 16,
+            color: AppColors.primary.withValues(alpha: 0.05),
+            blurRadius: 14,
             offset: const Offset(0, 4),
           ),
         ],
       ),
-      padding: const EdgeInsets.all(16),
+      padding: const EdgeInsets.all(20),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         mainAxisSize: MainAxisSize.min,
         children: [
           // ── Email ──────────────────────────────────────────
           _fieldLabel('Email'),
-          const SizedBox(height: 4),
+          const SizedBox(height: 6),
           AuthTextField(
             controller: _emailCtrl,
             keyboardType: TextInputType.emailAddress,
             textInputAction: TextInputAction.next,
             autofillHints: const [AutofillHints.email],
+            hintText: 'Enter your email',
+            prefixIcon: const Icon(
+              Icons.email_outlined,
+              size: 20,
+              color: AppColors.primary,
+            ),
           ),
 
-          const SizedBox(height: 10),
+          const SizedBox(height: 16),
 
           // ── Password ───────────────────────────────────────
           _fieldLabel('Password'),
-          const SizedBox(height: 4),
+          const SizedBox(height: 6),
           AuthTextField(
             controller: _passwordCtrl,
             obscureText: true,
@@ -260,109 +314,90 @@ class _LoginScreenState extends State<LoginScreen>
             textInputAction: TextInputAction.done,
             onSubmitted: (_) => _loginUser(),
             autofillHints: const [AutofillHints.password],
+            hintText: 'Enter your password',
+            prefixIcon: const Icon(
+              Icons.lock_outline,
+              size: 20,
+              color: AppColors.primary,
+            ),
           ),
 
           const SizedBox(height: 12),
 
-          // ── Login button ───────────────────────────────────
-          _loginButton(),
-          AuthRetryNotice(seconds: retrySeconds),
-
-          const SizedBox(height: 8),
-
-          // ── Forgot password ────────────────────────────────
-          Center(
+          // ── Forgot password (Right aligned link per mockup) ──
+          Align(
+            alignment: Alignment.centerRight,
             child: GestureDetector(
               onTap: _onForgotPassword,
               child: Text(
                 'Forgot password?',
                 style: GoogleFonts.poppins(
-                  fontSize: 11,
-                  fontWeight: FontWeight.w400,
-                  color: Colors.white,
+                  fontSize: 12,
+                  fontWeight: FontWeight.w600,
+                  color: AppColors.primary,
                 ),
               ),
             ),
           ),
 
-          const SizedBox(height: 8),
+          const SizedBox(height: 20),
 
-          // ── Don't have an account? Sign Up ─────────────────
-          Center(
-            child: Wrap(
-              alignment: WrapAlignment.center,
-              crossAxisAlignment: WrapCrossAlignment.center,
-              children: [
-                Text(
-                  "Don't have an account? ",
-                  style: GoogleFonts.poppins(
-                    fontSize: 11,
-                    fontWeight: FontWeight.w400,
-                    color: Colors.white,
-                  ),
-                ),
-                GestureDetector(
-                  onTap: () => Navigator.push(
-                    context,
-                    PageRouteBuilder(
-                      transitionDuration: const Duration(milliseconds: 300),
-                      pageBuilder: (_, _, _) => const SignupScreen(),
-                      transitionsBuilder: (_, anim, _, child) =>
-                          FadeTransition(opacity: anim, child: child),
-                    ),
-                  ),
-                  child: Text(
-                    'Sign Up',
-                    style: GoogleFonts.poppins(
-                      fontSize: 11,
-                      fontWeight: FontWeight.w700,
-                      color: Colors.white,
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          ),
+          // ── Login button ───────────────────────────────────
+          _loginButton(),
+          AuthRetryNotice(seconds: retrySeconds),
         ],
       ),
     );
   }
 
   Widget _fieldLabel(String text) => Text(
-    text,
-    style: GoogleFonts.poppins(
-      fontSize: 12,
-      fontWeight: FontWeight.w400,
-      color: Colors.white,
-    ),
-  );
+        text,
+        style: GoogleFonts.poppins(
+          fontSize: 13,
+          fontWeight: FontWeight.w600,
+          color: AppColors.textPrimary,
+        ),
+      );
 
   Widget _loginButton() {
     return GestureDetector(
       onTap: _isLoading || isRateLimited ? null : _loginUser,
-      child: Container(
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 180),
         width: double.infinity,
-        height: 50,
+        height: 52,
         decoration: BoxDecoration(
-          color: _btnColor,
-          borderRadius: BorderRadius.circular(10),
+          gradient: const LinearGradient(
+            colors: AppColors.primaryGradient,
+            begin: Alignment.centerLeft,
+            end: Alignment.centerRight,
+          ),
+          borderRadius: BorderRadius.circular(12),
+          boxShadow: [
+            BoxShadow(
+              color: AppColors.primary.withValues(alpha: 0.28),
+              blurRadius: 12,
+              offset: const Offset(0, 4),
+            ),
+          ],
         ),
         child: Center(
           child: _isLoading
               ? const SizedBox(
-                  width: 16,
-                  height: 16,
+                  width: 20,
+                  height: 20,
                   child: CircularProgressIndicator(
-                    strokeWidth: 2,
-                    valueColor: AlwaysStoppedAnimation<Color>(_btnText),
+                    strokeWidth: 2.2,
+                    valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
                   ),
                 )
               : Text(
                   'Login',
                   style: GoogleFonts.poppins(
-                    fontSize: 14,
+                    fontSize: 15,
                     fontWeight: FontWeight.w600,
-                    color: _btnText,
+                    color: Colors.white,
+                    letterSpacing: 0.3,
                   ),
                 ),
         ),

@@ -340,11 +340,21 @@ class _LogoutButtonState extends State<_LogoutButton>
             Transform.scale(scale: _scale.value, child: child),
         child: Container(
           width: double.infinity,
-          height: 50,
+          height: 52,
           decoration: BoxDecoration(
             color: Colors.white,
-            borderRadius: BorderRadius.circular(12),
-            border: Border.all(color: AppColors.danger, width: 1.5),
+            borderRadius: BorderRadius.circular(14),
+            border: Border.all(
+              color: AppColors.danger.withValues(alpha: 0.40),
+              width: 1.2,
+            ),
+            boxShadow: [
+              BoxShadow(
+                color: AppColors.danger.withValues(alpha: 0.05),
+                blurRadius: 8,
+                offset: const Offset(0, 2),
+              ),
+            ],
           ),
           child: Row(
             mainAxisAlignment: MainAxisAlignment.center,

@@ -12,15 +12,21 @@ class StatCard extends StatelessWidget {
     required this.value,
     required this.icon,
     this.onTap,
+    this.iconColor,
+    this.iconBackgroundColor,
   });
 
   final String label;
   final String value;
   final IconData icon;
   final VoidCallback? onTap;
+  final Color? iconColor;
+  final Color? iconBackgroundColor;
 
   @override
   Widget build(BuildContext context) {
+    final iColor = iconColor ?? AppColors.primary;
+    final iBg = iconBackgroundColor ?? iColor.withValues(alpha: 0.08);
     return GestureDetector(
       onTap: onTap,
       behavior: HitTestBehavior.opaque,
@@ -32,7 +38,7 @@ class StatCard extends StatelessWidget {
           border: Border.all(color: AppColors.cardBorder),
           boxShadow: [
             BoxShadow(
-              color: AppColors.primary.withValues(alpha: 0.05),
+              color: AppColors.primary.withValues(alpha: 0.04),
               blurRadius: 10,
               offset: const Offset(0, 2),
             ),
@@ -44,10 +50,10 @@ class StatCard extends StatelessWidget {
               width: 50,
               height: 50,
               decoration: BoxDecoration(
-                color: AppColors.primary.withValues(alpha: 0.08),
+                color: iBg,
                 borderRadius: BorderRadius.circular(13),
               ),
-              child: Icon(icon, color: AppColors.primary, size: 24),
+              child: Icon(icon, color: iColor, size: 24),
             ),
             const SizedBox(width: 14),
             Column(

@@ -22,6 +22,8 @@ class AuthTextField extends StatefulWidget {
     this.textInputAction = TextInputAction.next,
     this.onSubmitted,
     this.autofillHints,
+    this.prefixIcon,
+    this.hintText,
   });
 
   final TextEditingController controller;
@@ -31,6 +33,8 @@ class AuthTextField extends StatefulWidget {
   final TextInputAction textInputAction;
   final ValueChanged<String>? onSubmitted;
   final Iterable<String>? autofillHints;
+  final Widget? prefixIcon;
+  final String? hintText;
 
   @override
   State<AuthTextField> createState() => _AuthTextFieldState();
@@ -38,22 +42,51 @@ class AuthTextField extends StatefulWidget {
 
 class _AuthTextFieldState extends State<AuthTextField> {
   late bool _obscured = widget.obscureText;
+  final FocusNode _focusNode = FocusNode();
+  bool _isFocused = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _focusNode.addListener(() {
+      if (mounted) {
+        setState(() => _isFocused = _focusNode.hasFocus);
+      }
+    });
+  }
+
+  @override
+  void dispose() {
+    _focusNode.dispose();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      height: 48,
+    return AnimatedContainer(
+      duration: const Duration(milliseconds: 180),
+      height: 50,
       decoration: BoxDecoration(
-        color: AppColors.authFieldFill,
-        borderRadius: BorderRadius.circular(10),
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(12),
         border: Border.all(
-          color: AppColors.authFieldBorder,
-          width: 1.0,
+          color: _isFocused ? AppColors.primary : AppColors.cardBorder,
+          width: _isFocused ? 1.5 : 1.0,
         ),
+        boxShadow: [
+          BoxShadow(
+            color: _isFocused
+                ? AppColors.primary.withValues(alpha: 0.08)
+                : Colors.black.withValues(alpha: 0.02),
+            blurRadius: _isFocused ? 8 : 4,
+            offset: const Offset(0, 1),
+          ),
+        ],
       ),
       child: Center(
         child: TextField(
           controller: widget.controller,
+          focusNode: _focusNode,
           obscureText: widget.showVisibilityToggle
               ? _obscured
               : widget.obscureText,
@@ -62,17 +95,28 @@ class _AuthTextFieldState extends State<AuthTextField> {
           onSubmitted: widget.onSubmitted,
           autofillHints: widget.autofillHints,
           style: GoogleFonts.poppins(
-            fontSize: 13,
+            fontSize: 14,
             fontWeight: FontWeight.w400,
-            color: const Color(0xFF1A2E35),
+            color: AppColors.textPrimary,
           ),
           decoration: InputDecoration(
             isDense: true,
             filled: true,
             fillColor: Colors.transparent,
-            contentPadding: const EdgeInsets.symmetric(
-              horizontal: 12,
-              vertical: 12,
+            hintText: widget.hintText,
+            hintStyle: GoogleFonts.poppins(
+              fontSize: 13,
+              fontWeight: FontWeight.w400,
+              color: AppColors.textMuted,
+            ),
+            prefixIconConstraints: const BoxConstraints(
+              minWidth: 44,
+              minHeight: 44,
+            ),
+            prefixIcon: widget.prefixIcon,
+            contentPadding: EdgeInsets.symmetric(
+              horizontal: widget.prefixIcon == null ? 14 : 4,
+              vertical: 13,
             ),
             border: InputBorder.none,
             enabledBorder: InputBorder.none,
@@ -90,7 +134,9 @@ class _AuthTextFieldState extends State<AuthTextField> {
                           ? Icons.visibility_off_outlined
                           : Icons.visibility_outlined,
                       size: 20,
-                      color: AppColors.authHint,
+                      color: _isFocused
+                          ? AppColors.primary
+                          : AppColors.textMuted,
                     ),
                   )
                 : null,

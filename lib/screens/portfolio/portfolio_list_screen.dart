@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:google_fonts/google_fonts.dart';
 
 import '../../constants/app_colors.dart';
 import '../../constants/app_text_styles.dart';
@@ -304,15 +305,15 @@ class _PortfolioCard extends StatelessWidget {
     ];
     return Container(
       key: Key('portfolio-${portfolio.id}'),
-      padding: const EdgeInsets.fromLTRB(16, 16, 10, 10),
+      padding: const EdgeInsets.fromLTRB(16, 16, 12, 10),
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(16),
         border: Border.all(color: AppColors.cardBorder),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withValues(alpha: 0.04),
-            blurRadius: 8,
+            color: Colors.black.withValues(alpha: 0.03),
+            blurRadius: 10,
             offset: const Offset(0, 2),
           ),
         ],
@@ -320,23 +321,58 @@ class _PortfolioCard extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(info.fullName, style: AppTextStyles.h3),
+          Text(
+            info.fullName,
+            style: GoogleFonts.poppins(
+              fontSize: 16,
+              fontWeight: FontWeight.w700,
+              color: AppColors.textPrimary,
+            ),
+          ),
           const SizedBox(height: 4),
           Text(
             subtitleParts.isEmpty
                 ? 'Course not provided'
                 : subtitleParts.join(' · '),
-            style: AppTextStyles.bodySmall,
+            style: GoogleFonts.poppins(
+              fontSize: 13,
+              fontWeight: FontWeight.w500,
+              color: AppColors.primary,
+            ),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            info.yearAndSection,
+            style: GoogleFonts.poppins(
+              fontSize: 12,
+              color: AppColors.textSecondary,
+            ),
           ),
           const SizedBox(height: 2),
-          Text(info.yearAndSection, style: AppTextStyles.labelMedium),
+          Text(
+            info.formattedSchedule,
+            style: GoogleFonts.poppins(
+              fontSize: 12,
+              color: AppColors.textSecondary,
+            ),
+          ),
           const SizedBox(height: 2),
-          Text(info.formattedSchedule, style: AppTextStyles.labelMedium),
-          const SizedBox(height: 2),
-          Text(info.instructorName, style: AppTextStyles.labelMedium),
+          Text(
+            info.instructorName,
+            style: GoogleFonts.poppins(
+              fontSize: 12,
+              color: AppColors.textSecondary,
+            ),
+          ),
           if (info.semesterAndYear.trim().isNotEmpty) ...[
             const SizedBox(height: 2),
-            Text(info.semesterAndYear, style: AppTextStyles.labelMedium),
+            Text(
+              info.semesterAndYear,
+              style: GoogleFonts.poppins(
+                fontSize: 12,
+                color: AppColors.textSecondary,
+              ),
+            ),
           ],
           const SizedBox(height: 8),
           Row(

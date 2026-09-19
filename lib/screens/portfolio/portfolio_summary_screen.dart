@@ -3,7 +3,6 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import '../../constants/app_colors.dart';
-import '../../constants/app_text_styles.dart';
 import '../../widgets/grad_app_bar.dart';
 import '../../widgets/primary_button.dart';
 import 'models/portfolio_models.dart';
@@ -152,15 +151,15 @@ class _PortfolioSummaryScreenState extends State<PortfolioSummaryScreen>
   Widget _buildSummaryCard(PortfolioSummary summary) {
     return Container(
       width: double.infinity,
-      padding: const EdgeInsets.fromLTRB(20, 20, 20, 24),
+      padding: const EdgeInsets.fromLTRB(20, 22, 20, 24),
       decoration: BoxDecoration(
-        color: AppColors.surface,
+        color: Colors.white,
         borderRadius: BorderRadius.circular(16),
         border: Border.all(color: AppColors.cardBorder),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withValues(alpha: 0.04),
-            blurRadius: 8,
+            color: Colors.black.withValues(alpha: 0.03),
+            blurRadius: 10,
             offset: const Offset(0, 2),
           ),
         ],
@@ -169,16 +168,30 @@ class _PortfolioSummaryScreenState extends State<PortfolioSummaryScreen>
         children: [
           Text(
             'Portfolio Summary',
-            style: AppTextStyles.h3.copyWith(color: AppColors.primary),
+            style: GoogleFonts.poppins(
+              fontSize: 18,
+              fontWeight: FontWeight.w700,
+              color: AppColors.primary,
+            ),
           ),
           const SizedBox(height: 4),
           Text(
             widget.portfolio.info.formattedSchedule,
-            style: AppTextStyles.labelMedium,
+            style: GoogleFonts.poppins(
+              fontSize: 13,
+              color: AppColors.textSecondary,
+            ),
             textAlign: TextAlign.center,
           ),
-          const SizedBox(height: 10),
-          Text('Total Items', style: AppTextStyles.labelMedium),
+          const SizedBox(height: 12),
+          Text(
+            'Total Items',
+            style: GoogleFonts.poppins(
+              fontSize: 12,
+              fontWeight: FontWeight.w500,
+              color: AppColors.textMuted,
+            ),
+          ),
           const SizedBox(height: 4),
           // Animated count
           TweenAnimationBuilder<int>(
@@ -211,7 +224,7 @@ class _PortfolioSummaryScreenState extends State<PortfolioSummaryScreen>
         boxShadow: [
           BoxShadow(
             color: Colors.black.withValues(alpha: 0.03),
-            blurRadius: 6,
+            blurRadius: 10,
             offset: const Offset(0, 2),
           ),
         ],
@@ -228,7 +241,11 @@ class _PortfolioSummaryScreenState extends State<PortfolioSummaryScreen>
             child: Center(
               child: Text(
                 'Sections Included',
-                style: AppTextStyles.h4.copyWith(color: AppColors.primary),
+                style: GoogleFonts.poppins(
+                  fontSize: 15,
+                  fontWeight: FontWeight.w600,
+                  color: AppColors.primary,
+                ),
               ),
             ),
           ),

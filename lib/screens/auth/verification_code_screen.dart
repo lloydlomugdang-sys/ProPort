@@ -43,10 +43,7 @@ class _VerificationCodeScreenState extends State<VerificationCodeScreen>
   late final Animation<double> _fadeAnim;
   late final Animation<Offset> _slideAnim;
 
-  static const Color _bgColor = Color(0xFFCFE2ED);
-  static const Color _darkTeal = Color(0xFF1A4F72);
-  static const Color _boxBorder = Color(0xFFB0CDD9);
-  static const Color _boxActiveBorder = Color(0xFF1E7BAE);
+
 
   @override
   void initState() {
@@ -245,7 +242,7 @@ class _VerificationCodeScreenState extends State<VerificationCodeScreen>
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: _bgColor,
+      backgroundColor: Colors.white,
       resizeToAvoidBottomInset: true,
       body: SafeArea(
         child: FadeTransition(
@@ -263,7 +260,7 @@ class _VerificationCodeScreenState extends State<VerificationCodeScreen>
                     ).backButtonTooltip,
                     icon: const Icon(
                       Icons.arrow_back_ios_new,
-                      color: _darkTeal,
+                      color: AppColors.textPrimary,
                       size: 20,
                     ),
                     onPressed: () => Navigator.of(context).pop(),
@@ -271,41 +268,27 @@ class _VerificationCodeScreenState extends State<VerificationCodeScreen>
                 ),
                 Expanded(
                   child: AuthFormScrollView(
-                    padding: const EdgeInsets.fromLTRB(28, 0, 28, 32),
+                    padding: const EdgeInsets.fromLTRB(24, 0, 24, 32),
                     child: Column(
                       mainAxisAlignment: MainAxisAlignment.center,
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        RichText(
-                          text: TextSpan(
-                            children: [
-                              TextSpan(
-                                text: 'Verification ',
-                                style: GoogleFonts.poppins(
-                                  color: AppColors.primary,
-                                  fontWeight: FontWeight.w700,
-                                  fontSize: 28,
-                                ),
-                              ),
-                              TextSpan(
-                                text: 'Code',
-                                style: GoogleFonts.poppins(
-                                  color: AppColors.textPrimary,
-                                  fontWeight: FontWeight.w400,
-                                  fontSize: 28,
-                                ),
-                              ),
-                            ],
+                        Text(
+                          'Verification Code',
+                          style: GoogleFonts.poppins(
+                            color: AppColors.textPrimary,
+                            fontWeight: FontWeight.w700,
+                            fontSize: 26,
                           ),
                         ),
 
-                        const SizedBox(height: 8),
+                        const SizedBox(height: 6),
 
                         Text(
-                          'We sent a code to your email.',
+                          'We sent a 6-digit code to your email.',
                           style: GoogleFonts.poppins(
                             color: AppColors.textSecondary,
-                            fontSize: 13,
+                            fontSize: 14,
                             fontWeight: FontWeight.w400,
                           ),
                         ),
@@ -344,9 +327,9 @@ class _VerificationCodeScreenState extends State<VerificationCodeScreen>
                             style: ElevatedButton.styleFrom(
                               backgroundColor: AppColors.primary,
                               foregroundColor: Colors.white,
-                              elevation: 1,
+                              elevation: 0,
                               shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(10),
+                                borderRadius: BorderRadius.circular(12),
                               ),
                             ),
                             child: _isLoading
@@ -354,7 +337,7 @@ class _VerificationCodeScreenState extends State<VerificationCodeScreen>
                                     height: 20,
                                     width: 20,
                                     child: CircularProgressIndicator(
-                                      strokeWidth: 2,
+                                      strokeWidth: 2.2,
                                       color: Colors.white,
                                     ),
                                   )
@@ -407,7 +390,7 @@ class _VerificationCodeScreenState extends State<VerificationCodeScreen>
   Widget _buildOtpBox(int index) {
     final isFilled = _controllers[index].text.isNotEmpty;
     return SizedBox(
-      width: 42,
+      width: 44,
       height: 56,
       child: Focus(
         onKeyEvent: (_, event) => _onKeyEvent(index, event),
@@ -429,19 +412,19 @@ class _VerificationCodeScreenState extends State<VerificationCodeScreen>
             fillColor: Colors.white,
             contentPadding: EdgeInsets.zero,
             border: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(10),
-              borderSide: const BorderSide(color: _boxBorder, width: 1.5),
+              borderRadius: BorderRadius.circular(12),
+              borderSide: const BorderSide(color: AppColors.cardBorder, width: 1.2),
             ),
             enabledBorder: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(10),
+              borderRadius: BorderRadius.circular(12),
               borderSide: BorderSide(
-                color: isFilled ? _boxActiveBorder : _boxBorder,
-                width: isFilled ? 2 : 1.5,
+                color: isFilled ? AppColors.primary : AppColors.cardBorder,
+                width: isFilled ? 1.8 : 1.2,
               ),
             ),
             focusedBorder: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(10),
-              borderSide: const BorderSide(color: _boxActiveBorder, width: 2),
+              borderRadius: BorderRadius.circular(12),
+              borderSide: const BorderSide(color: AppColors.primary, width: 2),
             ),
           ),
           onChanged: (value) => _onDigitChanged(index, value),

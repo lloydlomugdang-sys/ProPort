@@ -124,15 +124,16 @@ class _PreviewSheet extends StatelessWidget {
       padding: const EdgeInsets.fromLTRB(24, 32, 24, 28),
       decoration: BoxDecoration(
         color: Colors.white,
-        borderRadius: BorderRadius.circular(12),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: AppColors.cardBorder),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withValues(alpha: 0.10),
-            blurRadius: 18,
+            color: Colors.black.withValues(alpha: 0.08),
+            blurRadius: 20,
             offset: const Offset(0, 8),
           ),
           BoxShadow(
-            color: Colors.black.withValues(alpha: 0.04),
+            color: Colors.black.withValues(alpha: 0.03),
             blurRadius: 4,
             offset: const Offset(0, 2),
           ),
@@ -243,8 +244,8 @@ class _PreviewSheet extends StatelessWidget {
         const SizedBox(height: 12),
         Container(
           decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(10),
-            border: Border.all(color: AppColors.cardBorder),
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(color: AppColors.cardBorder, width: 1.2),
           ),
           child: Column(
             children: List.generate(sections.length, (index) {
@@ -258,7 +259,7 @@ class _PreviewSheet extends StatelessWidget {
                 decoration: BoxDecoration(
                   color: index.isEven
                       ? Colors.white
-                      : AppColors.background.withValues(alpha: 0.5),
+                      : AppColors.background.withValues(alpha: 0.25),
                   border: isLast
                       ? null
                       : const Border(
@@ -350,11 +351,11 @@ class _PreviewSheet extends StatelessWidget {
       decoration: BoxDecoration(
         color: Colors.white,
         border: Border.all(color: AppColors.cardBorder),
-        borderRadius: BorderRadius.circular(12),
+        borderRadius: BorderRadius.circular(14),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withValues(alpha: 0.02),
-            blurRadius: 4,
+            color: Colors.black.withValues(alpha: 0.03),
+            blurRadius: 8,
             offset: const Offset(0, 2),
           ),
         ],

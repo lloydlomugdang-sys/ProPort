@@ -1,7 +1,6 @@
-// LOCATION: lib/screens/home/home_screen.dart
-
 import 'dart:typed_data';
 import 'package:flutter/material.dart';
+import 'package:google_fonts/google_fonts.dart';
 import '../../constants/app_colors.dart';
 import '../../constants/app_text_styles.dart';
 import '../../services/auth_models.dart';
@@ -114,11 +113,11 @@ class _HomeScreenState extends State<HomeScreen>
                     value: documents.summary.totalCount.toString(),
                     icon: Icons.folder_copy_rounded,
                   ),
-                  const SizedBox(height: 24),
+                  const SizedBox(height: 22),
                   const SectionHeader(title: 'Portfolio Tracker'),
                   const SizedBox(height: 10),
                   _buildPortfolioTracker(documents.summary),
-                  const SizedBox(height: 24),
+                  const SizedBox(height: 22),
                   const SectionHeader(title: 'Uploaded Files'),
                   const SizedBox(height: 10),
                   _buildUploadedFiles(documents.summary),
@@ -127,6 +126,7 @@ class _HomeScreenState extends State<HomeScreen>
                 // ── Generate Portfolio → navigates to PortfolioInfoScreen ──
                 PrimaryButton(
                   label: 'Generate Portfolio',
+                  icon: Icons.auto_awesome_rounded,
                   onPressed: _onGeneratePortfolio,
                   height: 54,
                 ),
@@ -143,12 +143,14 @@ class _HomeScreenState extends State<HomeScreen>
                     ),
                     label: Text(
                       'My Portfolios',
-                      style: AppTextStyles.bodyMedium.copyWith(
+                      style: GoogleFonts.poppins(
                         color: AppColors.primary,
                         fontWeight: FontWeight.w600,
+                        fontSize: 14,
                       ),
                     ),
                     style: OutlinedButton.styleFrom(
+                      backgroundColor: Colors.white,
                       side: const BorderSide(
                         color: AppColors.primary,
                         width: 1.5,
@@ -198,6 +200,7 @@ class _HomeScreenState extends State<HomeScreen>
     );
   }
 
+
   Widget _buildUserCard(AuthUser? user, [Uint8List? avatarBytes]) {
     final fullName = user == null
         ? null
@@ -208,12 +211,12 @@ class _HomeScreenState extends State<HomeScreen>
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: AppColors.cardBackground,
+        color: Colors.white,
         borderRadius: BorderRadius.circular(16),
         border: Border.all(color: AppColors.cardBorder),
         boxShadow: [
           BoxShadow(
-            color: AppColors.primary.withValues(alpha: 0.05),
+            color: Colors.black.withValues(alpha: 0.03),
             blurRadius: 10,
             offset: const Offset(0, 2),
           ),
@@ -251,40 +254,47 @@ class _HomeScreenState extends State<HomeScreen>
                     children: [
                       Text(
                         fullName!.isEmpty ? 'Name not provided' : fullName,
-                        style: AppTextStyles.h3,
+                        style: GoogleFonts.poppins(
+                          fontSize: 16,
+                          fontWeight: FontWeight.w700,
+                          color: AppColors.textPrimary,
+                        ),
                       ),
                       const SizedBox(height: 3),
                       Text(
                         program!.isEmpty ? 'Program not set' : program,
-                        style: AppTextStyles.bodySmall.copyWith(
-                          color: AppColors.textPrimary,
+                        style: GoogleFonts.poppins(
+                          fontSize: 12.5,
+                          fontWeight: FontWeight.w400,
+                          color: AppColors.textSecondary,
                         ),
                       ),
-                      const SizedBox(height: 5),
+                      const SizedBox(height: 6),
                       Row(
                         children: [
                           Container(
                             padding: const EdgeInsets.symmetric(
-                              horizontal: 8,
-                              vertical: 2,
+                              horizontal: 9,
+                              vertical: 3,
                             ),
                             decoration: BoxDecoration(
                               color: AppColors.primary.withValues(alpha: 0.08),
-                              borderRadius: BorderRadius.circular(6),
+                              borderRadius: BorderRadius.circular(12),
                             ),
                             child: Text(
                               yearLevel!.isEmpty
                                   ? 'Year level not set'
                                   : yearLevel,
-                              style: AppTextStyles.labelSmall.copyWith(
+                              style: GoogleFonts.poppins(
                                 color: AppColors.primary,
+                                fontSize: 11,
                                 fontWeight: FontWeight.w600,
                               ),
                             ),
                           ),
                         ],
                       ),
-                      const SizedBox(height: 4),
+                      const SizedBox(height: 5),
                       Row(
                         children: [
                           const Icon(
@@ -298,7 +308,8 @@ class _HomeScreenState extends State<HomeScreen>
                               user.school.trim().isEmpty
                                   ? 'School not set'
                                   : user.school.trim(),
-                              style: AppTextStyles.bodySmall.copyWith(
+                              style: GoogleFonts.poppins(
+                                fontSize: 12,
                                 color: AppColors.textMuted,
                               ),
                               overflow: TextOverflow.ellipsis,
@@ -343,13 +354,13 @@ class _HomeScreenState extends State<HomeScreen>
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
       decoration: BoxDecoration(
-        color: AppColors.cardBackground,
+        color: Colors.white,
         borderRadius: BorderRadius.circular(16),
         border: Border.all(color: AppColors.cardBorder),
         boxShadow: [
           BoxShadow(
             color: Colors.black.withValues(alpha: 0.03),
-            blurRadius: 6,
+            blurRadius: 10,
             offset: const Offset(0, 2),
           ),
         ],
@@ -393,13 +404,13 @@ class _HomeScreenState extends State<HomeScreen>
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
       decoration: BoxDecoration(
-        color: AppColors.cardBackground,
+        color: Colors.white,
         borderRadius: BorderRadius.circular(16),
         border: Border.all(color: AppColors.cardBorder),
         boxShadow: [
           BoxShadow(
             color: Colors.black.withValues(alpha: 0.03),
-            blurRadius: 6,
+            blurRadius: 10,
             offset: const Offset(0, 2),
           ),
         ],

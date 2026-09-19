@@ -21,26 +21,26 @@ class SettingsSection extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Padding(
-          padding: const EdgeInsets.only(left: 2, bottom: 8),
+          padding: const EdgeInsets.only(left: 4, bottom: 8),
           child: Text(
             title,
             style: GoogleFonts.poppins(
-              fontSize: 12,
+              fontSize: 13,
               fontWeight: FontWeight.w600,
               color: AppColors.primary,
-              letterSpacing: 0.3,
+              letterSpacing: 0.2,
             ),
           ),
         ),
         Container(
           decoration: BoxDecoration(
             color: Colors.white,
-            borderRadius: BorderRadius.circular(14),
+            borderRadius: BorderRadius.circular(16),
             border: Border.all(color: AppColors.cardBorder),
             boxShadow: [
               BoxShadow(
                 color: Colors.black.withValues(alpha: 0.03),
-                blurRadius: 6,
+                blurRadius: 10,
                 offset: const Offset(0, 2),
               ),
             ],

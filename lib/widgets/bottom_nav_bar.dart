@@ -22,12 +22,18 @@ class GradBottomNavBar extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      height: 72 + MediaQuery.of(context).padding.bottom,
+      height: 70 + MediaQuery.of(context).padding.bottom,
       decoration: BoxDecoration(
-        color: AppColors.navBackground,
+        color: Colors.white,
+        border: Border(
+          top: BorderSide(
+            color: AppColors.cardBorder.withValues(alpha: 0.6),
+            width: 0.8,
+          ),
+        ),
         boxShadow: [
           BoxShadow(
-            color: AppColors.primary.withValues(alpha: 0.25),
+            color: Colors.black.withValues(alpha: 0.05),
             blurRadius: 16,
             offset: const Offset(0, -4),
           ),
@@ -51,32 +57,37 @@ class GradBottomNavBar extends StatelessWidget {
               isActive: currentIndex == 1,
               onTap: () => onTabChanged(1),
             ),
-            // Centre FAB-style Add button
+            // Centre FAB-style Add button matching mockup
             Expanded(
               child: GestureDetector(
                 onTap: onAddTapped,
+                behavior: HitTestBehavior.opaque,
                 child: Column(
-  mainAxisSize: MainAxisSize.min,
-  mainAxisAlignment: MainAxisAlignment.center,
-  children: [
+                  mainAxisSize: MainAxisSize.min,
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
                     Container(
                       width: 48,
                       height: 48,
                       decoration: BoxDecoration(
-                        color: Colors.white,
+                        gradient: const LinearGradient(
+                          colors: AppColors.primaryGradient,
+                          begin: Alignment.topLeft,
+                          end: Alignment.bottomRight,
+                        ),
                         shape: BoxShape.circle,
                         boxShadow: [
                           BoxShadow(
-                            color: Colors.black.withValues(alpha: 0.18),
-                            blurRadius: 10,
-                            offset: const Offset(0, 3),
+                            color: AppColors.primary.withValues(alpha: 0.35),
+                            blurRadius: 12,
+                            offset: const Offset(0, 4),
                           ),
                         ],
                       ),
                       child: const Icon(
-                        Icons.add,
-                        color: AppColors.primary,
-                        size: 26,
+                        Icons.add_rounded,
+                        color: Colors.white,
+                        size: 28,
                       ),
                     ),
                     const SizedBox(height: 3),
@@ -84,8 +95,8 @@ class GradBottomNavBar extends StatelessWidget {
                       'Add',
                       style: GoogleFonts.poppins(
                         fontSize: 10,
-                        fontWeight: FontWeight.w500,
-                        color: AppColors.navUnselected,
+                        fontWeight: FontWeight.w600,
+                        color: AppColors.primary,
                       ),
                     ),
                   ],
@@ -130,7 +141,7 @@ class _NavItem extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final color = isActive ? AppColors.navSelected : AppColors.navUnselected;
+    final color = isActive ? AppColors.primary : AppColors.textMuted;
     return Expanded(
       child: GestureDetector(
         onTap: onTap,
@@ -152,8 +163,7 @@ class _NavItem extends StatelessWidget {
               label,
               style: GoogleFonts.poppins(
                 fontSize: 10,
-                fontWeight:
-                    isActive ? FontWeight.w600 : FontWeight.w400,
+                fontWeight: isActive ? FontWeight.w600 : FontWeight.w400,
                 color: color,
               ),
             ),

@@ -27,21 +27,21 @@ class ExportOptionCard extends StatelessWidget {
       child: AnimatedContainer(
         duration: const Duration(milliseconds: 200),
         curve: Curves.easeOut,
-        padding: const EdgeInsets.all(16),
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 18),
         decoration: BoxDecoration(
           color: Colors.white,
-          borderRadius: BorderRadius.circular(14),
+          borderRadius: BorderRadius.circular(16),
           border: Border.all(
             color: isSelected ? AppColors.primary : AppColors.cardBorder,
-            width: isSelected ? 2.0 : 1.0,
+            width: isSelected ? 2.0 : 1.2,
           ),
           boxShadow: [
             BoxShadow(
               color: isSelected
-                  ? AppColors.primary.withValues(alpha: 0.10)
+                  ? AppColors.primary.withValues(alpha: 0.12)
                   : Colors.black.withValues(alpha: 0.04),
-              blurRadius: isSelected ? 10 : 4,
-              offset: const Offset(0, 2),
+              blurRadius: isSelected ? 12 : 8,
+              offset: const Offset(0, 3),
             ),
           ],
         ),
@@ -53,14 +53,14 @@ class ExportOptionCard extends StatelessWidget {
               children: [
                 // File icon
                 _buildIcon(),
-                const SizedBox(height: 10),
+                const SizedBox(height: 12),
 
                 // Label
                 Text(
                   format.label,
                   textAlign: TextAlign.center,
                   style: GoogleFonts.poppins(
-                    fontSize: 12,
+                    fontSize: 13,
                     fontWeight: FontWeight.w600,
                     color: AppColors.textPrimary,
                   ),
@@ -72,7 +72,7 @@ class ExportOptionCard extends StatelessWidget {
                   format.subtitle,
                   textAlign: TextAlign.center,
                   style: GoogleFonts.poppins(
-                    fontSize: 10,
+                    fontSize: 11,
                     fontWeight: FontWeight.w400,
                     color: AppColors.textMuted,
                     height: 1.4,
@@ -90,7 +90,11 @@ class ExportOptionCard extends StatelessWidget {
                   width: 22,
                   height: 22,
                   decoration: const BoxDecoration(
-                    color: AppColors.primary,
+                    gradient: LinearGradient(
+                      colors: [AppColors.primary, AppColors.secondary],
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                    ),
                     shape: BoxShape.circle,
                   ),
                   child: const Icon(
@@ -113,13 +117,14 @@ class ExportOptionCard extends StatelessWidget {
           width: 52,
           height: 52,
           decoration: BoxDecoration(
-            color: const Color(0xFFFFEBEE),
-            borderRadius: BorderRadius.circular(12),
+            color: AppColors.filePdf.withValues(alpha: 0.10),
+            borderRadius: BorderRadius.circular(14),
+            border: Border.all(color: AppColors.filePdf.withValues(alpha: 0.25)),
           ),
           child: const Icon(
             Icons.picture_as_pdf_rounded,
-            color: Color(0xFFE53935),
-            size: 32,
+            color: AppColors.filePdf,
+            size: 28,
           ),
         );
       case ExportFormat.docx:
@@ -127,13 +132,14 @@ class ExportOptionCard extends StatelessWidget {
           width: 52,
           height: 52,
           decoration: BoxDecoration(
-            color: const Color(0xFFE3F2FD),
-            borderRadius: BorderRadius.circular(12),
+            color: AppColors.fileDoc.withValues(alpha: 0.10),
+            borderRadius: BorderRadius.circular(14),
+            border: Border.all(color: AppColors.fileDoc.withValues(alpha: 0.25)),
           ),
           child: const Icon(
             Icons.article_rounded,
-            color: Color(0xFF1565C0),
-            size: 32,
+            color: AppColors.fileDoc,
+            size: 28,
           ),
         );
     }

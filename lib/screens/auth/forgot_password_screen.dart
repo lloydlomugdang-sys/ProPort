@@ -27,8 +27,7 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen>
   late final Animation<double> _fadeAnim;
   late final Animation<Offset> _slideAnim;
 
-  static const Color _bgColor = Color(0xFFCFE2ED);
-  static const Color _darkTeal = Color(0xFF1A4F72);
+
 
   @override
   void initState() {
@@ -103,7 +102,7 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen>
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: _bgColor,
+      backgroundColor: Colors.white,
       resizeToAvoidBottomInset: true,
       body: SafeArea(
         child: FadeTransition(
@@ -114,14 +113,14 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen>
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Padding(
-                  padding: const EdgeInsets.only(left: 8, top: 8),
+                  padding: const EdgeInsets.only(left: 12, top: 12),
                   child: IconButton(
                     tooltip: MaterialLocalizations.of(
                       context,
                     ).backButtonTooltip,
                     icon: const Icon(
                       Icons.arrow_back_ios_new,
-                      color: _darkTeal,
+                      color: AppColors.textPrimary,
                       size: 20,
                     ),
                     onPressed: () => Navigator.of(context).pop(),
@@ -129,33 +128,19 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen>
                 ),
                 Expanded(
                   child: AuthFormScrollView(
-                    padding: const EdgeInsets.fromLTRB(28, 0, 28, 32),
+                    padding: const EdgeInsets.fromLTRB(24, 8, 24, 32),
                     child: Form(
                       key: _formKey,
                       child: Column(
                         mainAxisSize: MainAxisSize.min,
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          RichText(
-                            text: TextSpan(
-                              children: [
-                                TextSpan(
-                                  text: 'Forgot ',
-                                  style: GoogleFonts.poppins(
-                                    color: AppColors.primary,
-                                    fontWeight: FontWeight.w700,
-                                    fontSize: 28,
-                                  ),
-                                ),
-                                TextSpan(
-                                  text: 'Password?',
-                                  style: GoogleFonts.poppins(
-                                    color: AppColors.textPrimary,
-                                    fontWeight: FontWeight.w400,
-                                    fontSize: 28,
-                                  ),
-                                ),
-                              ],
+                          Text(
+                            'Forgot Password?',
+                            style: GoogleFonts.poppins(
+                              color: AppColors.textPrimary,
+                              fontWeight: FontWeight.w700,
+                              fontSize: 26,
                             ),
                           ),
                           const SizedBox(height: 6),
@@ -163,11 +148,11 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen>
                             'Enter your email to receive a password reset code.',
                             style: GoogleFonts.poppins(
                               color: AppColors.textSecondary,
-                              fontSize: 13,
+                              fontSize: 14,
                               fontWeight: FontWeight.w400,
                             ),
                           ),
-                          const SizedBox(height: 32),
+                          const SizedBox(height: 28),
                           Text(
                             'Email Address',
                             style: GoogleFonts.poppins(
@@ -192,6 +177,11 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen>
                                 color: AppColors.textMuted,
                                 fontSize: 13,
                               ),
+                              prefixIcon: const Icon(
+                                Icons.email_outlined,
+                                size: 20,
+                                color: AppColors.primary,
+                              ),
                               filled: true,
                               fillColor: Colors.white,
                               contentPadding: const EdgeInsets.symmetric(
@@ -199,23 +189,23 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen>
                                 vertical: 14,
                               ),
                               border: OutlineInputBorder(
-                                borderRadius: BorderRadius.circular(10),
+                                borderRadius: BorderRadius.circular(12),
                                 borderSide: const BorderSide(
                                   color: AppColors.inputBorder,
                                   width: 1,
                                 ),
                               ),
                               enabledBorder: OutlineInputBorder(
-                                borderRadius: BorderRadius.circular(10),
+                                borderRadius: BorderRadius.circular(12),
                                 borderSide: const BorderSide(
                                   color: AppColors.inputBorder,
                                   width: 1,
                                 ),
                               ),
                               focusedBorder: OutlineInputBorder(
-                                borderRadius: BorderRadius.circular(10),
+                                borderRadius: BorderRadius.circular(12),
                                 borderSide: const BorderSide(
-                                  color: AppColors.inputBorderFocus,
+                                  color: AppColors.primary,
                                   width: 1.5,
                                 ),
                               ),
@@ -236,7 +226,7 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen>
                           const SizedBox(height: 28),
                           SizedBox(
                             width: double.infinity,
-                            height: 48,
+                            height: 52,
                             child: ElevatedButton(
                               onPressed: _isLoading || isRateLimited
                                   ? null
@@ -244,9 +234,9 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen>
                               style: ElevatedButton.styleFrom(
                                 backgroundColor: AppColors.primary,
                                 foregroundColor: Colors.white,
-                                elevation: 1,
+                                elevation: 0,
                                 shape: RoundedRectangleBorder(
-                                  borderRadius: BorderRadius.circular(10),
+                                  borderRadius: BorderRadius.circular(12),
                                 ),
                               ),
                               child: _isLoading
@@ -254,7 +244,7 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen>
                                       height: 20,
                                       width: 20,
                                       child: CircularProgressIndicator(
-                                        strokeWidth: 2,
+                                        strokeWidth: 2.2,
                                         color: Colors.white,
                                       ),
                                     )

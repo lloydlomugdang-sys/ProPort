@@ -1,8 +1,6 @@
-// LOCATION: lib/widgets/folder_row_item.dart
-
 import 'package:flutter/material.dart';
+import 'package:google_fonts/google_fonts.dart';
 import '../constants/app_colors.dart';
-import '../constants/app_text_styles.dart';
 
 /// Tappable folder row used in the Files screen.
 class FolderRowItem extends StatelessWidget {
@@ -21,48 +19,84 @@ class FolderRowItem extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return InkWell(
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(10),
-      child: Padding(
-        padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 4),
-        child: Row(
-          children: [
-            Container(
-              width: 34,
-              height: 34,
-              decoration: BoxDecoration(
-                color: AppColors.primary.withValues(alpha: 0.10),
-                borderRadius: BorderRadius.circular(8),
+    return Container(
+      margin: const EdgeInsets.only(bottom: 10),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: AppColors.cardBorder),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.02),
+            blurRadius: 6,
+            offset: const Offset(0, 2),
+          ),
+        ],
+      ),
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(14),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 14),
+          child: Row(
+            children: [
+              Container(
+                width: 42,
+                height: 42,
+                decoration: BoxDecoration(
+                  color: AppColors.primary.withValues(alpha: 0.10),
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: const Icon(
+                  Icons.folder_rounded,
+                  color: AppColors.primary,
+                  size: 24,
+                ),
               ),
-              child: const Icon(
-                Icons.folder_rounded,
-                color: AppColors.primary,
-                size: 20,
+              const SizedBox(width: 14),
+              Expanded(
+                child: Text(
+                  name,
+                  style: GoogleFonts.poppins(
+                    fontSize: 14,
+                    fontWeight: FontWeight.w600,
+                    color: AppColors.textPrimary,
+                  ),
+                ),
               ),
-            ),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Text(
-                name,
-                style: AppTextStyles.bodyMedium
-                    .copyWith(color: AppColors.textPrimary),
+              Container(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 10,
+                  vertical: 3,
+                ),
+                decoration: BoxDecoration(
+                  color: AppColors.primary.withValues(alpha: 0.08),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Text(
+                  count.toString(),
+                  style: GoogleFonts.poppins(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                    color: AppColors.primary,
+                  ),
+                ),
               ),
-            ),
-            Text(
-              count.toString(),
-              style: AppTextStyles.labelLarge
-                  .copyWith(color: AppColors.primary),
-            ),
-            if (onDelete != null) ...[
               const SizedBox(width: 8),
-              GestureDetector(
-                onTap: onDelete,
-                child: const Icon(Icons.close,
-                    size: 16, color: AppColors.textMuted),
-              ),
+              if (onDelete != null)
+                IconButton(
+                  tooltip: 'Delete folder',
+                  icon: const Icon(Icons.close, size: 18, color: AppColors.textMuted),
+                  onPressed: onDelete,
+                )
+              else
+                const Icon(
+                  Icons.chevron_right_rounded,
+                  size: 20,
+                  color: AppColors.textMuted,
+                ),
             ],
-          ],
+          ),
         ),
       ),
     );

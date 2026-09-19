@@ -78,12 +78,12 @@ class OptionalField extends StatelessWidget {
             child: Container(
               decoration: BoxDecoration(
                 color: Colors.white,
-                borderRadius: BorderRadius.circular(10),
-                border: Border.all(color: AppColors.inputBorder),
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: AppColors.cardBorder),
                 boxShadow: [
                   BoxShadow(
                     color: Colors.black.withValues(alpha: 0.03),
-                    blurRadius: 4,
+                    blurRadius: 6,
                     offset: const Offset(0, 2),
                   ),
                 ],

@@ -55,15 +55,20 @@ class _SettingsTileState extends State<SettingsTile>
 
   @override
   Widget build(BuildContext context) {
-    final iconColor  = widget.iconColor  ?? AppColors.primary;
+    final isDestructive = widget.iconColor == AppColors.danger ||
+        widget.labelColor == AppColors.danger;
+    final iconColor = widget.iconColor ?? AppColors.primary;
     final labelColor = widget.labelColor ?? AppColors.textPrimary;
+    final iconBg = isDestructive
+        ? AppColors.danger.withValues(alpha: 0.10)
+        : AppColors.primary.withValues(alpha: 0.08);
 
     return Column(
       children: [
         GestureDetector(
-          onTapDown:   (_) => _ctrl.forward(),
-          onTapUp:     (_) => _ctrl.reverse(),
-          onTapCancel: ()  => _ctrl.reverse(),
+          onTapDown: (_) => _ctrl.forward(),
+          onTapUp: (_) => _ctrl.reverse(),
+          onTapCancel: () => _ctrl.reverse(),
           onTap: widget.onTap,
           child: AnimatedBuilder(
             animation: _scale,
@@ -71,17 +76,25 @@ class _SettingsTileState extends State<SettingsTile>
                 Transform.scale(scale: _scale.value, child: child),
             child: Container(
               color: Colors.transparent,
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
               child: Row(
                 children: [
-                  Icon(widget.icon, size: 22, color: iconColor),
+                  Container(
+                    width: 36,
+                    height: 36,
+                    decoration: BoxDecoration(
+                      color: iconBg,
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    child: Icon(widget.icon, size: 20, color: iconColor),
+                  ),
                   const SizedBox(width: 14),
                   Expanded(
                     child: Text(
                       widget.label,
                       style: GoogleFonts.poppins(
                         fontSize: 14,
-                        fontWeight: FontWeight.w400,
+                        fontWeight: FontWeight.w500,
                         color: labelColor,
                       ),
                     ),
@@ -89,7 +102,7 @@ class _SettingsTileState extends State<SettingsTile>
                   if (widget.showChevron)
                     const Icon(
                       Icons.arrow_forward_ios_rounded,
-                      size: 14,
+                      size: 13,
                       color: AppColors.textMuted,
                     ),
                 ],
@@ -100,7 +113,7 @@ class _SettingsTileState extends State<SettingsTile>
         if (!widget.isLast)
           const Divider(
             height: 1,
-            indent: 52,
+            indent: 64,
             endIndent: 16,
             color: AppColors.divider,
           ),

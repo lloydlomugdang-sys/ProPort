@@ -29,10 +29,6 @@ class _NewPasswordScreenState extends State<NewPasswordScreen>
   late final Animation<double> _fadeAnim;
   late final Animation<Offset> _slideAnim;
 
-  static const Color _bgColor = Color(0xFFCFE2ED);
-  static const Color _darkTeal = Color(0xFF1A4F72);
-  static const Color _accentColor = Color(0xFF1E7BAE);
-
   @override
   void initState() {
     super.initState();
@@ -116,7 +112,7 @@ class _NewPasswordScreenState extends State<NewPasswordScreen>
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: _bgColor,
+      backgroundColor: Colors.white,
       resizeToAvoidBottomInset: true,
       body: SafeArea(
         child: FadeTransition(
@@ -127,14 +123,14 @@ class _NewPasswordScreenState extends State<NewPasswordScreen>
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Padding(
-                  padding: const EdgeInsets.only(left: 8, top: 8),
+                  padding: const EdgeInsets.only(left: 12, top: 12),
                   child: IconButton(
                     tooltip: MaterialLocalizations.of(
                       context,
                     ).backButtonTooltip,
                     icon: const Icon(
                       Icons.arrow_back_ios_new,
-                      color: _darkTeal,
+                      color: AppColors.textPrimary,
                       size: 20,
                     ),
                     onPressed: () => Navigator.of(context).pop(),
@@ -142,49 +138,31 @@ class _NewPasswordScreenState extends State<NewPasswordScreen>
                 ),
                 Expanded(
                   child: AuthFormScrollView(
-                    padding: const EdgeInsets.fromLTRB(28, 0, 28, 32),
+                    padding: const EdgeInsets.fromLTRB(24, 8, 24, 32),
                     child: Form(
                       key: _formKey,
                       child: Column(
                         mainAxisAlignment: MainAxisAlignment.center,
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          RichText(
-                            text: TextSpan(
-                              children: [
-                                TextSpan(
-                                  text: 'New ',
-                                  style: GoogleFonts.poppins(
-                                    color: AppColors.primary,
-                                    fontWeight: FontWeight.w700,
-                                    fontSize: 28,
-                                  ),
-                                ),
-                                TextSpan(
-                                  text: 'Password',
-                                  style: GoogleFonts.poppins(
-                                    color: AppColors.textPrimary,
-                                    fontWeight: FontWeight.w400,
-                                    fontSize: 28,
-                                  ),
-                                ),
-                              ],
+                          Text(
+                            'New Password',
+                            style: GoogleFonts.poppins(
+                              color: AppColors.textPrimary,
+                              fontWeight: FontWeight.w700,
+                              fontSize: 26,
                             ),
                           ),
-
-                          const SizedBox(height: 8),
-
+                          const SizedBox(height: 6),
                           Text(
                             'Create a unique, secure password.',
                             style: GoogleFonts.poppins(
                               color: AppColors.textSecondary,
-                              fontSize: 13,
+                              fontSize: 14,
                               fontWeight: FontWeight.w400,
                             ),
                           ),
-
                           const SizedBox(height: 32),
-
                           Text(
                             'New Password',
                             style: GoogleFonts.poppins(
@@ -193,9 +171,7 @@ class _NewPasswordScreenState extends State<NewPasswordScreen>
                               fontWeight: FontWeight.w600,
                             ),
                           ),
-
                           const SizedBox(height: 8),
-
                           _buildPasswordField(
                             controller: _newPasswordController,
                             hintText: 'Create new password',
@@ -222,9 +198,7 @@ class _NewPasswordScreenState extends State<NewPasswordScreen>
                               return null;
                             },
                           ),
-
                           const SizedBox(height: 20),
-
                           Text(
                             'Confirm Password',
                             style: GoogleFonts.poppins(
@@ -233,9 +207,7 @@ class _NewPasswordScreenState extends State<NewPasswordScreen>
                               fontWeight: FontWeight.w600,
                             ),
                           ),
-
                           const SizedBox(height: 8),
-
                           _buildPasswordField(
                             controller: _confirmPasswordController,
                             hintText: 'Re-enter new password',
@@ -255,22 +227,20 @@ class _NewPasswordScreenState extends State<NewPasswordScreen>
                               return null;
                             },
                           ),
-
-                          const SizedBox(height: 36),
-
+                          const SizedBox(height: 32),
                           SizedBox(
                             width: double.infinity,
-                            height: 48,
+                            height: 52,
                             child: ElevatedButton(
                               onPressed: _isLoading || isRateLimited
                                   ? null
                                   : _handleSavePassword,
                               style: ElevatedButton.styleFrom(
-                                backgroundColor: _accentColor,
+                                backgroundColor: AppColors.primary,
                                 foregroundColor: Colors.white,
-                                elevation: 2,
+                                elevation: 0,
                                 shape: RoundedRectangleBorder(
-                                  borderRadius: BorderRadius.circular(10),
+                                  borderRadius: BorderRadius.circular(12),
                                 ),
                               ),
                               child: _isLoading
@@ -278,15 +248,16 @@ class _NewPasswordScreenState extends State<NewPasswordScreen>
                                       height: 20,
                                       width: 20,
                                       child: CircularProgressIndicator(
-                                        strokeWidth: 2,
+                                        strokeWidth: 2.2,
                                         color: Colors.white,
                                       ),
                                     )
-                                  : const Text(
+                                  : Text(
                                       'Save Password',
-                                      style: TextStyle(
-                                        fontWeight: FontWeight.w700,
+                                      style: GoogleFonts.poppins(
+                                        fontWeight: FontWeight.w600,
                                         fontSize: 15,
+                                        color: Colors.white,
                                       ),
                                     ),
                             ),
@@ -328,13 +299,18 @@ class _NewPasswordScreenState extends State<NewPasswordScreen>
         ),
         filled: true,
         fillColor: Colors.white,
+        prefixIcon: const Icon(
+          Icons.lock_outline,
+          size: 20,
+          color: AppColors.primary,
+        ),
         suffixIcon: IconButton(
           tooltip: obscureText ? 'Show password' : 'Hide password',
           icon: Icon(
             obscureText
                 ? Icons.visibility_off_outlined
                 : Icons.visibility_outlined,
-            color: AppColors.neutral,
+            color: AppColors.textMuted,
             size: 20,
           ),
           onPressed: onToggle,
@@ -344,26 +320,26 @@ class _NewPasswordScreenState extends State<NewPasswordScreen>
           vertical: 14,
         ),
         border: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(10),
+          borderRadius: BorderRadius.circular(12),
           borderSide: const BorderSide(color: AppColors.inputBorder, width: 1),
         ),
         enabledBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(10),
+          borderRadius: BorderRadius.circular(12),
           borderSide: const BorderSide(color: AppColors.inputBorder, width: 1),
         ),
         focusedBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(10),
+          borderRadius: BorderRadius.circular(12),
           borderSide: const BorderSide(
-            color: AppColors.inputBorderFocus,
+            color: AppColors.primary,
             width: 1.5,
           ),
         ),
         errorBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(10),
+          borderRadius: BorderRadius.circular(12),
           borderSide: const BorderSide(color: AppColors.danger, width: 1.2),
         ),
         focusedErrorBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(10),
+          borderRadius: BorderRadius.circular(12),
           borderSide: const BorderSide(color: AppColors.danger, width: 1.5),
         ),
       ),

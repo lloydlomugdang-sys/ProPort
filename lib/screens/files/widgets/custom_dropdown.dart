@@ -59,12 +59,12 @@ class CustomDropdown extends StatelessWidget {
         Container(
           decoration: BoxDecoration(
             color: enabled ? Colors.white : AppColors.background,
-            borderRadius: BorderRadius.circular(10),
-            border: Border.all(color: AppColors.inputBorder),
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(color: AppColors.cardBorder),
             boxShadow: [
               BoxShadow(
                 color: Colors.black.withValues(alpha: 0.03),
-                blurRadius: 4,
+                blurRadius: 6,
                 offset: const Offset(0, 2),
               ),
             ],

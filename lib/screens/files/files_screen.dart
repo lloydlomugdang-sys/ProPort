@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:google_fonts/google_fonts.dart';
 
 import '../../constants/app_colors.dart';
 import '../../constants/app_text_styles.dart';
@@ -181,19 +182,23 @@ class _CategorySection extends StatelessWidget {
             padding: const EdgeInsets.only(bottom: 8, left: 2),
             child: Text(
               category.name,
-              style: AppTextStyles.h4.copyWith(color: AppColors.primary),
+              style: GoogleFonts.poppins(
+                fontSize: 15,
+                fontWeight: FontWeight.w700,
+                color: AppColors.primary,
+              ),
             ),
           ),
           Container(
             decoration: BoxDecoration(
               color: Colors.white,
-              borderRadius: BorderRadius.circular(14),
-              border: Border.all(color: AppColors.cardBorder),
+              borderRadius: BorderRadius.circular(16),
+              border: Border.all(color: AppColors.cardBorder, width: 1.2),
               boxShadow: [
                 BoxShadow(
-                  color: Colors.black.withValues(alpha: 0.03),
-                  blurRadius: 6,
-                  offset: const Offset(0, 2),
+                  color: AppColors.primary.withValues(alpha: 0.04),
+                  blurRadius: 12,
+                  offset: const Offset(0, 3),
                 ),
               ],
             ),

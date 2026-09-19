@@ -1,6 +1,5 @@
-// LOCATION: lib/widgets/file_list_item.dart
-
 import 'package:flutter/material.dart';
+import 'package:google_fonts/google_fonts.dart';
 import '../constants/app_colors.dart';
 import '../constants/app_text_styles.dart';
 
@@ -44,17 +43,17 @@ class FileListItem extends StatelessWidget {
   Widget build(BuildContext context) {
     return InkWell(
       onTap: onTap,
-      borderRadius: BorderRadius.circular(14),
+      borderRadius: BorderRadius.circular(16),
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
         decoration: BoxDecoration(
-          color: AppColors.cardBackground,
-          borderRadius: BorderRadius.circular(14),
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(16),
           border: Border.all(color: AppColors.cardBorder),
           boxShadow: [
             BoxShadow(
-              color: AppColors.primary.withValues(alpha: 0.03),
-              blurRadius: 6,
+              color: Colors.black.withValues(alpha: 0.03),
+              blurRadius: 10,
               offset: const Offset(0, 2),
             ),
           ],
@@ -66,7 +65,7 @@ class FileListItem extends StatelessWidget {
               height: 44,
               decoration: BoxDecoration(
                 color: _iconColor.withValues(alpha: 0.12),
-                borderRadius: BorderRadius.circular(10),
+                borderRadius: BorderRadius.circular(12),
               ),
               child: Icon(_icon, color: _iconColor, size: 24),
             ),
@@ -79,11 +78,21 @@ class FileListItem extends StatelessWidget {
                     fileName,
                     maxLines: 2,
                     overflow: TextOverflow.ellipsis,
-                    style: AppTextStyles.labelLarge,
+                    style: GoogleFonts.poppins(
+                      fontSize: 14,
+                      fontWeight: FontWeight.w600,
+                      color: AppColors.textPrimary,
+                    ),
                   ),
-                  const SizedBox(height: 2),
-                  Text('$fileType • $year',
-                      style: AppTextStyles.labelSmall),
+                  const SizedBox(height: 3),
+                  Text(
+                    '$fileType • $year',
+                    style: GoogleFonts.poppins(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w400,
+                      color: AppColors.textMuted,
+                    ),
+                  ),
                 ],
               ),
             ),
