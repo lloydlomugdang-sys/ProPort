@@ -27,6 +27,10 @@ class AuthService extends ChangeNotifier {
   static const _currentUserPath = '/api/v1/users/me';
   static const _avatarPath = '/api/v1/users/me/avatar';
 
+  // Scoped timeout for login requests to accommodate hosting cold starts
+  // (e.g. Render spin-ups taking > 6 seconds).
+  static const loginTimeout = Duration(seconds: 30);
+
   final ApiClient _apiClient;
   final SecureTokenStore _tokenStore;
   final bool _ownsApiClient;
@@ -91,6 +95,7 @@ class AuthService extends ChangeNotifier {
     final response = await _apiClient.postJson(
       '$_authPath/login',
       body: {'email': email, 'password': password},
+      requestTimeout: loginTimeout,
     );
     final session = _parseSession(_dataOf(response));
     await _persistAndApply(session);

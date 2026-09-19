@@ -78,6 +78,39 @@ void main() {
     },
   );
 
+  test(
+    'login applies scoped loginTimeout of 30 seconds and overrides shorter default',
+    () async {
+      Duration? capturedTimeout;
+      final api = _TimeoutCapturingApiClient(
+        timeout: const Duration(milliseconds: 1),
+        client: MockClient((request) async {
+          await Future<void>.delayed(const Duration(milliseconds: 25));
+          return _jsonResponse(_sessionEnvelope(refreshToken: 'refresh-timeout'));
+        }),
+        onPostJson: (path, timeout) {
+          if (path == '/api/v1/auth/login') {
+            capturedTimeout = timeout;
+          }
+        },
+      );
+      final store = _MemoryTokenStore();
+      final auth = AuthService(apiClient: api, tokenStore: store);
+
+      expect(AuthService.loginTimeout, const Duration(seconds: 30));
+
+      final user = await auth.login(
+        email: 'student@example.com',
+        password: 'Password1',
+      );
+
+      expect(user.email, 'student@example.com');
+      expect(capturedTimeout, AuthService.loginTimeout);
+      expect(auth.isAuthenticated, isTrue);
+      auth.dispose();
+    },
+  );
+
   test('EMAIL_NOT_VERIFIED does not trigger an automatic resend', () async {
     final requestedPaths = <String>[];
     final api = ApiClient(
@@ -562,6 +595,34 @@ class _MemoryTokenStore implements SecureTokenStore {
   Future<void> writeRefreshToken(String refreshToken) async {
     writes.add(refreshToken);
     value = refreshToken;
+  }
+}
+
+class _TimeoutCapturingApiClient extends ApiClient {
+  _TimeoutCapturingApiClient({
+    required super.client,
+    super.timeout,
+    this.onPostJson,
+  }) : super(baseUrl: 'http://example.test:3000');
+
+  final void Function(String path, Duration? requestTimeout)? onPostJson;
+  Duration? lastPostJsonTimeout;
+
+  @override
+  Future<Map<String, dynamic>> postJson(
+    String path, {
+    required Map<String, dynamic> body,
+    String? bearerToken,
+    Duration? requestTimeout,
+  }) {
+    lastPostJsonTimeout = requestTimeout;
+    onPostJson?.call(path, requestTimeout);
+    return super.postJson(
+      path,
+      body: body,
+      bearerToken: bearerToken,
+      requestTimeout: requestTimeout,
+    );
   }
 }
 
