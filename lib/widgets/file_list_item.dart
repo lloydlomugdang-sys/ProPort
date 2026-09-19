@@ -24,37 +24,40 @@ class FileListItem extends StatelessWidget {
 
   IconData get _icon {
     final l = fileName.toLowerCase();
-    if (l.endsWith('.pdf'))  return Icons.picture_as_pdf_rounded;
+    if (l.endsWith('.pdf')) return Icons.picture_as_pdf_rounded;
     if (l.endsWith('.png') || l.endsWith('.jpg') || l.endsWith('.jpeg')) {
       return Icons.image_rounded;
-    }
-    if (l.endsWith('.doc') || l.endsWith('.docx')) {
-      return Icons.article_rounded;
     }
     return Icons.insert_drive_file_rounded;
   }
 
   Color get _iconColor {
     final l = fileName.toLowerCase();
-    if (l.endsWith('.pdf'))  return AppColors.filePdf;
+    if (l.endsWith('.pdf')) return AppColors.filePdf;
     if (l.endsWith('.png') || l.endsWith('.jpg') || l.endsWith('.jpeg')) {
       return AppColors.fileImage;
     }
-    if (l.endsWith('.doc') || l.endsWith('.docx')) return AppColors.fileDoc;
-    return AppColors.fileOther;
+    return AppColors.primary;
   }
 
   @override
   Widget build(BuildContext context) {
     return InkWell(
       onTap: onTap,
-      borderRadius: BorderRadius.circular(12),
+      borderRadius: BorderRadius.circular(14),
       child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
         decoration: BoxDecoration(
           color: AppColors.cardBackground,
-          borderRadius: BorderRadius.circular(12),
+          borderRadius: BorderRadius.circular(14),
           border: Border.all(color: AppColors.cardBorder),
+          boxShadow: [
+            BoxShadow(
+              color: AppColors.primary.withValues(alpha: 0.03),
+              blurRadius: 6,
+              offset: const Offset(0, 2),
+            ),
+          ],
         ),
         child: Row(
           children: [

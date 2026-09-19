@@ -427,7 +427,7 @@ class _SignupScreenState extends State<SignupScreen>
       onTap: _isLoading || isRateLimited ? null : _createAccount,
       child: Container(
         width: double.infinity,
-        height: 42,
+        height: 50,
         decoration: BoxDecoration(
           color: _btnColor,
           borderRadius: BorderRadius.circular(10),

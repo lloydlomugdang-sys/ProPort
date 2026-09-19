@@ -133,7 +133,7 @@ class _HomeScreenState extends State<HomeScreen>
                 const SizedBox(height: 12),
                 SizedBox(
                   width: double.infinity,
-                  height: 48,
+                  height: 50,
                   child: OutlinedButton.icon(
                     onPressed: () => _onGeneratePortfolio(showHistory: true),
                     icon: const Icon(
@@ -151,10 +151,10 @@ class _HomeScreenState extends State<HomeScreen>
                     style: OutlinedButton.styleFrom(
                       side: const BorderSide(
                         color: AppColors.primary,
-                        width: 1.2,
+                        width: 1.5,
                       ),
                       shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(12),
+                        borderRadius: BorderRadius.circular(14),
                       ),
                     ),
                   ),
@@ -213,8 +213,8 @@ class _HomeScreenState extends State<HomeScreen>
         border: Border.all(color: AppColors.cardBorder),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withValues(alpha: 0.04),
-            blurRadius: 8,
+            color: AppColors.primary.withValues(alpha: 0.05),
+            blurRadius: 10,
             offset: const Offset(0, 2),
           ),
         ],
@@ -304,6 +304,17 @@ class _HomeScreenState extends State<HomeScreen>
                               overflow: TextOverflow.ellipsis,
                             ),
                           ),
+                          if (user.school.trim().isNotEmpty) ...[
+                            const SizedBox(width: 4),
+                            const Tooltip(
+                              message: 'School is fixed for this account',
+                              child: Icon(
+                                Icons.lock_outline_rounded,
+                                size: 13,
+                                color: AppColors.textMuted,
+                              ),
+                            ),
+                          ],
                         ],
                       ),
                     ],

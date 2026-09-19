@@ -42,53 +42,59 @@ class _AuthTextFieldState extends State<AuthTextField> {
   @override
   Widget build(BuildContext context) {
     return Container(
-      height: widget.showVisibilityToggle ? 48 : 34,
+      height: 48,
       decoration: BoxDecoration(
         color: AppColors.authFieldFill,
-        borderRadius: BorderRadius.circular(4),
-      ),
-      child: TextField(
-        controller: widget.controller,
-        obscureText: widget.showVisibilityToggle
-            ? _obscured
-            : widget.obscureText,
-        keyboardType: widget.keyboardType,
-        textInputAction: widget.textInputAction,
-        onSubmitted: widget.onSubmitted,
-        autofillHints: widget.autofillHints,
-        style: GoogleFonts.poppins(
-          fontSize: 12,
-          fontWeight: FontWeight.w400,
-          color: const Color(0xFF1A2E35),
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(
+          color: AppColors.authFieldBorder,
+          width: 1.0,
         ),
-        decoration: InputDecoration(
-          isDense: true,
-          filled: true,
-          fillColor: Colors.transparent,
-          contentPadding: const EdgeInsets.symmetric(
-            horizontal: 10,
-            vertical: 8,
+      ),
+      child: Center(
+        child: TextField(
+          controller: widget.controller,
+          obscureText: widget.showVisibilityToggle
+              ? _obscured
+              : widget.obscureText,
+          keyboardType: widget.keyboardType,
+          textInputAction: widget.textInputAction,
+          onSubmitted: widget.onSubmitted,
+          autofillHints: widget.autofillHints,
+          style: GoogleFonts.poppins(
+            fontSize: 13,
+            fontWeight: FontWeight.w400,
+            color: const Color(0xFF1A2E35),
           ),
-          border: InputBorder.none,
-          enabledBorder: InputBorder.none,
-          focusedBorder: InputBorder.none,
-          suffixIconConstraints: const BoxConstraints(
-            minWidth: 48,
-            minHeight: 48,
+          decoration: InputDecoration(
+            isDense: true,
+            filled: true,
+            fillColor: Colors.transparent,
+            contentPadding: const EdgeInsets.symmetric(
+              horizontal: 12,
+              vertical: 12,
+            ),
+            border: InputBorder.none,
+            enabledBorder: InputBorder.none,
+            focusedBorder: InputBorder.none,
+            suffixIconConstraints: const BoxConstraints(
+              minWidth: 44,
+              minHeight: 44,
+            ),
+            suffixIcon: widget.showVisibilityToggle
+                ? IconButton(
+                    tooltip: _obscured ? 'Show password' : 'Hide password',
+                    onPressed: () => setState(() => _obscured = !_obscured),
+                    icon: Icon(
+                      _obscured
+                          ? Icons.visibility_off_outlined
+                          : Icons.visibility_outlined,
+                      size: 20,
+                      color: AppColors.authHint,
+                    ),
+                  )
+                : null,
           ),
-          suffixIcon: widget.showVisibilityToggle
-              ? IconButton(
-                  tooltip: _obscured ? 'Show password' : 'Hide password',
-                  onPressed: () => setState(() => _obscured = !_obscured),
-                  icon: Icon(
-                    _obscured
-                        ? Icons.visibility_off_outlined
-                        : Icons.visibility_outlined,
-                    size: 20,
-                    color: AppColors.authHint,
-                  ),
-                )
-              : null,
         ),
       ),
     );

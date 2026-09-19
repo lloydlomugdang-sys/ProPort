@@ -24,7 +24,7 @@ class EmptyState extends StatelessWidget {
   Widget build(BuildContext context) {
     return Center(
       child: Padding(
-        padding: const EdgeInsets.symmetric(vertical: 32, horizontal: 24),
+        padding: const EdgeInsets.symmetric(vertical: 36, horizontal: 28),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
@@ -32,12 +32,12 @@ class EmptyState extends StatelessWidget {
               width: 72,
               height: 72,
               decoration: BoxDecoration(
-                color: AppColors.surface.withValues(alpha: 0.35),
+                color: AppColors.primary.withValues(alpha: 0.08),
                 shape: BoxShape.circle,
               ),
-              child: Icon(icon, size: 36, color: AppColors.primary),
+              child: Icon(icon, size: 34, color: AppColors.primary),
             ),
-            const SizedBox(height: 16),
+            const SizedBox(height: 18),
             Text(
               message,
               textAlign: TextAlign.center,
@@ -53,26 +53,30 @@ class EmptyState extends StatelessWidget {
                 textAlign: TextAlign.center,
                 style: AppTextStyles.bodySmall.copyWith(
                   color: AppColors.textSecondary,
+                  height: 1.4,
                 ),
               ),
             ],
             if (actionLabel != null && onAction != null) ...[
-              const SizedBox(height: 16),
-              ElevatedButton(
-                onPressed: onAction,
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: AppColors.primary,
-                  foregroundColor: Colors.white,
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 20,
-                    vertical: 10,
+              const SizedBox(height: 18),
+              SizedBox(
+                height: 44,
+                child: ElevatedButton(
+                  onPressed: onAction,
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: AppColors.primary,
+                    foregroundColor: Colors.white,
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 22,
+                      vertical: 10,
+                    ),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    elevation: 0,
                   ),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(10),
-                  ),
-                  elevation: 0,
+                  child: Text(actionLabel!, style: AppTextStyles.buttonTextSmall),
                 ),
-                child: Text(actionLabel!, style: AppTextStyles.buttonTextSmall),
               ),
             ],
           ],

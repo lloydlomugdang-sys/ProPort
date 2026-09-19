@@ -23,6 +23,7 @@ class StatCard extends StatelessWidget {
   Widget build(BuildContext context) {
     return GestureDetector(
       onTap: onTap,
+      behavior: HitTestBehavior.opaque,
       child: Container(
         padding: const EdgeInsets.all(16),
         decoration: BoxDecoration(
@@ -31,8 +32,8 @@ class StatCard extends StatelessWidget {
           border: Border.all(color: AppColors.cardBorder),
           boxShadow: [
             BoxShadow(
-              color: Colors.black.withValues(alpha: 0.04),
-              blurRadius: 8,
+              color: AppColors.primary.withValues(alpha: 0.05),
+              blurRadius: 10,
               offset: const Offset(0, 2),
             ),
           ],
@@ -40,19 +41,26 @@ class StatCard extends StatelessWidget {
         child: Row(
           children: [
             Container(
-              width: 48,
-              height: 48,
+              width: 50,
+              height: 50,
               decoration: BoxDecoration(
-                color: AppColors.primary.withValues(alpha: 0.10),
-                borderRadius: BorderRadius.circular(12),
+                color: AppColors.primary.withValues(alpha: 0.08),
+                borderRadius: BorderRadius.circular(13),
               ),
-              child: Icon(icon, color: AppColors.primary, size: 26),
+              child: Icon(icon, color: AppColors.primary, size: 24),
             ),
             const SizedBox(width: 14),
             Column(
               crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
               children: [
-                Text(label, style: AppTextStyles.labelMedium),
+                Text(
+                  label,
+                  style: AppTextStyles.labelMedium.copyWith(
+                    color: AppColors.textSecondary,
+                    letterSpacing: 0.2,
+                  ),
+                ),
                 const SizedBox(height: 2),
                 Text(value, style: AppTextStyles.statNumber),
               ],
