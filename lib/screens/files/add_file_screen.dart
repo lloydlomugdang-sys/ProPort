@@ -233,9 +233,14 @@ class _AddFileScreenState extends State<AddFileScreen>
         _hasEditedAiSuggestion = false;
       });
       await _suggestDetails();
-    } catch (_) {
+    } catch (e) {
       if (!mounted) return;
-      _showSnack('Unable to capture from camera. Please try again.');
+      final errStr = e.toString().toLowerCase();
+      final msg =
+          errStr.contains('permission') || errStr.contains('denied')
+          ? 'Camera permission was denied. Please allow camera access in device settings.'
+          : 'Unable to capture from camera. Please try again.';
+      _showSnack(msg);
     }
   }
 
@@ -354,6 +359,10 @@ class _AddFileScreenState extends State<AddFileScreen>
       _showSnack('Title is required.');
       return;
     }
+    if (_titleCtrl.text.trim().length > 200) {
+      _showSnack('Title cannot exceed 200 characters.');
+      return;
+    }
     if (_selectedDate == null) {
       _showSnack('Date is required.');
       return;
@@ -393,7 +402,16 @@ class _AddFileScreenState extends State<AddFileScreen>
       );
       Navigator.pop(context, true);
     } on ApiException catch (error) {
-      _showSnack(error.message);
+      final msg = switch (error.statusCode) {
+        413 => 'The file exceeds the upload size limit.',
+        429 => 'Too many upload attempts. Please wait a moment and try again.',
+        401 => 'Your session has expired. Please log in again.',
+        403 => 'You do not have permission to upload this document.',
+        _ => error.message.isNotEmpty
+            ? error.message
+            : 'Unable to upload the file. Please try again.',
+      };
+      _showSnack(msg);
     } catch (_) {
       _showSnack('Unable to upload the file. Please try again.');
     } finally {
@@ -870,6 +888,7 @@ class _AddFileScreenState extends State<AddFileScreen>
                   hint: 'Enter title',
                   controller: _titleCtrl,
                   required: true,
+                  maxLength: 200,
                 ),
                 const SizedBox(height: 14),
 
@@ -932,6 +951,7 @@ class _AddFileScreenState extends State<AddFileScreen>
     required TextEditingController controller,
     bool required = false,
     int maxLines = 1,
+    int? maxLength,
   }) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -974,12 +994,14 @@ class _AddFileScreenState extends State<AddFileScreen>
           child: TextField(
             controller: controller,
             maxLines: maxLines,
+            maxLength: maxLength,
             style: GoogleFonts.poppins(
               fontSize: 14,
               color: AppColors.textPrimary,
             ),
             decoration: InputDecoration(
               hintText: hint,
+              counterText: '',
               hintStyle: GoogleFonts.poppins(
                 fontSize: 14,
                 color: AppColors.textMuted,

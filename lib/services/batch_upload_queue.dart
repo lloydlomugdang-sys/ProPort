@@ -225,10 +225,10 @@ class BatchUploadQueue extends ChangeNotifier {
         file: item.file,
         categoryKey: item.categoryKey!,
         folderKey: item.folderKey!,
-        title: item.title!,
+        title: item.title!.trim(),
         documentDate: item.documentDate!,
-        description: item.description,
-        reflection: item.reflection,
+        description: item.description?.trim(),
+        reflection: item.reflection?.trim(),
       );
 
       final curIdx = _items.indexWhere((i) => i.id == itemId);

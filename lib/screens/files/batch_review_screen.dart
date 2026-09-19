@@ -635,8 +635,10 @@ class _BatchItemCardState extends State<_BatchItemCard> {
                   TextField(
                     controller: _titleCtrl,
                     enabled: !item.isSaved,
+                    maxLength: 200,
                     decoration: InputDecoration(
                       hintText: 'Document title',
+                      counterText: '',
                       hintStyle: GoogleFonts.poppins(
                         fontSize: 13,
                         color: AppColors.textMuted,
@@ -725,8 +727,10 @@ class _BatchItemCardState extends State<_BatchItemCard> {
                       controller: _descCtrl,
                       enabled: !item.isSaved,
                       maxLines: 2,
+                      maxLength: 2000,
                       decoration: InputDecoration(
                         hintText: 'Brief description',
+                        counterText: '',
                         hintStyle: GoogleFonts.poppins(
                           fontSize: 12,
                           color: AppColors.textMuted,
@@ -760,8 +764,10 @@ class _BatchItemCardState extends State<_BatchItemCard> {
                       controller: _reflCtrl,
                       enabled: !item.isSaved,
                       maxLines: 2,
+                      maxLength: 5000,
                       decoration: InputDecoration(
                         hintText: 'Personal learning reflection',
+                        counterText: '',
                         hintStyle: GoogleFonts.poppins(
                           fontSize: 12,
                           color: AppColors.textMuted,

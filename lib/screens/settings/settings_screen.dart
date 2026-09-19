@@ -262,7 +262,7 @@ class SettingsScreen extends StatelessWidget {
               ScaffoldMessenger.of(context).showSnackBar(
                 SnackBar(
                   content: Text(
-                    'Account deletion will be connected to the backend in a future implementation.',
+                    'Account deletion is currently unavailable. Please contact support if you need your account removed.',
                     style: GoogleFonts.poppins(
                       fontSize: 13,
                       color: Colors.white,

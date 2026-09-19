@@ -52,34 +52,42 @@ class _PortfolioSummaryScreenState extends State<PortfolioSummaryScreen>
     });
   }
 
+  bool _isNavigating = false;
+
   @override
   void dispose() {
     _entranceCtrl.dispose();
     super.dispose();
   }
 
-  void _onNext() {
-    Navigator.push(
-      context,
-      PageRouteBuilder(
-        transitionDuration: const Duration(milliseconds: 350),
-        pageBuilder: (_, _, _) =>
-            PortfolioExportScreen(portfolioInfo: widget.portfolio.info),
-        transitionsBuilder: (_, anim, _, child) => FadeTransition(
-          opacity: CurvedAnimation(parent: anim, curve: Curves.easeOut),
-          child: SlideTransition(
-            position:
-                Tween<Offset>(
-                  begin: const Offset(0.05, 0),
-                  end: Offset.zero,
-                ).animate(
-                  CurvedAnimation(parent: anim, curve: Curves.easeOutCubic),
-                ),
-            child: child,
+  void _onNext() async {
+    if (_isNavigating) return;
+    _isNavigating = true;
+    try {
+      await Navigator.push(
+        context,
+        PageRouteBuilder(
+          transitionDuration: const Duration(milliseconds: 350),
+          pageBuilder: (_, _, _) =>
+              PortfolioExportScreen(portfolioInfo: widget.portfolio.info),
+          transitionsBuilder: (_, anim, _, child) => FadeTransition(
+            opacity: CurvedAnimation(parent: anim, curve: Curves.easeOut),
+            child: SlideTransition(
+              position:
+                  Tween<Offset>(
+                    begin: const Offset(0.05, 0),
+                    end: Offset.zero,
+                  ).animate(
+                    CurvedAnimation(parent: anim, curve: Curves.easeOutCubic),
+                  ),
+              child: child,
+            ),
           ),
         ),
-      ),
-    );
+      );
+    } finally {
+      if (mounted) _isNavigating = false;
+    }
   }
 
   @override

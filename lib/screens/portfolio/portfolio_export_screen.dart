@@ -226,7 +226,9 @@ class _PortfolioExportScreenState extends State<PortfolioExportScreen>
                         Text(
                           _error!,
                           key: const Key('portfolio-export-error'),
-                          style: AppTextStyles.bodySmall,
+                          style: AppTextStyles.bodySmall.copyWith(
+                            color: AppColors.danger,
+                          ),
                         ),
                       ],
                       if (_exportedFile != null) _buildExportResult(),

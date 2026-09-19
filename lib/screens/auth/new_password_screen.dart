@@ -201,6 +201,7 @@ class _NewPasswordScreenState extends State<NewPasswordScreen>
                             controller: _newPasswordController,
                             hintText: 'Create new password',
                             obscureText: _obscureNew,
+                            textInputAction: TextInputAction.next,
                             onToggle: () =>
                                 setState(() => _obscureNew = !_obscureNew),
                             validator: (v) {
@@ -240,6 +241,8 @@ class _NewPasswordScreenState extends State<NewPasswordScreen>
                             controller: _confirmPasswordController,
                             hintText: 'Re-enter new password',
                             obscureText: _obscureConfirm,
+                            textInputAction: TextInputAction.done,
+                            onFieldSubmitted: (_) => _handleSavePassword(),
                             onToggle: () => setState(
                               () => _obscureConfirm = !_obscureConfirm,
                             ),
@@ -309,10 +312,14 @@ class _NewPasswordScreenState extends State<NewPasswordScreen>
     required bool obscureText,
     required VoidCallback onToggle,
     required String? Function(String?) validator,
+    TextInputAction textInputAction = TextInputAction.done,
+    ValueChanged<String>? onFieldSubmitted,
   }) {
     return TextFormField(
       controller: controller,
       obscureText: obscureText,
+      textInputAction: textInputAction,
+      onFieldSubmitted: onFieldSubmitted,
       style: const TextStyle(color: Colors.black87, fontSize: 14),
       decoration: InputDecoration(
         hintText: hintText,

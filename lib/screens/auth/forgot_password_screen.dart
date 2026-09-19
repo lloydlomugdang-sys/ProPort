@@ -181,6 +181,8 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen>
                           TextFormField(
                             controller: _emailController,
                             keyboardType: TextInputType.emailAddress,
+                            textInputAction: TextInputAction.done,
+                            onFieldSubmitted: (_) => _handleSend(),
                             style: const TextStyle(
                               color: Colors.black87,
                               fontSize: 14,
@@ -237,9 +239,10 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen>
                               if (v == null || v.trim().isEmpty) {
                                 return 'Enter your email';
                               }
-                              if (!RegExp(
-                                r'^[^\s@]+@[^\s@]+\.[^\s@]+$',
-                              ).hasMatch(v.trim())) {
+                              if (v.trim().length > 320 ||
+                                  !RegExp(
+                                    r'^[^\s@]+@[^\s@]+\.[^\s@]+$',
+                                  ).hasMatch(v.trim())) {
                                 return 'Enter a valid email';
                               }
                               return null;

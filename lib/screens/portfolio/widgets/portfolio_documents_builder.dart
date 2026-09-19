@@ -40,9 +40,13 @@ class _PortfolioDocumentsBuilderState extends State<PortfolioDocumentsBuilder> {
       await DocumentScope.of(context).load(force: true);
     } catch (error) {
       if (mounted) {
-        _error = error is ApiException
-            ? error.message
-            : 'Unable to load portfolio documents. Please try again.';
+        setState(() {
+          _error = error is ApiException
+              ? (error.message.isNotEmpty
+                  ? error.message
+                  : 'Unable to load portfolio documents. Please try again.')
+              : 'Unable to load portfolio documents. Please try again.';
+        });
       }
     } finally {
       if (mounted) setState(() => _waiting = false);

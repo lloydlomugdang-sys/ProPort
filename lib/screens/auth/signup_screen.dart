@@ -186,17 +186,23 @@ class _SignupScreenState extends State<SignupScreen>
       );
     } on ApiException catch (error) {
       if (!mounted) return;
-      _showError(handleFormError(error));
       if (error.code == 'EMAIL_NOT_VERIFIED') {
         Navigator.pushReplacement(
           context,
-          MaterialPageRoute(
-            builder: (_) => VerificationCodeScreen(
+          PageRouteBuilder(
+            transitionDuration: const Duration(milliseconds: 320),
+            pageBuilder: (_, _, _) => VerificationCodeScreen(
               email: email,
               purpose: VerificationPurpose.emailVerification,
             ),
+            transitionsBuilder: (_, anim, _, child) => FadeTransition(
+              opacity: CurvedAnimation(parent: anim, curve: Curves.easeOut),
+              child: child,
+            ),
           ),
         );
+      } else {
+        _showError(handleFormError(error));
       }
     } catch (_) {
       _showError('Unable to create your account right now. Please try again.');

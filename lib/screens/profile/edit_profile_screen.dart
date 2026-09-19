@@ -278,6 +278,18 @@ class _EditProfileScreenState extends State<EditProfileScreen>
       return;
     }
 
+    if (_program.trim().isEmpty) {
+      _showSnackBar('Please select a supported program.', isError: true);
+      return;
+    }
+    if (_yearLevel.trim().isEmpty) {
+      _showSnackBar(
+        'Please select a year level from 1st Year to 4th Year.',
+        isError: true,
+      );
+      return;
+    }
+
     setState(() => _isSaving = true);
     try {
       await AuthScope.of(context).updateCurrentUserProfile(

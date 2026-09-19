@@ -153,8 +153,16 @@ Future<void> showAvatarActionSheet({
     final mimeType = switch (ext) {
       'png' => 'image/png',
       'webp' => 'image/webp',
-      _ => 'image/jpeg',
+      'jpg' || 'jpeg' => 'image/jpeg',
+      _ => null,
     };
+    if (mimeType == null) {
+      onFeedback(
+        'Please select a JPG, JPEG, PNG, or WebP image.',
+        isError: true,
+      );
+      return;
+    }
 
     onLoadingChanged(true);
     try {
@@ -175,7 +183,12 @@ Future<void> showAvatarActionSheet({
     }
   } catch (error) {
     if (context.mounted) {
-      onFeedback(authFormError(error), isError: true);
+      final errorStr = error.toString().toLowerCase();
+      final message =
+          errorStr.contains('permission') || errorStr.contains('denied')
+          ? 'Permission was denied. Please allow camera or photo access in device settings.'
+          : authFormError(error);
+      onFeedback(message, isError: true);
     }
   }
 }

@@ -348,7 +348,7 @@ class _PortfolioCard extends StatelessWidget {
               IconButton(
                 key: Key('edit-${portfolio.id}'),
                 tooltip: 'Edit portfolio',
-                onPressed: onEdit,
+                onPressed: isDeleting ? null : onEdit,
                 icon: const Icon(Icons.edit_outlined, size: 20),
               ),
               IconButton(

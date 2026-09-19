@@ -525,7 +525,26 @@ class PortfolioFileRenderer {
 }
 
 String portfolioExportError(Object error) {
-  if (error is ApiException) return error.message;
+  if (error is ApiException) {
+    if (error.statusCode == 429 || error.code == 'RATE_LIMITED') {
+      return 'Too many export attempts. Please wait a moment and try again.';
+    }
+    if (error.statusCode != null && error.statusCode! >= 500) {
+      return 'The export server is temporarily unavailable. Please try again.';
+    }
+    if (error.code == 'NETWORK_ERROR') {
+      return 'Unable to connect. Check your internet connection and try again.';
+    }
+    if (error.code == 'NETWORK_TIMEOUT') {
+      return 'The export took too long to respond. Please try again.';
+    }
+    if (error.statusCode == 401) {
+      return 'Your session has expired. Please log in again.';
+    }
+    return error.message.isNotEmpty
+        ? error.message
+        : 'Unable to export the portfolio. Please try again.';
+  }
   if (error is PortfolioExportException) return error.message;
   return 'Unable to export the portfolio. Please try again.';
 }
