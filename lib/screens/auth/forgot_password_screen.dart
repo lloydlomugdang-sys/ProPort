@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import 'package:google_fonts/google_fonts.dart';
+import '../../constants/app_colors.dart';
 import 'widgets/auth_form_scroll_view.dart';
 import 'widgets/auth_form_feedback.dart';
 import '../../services/api_client.dart';
@@ -27,9 +29,6 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen>
 
   static const Color _bgColor = Color(0xFFCFE2ED);
   static const Color _darkTeal = Color(0xFF1A4F72);
-  static const Color _accentColor = Color(0xFF1E7BAE);
-  static const Color _subtitleColor = Color(0xFF1E7BAE);
-  static const Color _fieldBorder = Color(0xFFB0CDD9);
 
   @override
   void initState() {
@@ -138,21 +137,21 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen>
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           RichText(
-                            text: const TextSpan(
+                            text: TextSpan(
                               children: [
                                 TextSpan(
                                   text: 'Forgot ',
-                                  style: TextStyle(
-                                    color: Color(0xFF1A4F72),
-                                    fontWeight: FontWeight.w900,
+                                  style: GoogleFonts.poppins(
+                                    color: AppColors.primary,
+                                    fontWeight: FontWeight.w700,
                                     fontSize: 28,
                                   ),
                                 ),
                                 TextSpan(
                                   text: 'Password?',
-                                  style: TextStyle(
-                                    color: Colors.black87,
-                                    fontWeight: FontWeight.w900,
+                                  style: GoogleFonts.poppins(
+                                    color: AppColors.textPrimary,
+                                    fontWeight: FontWeight.w400,
                                     fontSize: 28,
                                   ),
                                 ),
@@ -160,20 +159,20 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen>
                             ),
                           ),
                           const SizedBox(height: 6),
-                          const Text(
-                            'No worries, we got you.',
-                            style: TextStyle(
-                              color: _subtitleColor,
-                              fontSize: 13.5,
-                              fontWeight: FontWeight.w500,
+                          Text(
+                            'Enter your email to receive a password reset code.',
+                            style: GoogleFonts.poppins(
+                              color: AppColors.textSecondary,
+                              fontSize: 13,
+                              fontWeight: FontWeight.w400,
                             ),
                           ),
-                          const SizedBox(height: 36),
-                          const Text(
+                          const SizedBox(height: 32),
+                          Text(
                             'Email Address',
-                            style: TextStyle(
-                              color: _darkTeal,
-                              fontSize: 13.5,
+                            style: GoogleFonts.poppins(
+                              color: AppColors.textPrimary,
+                              fontSize: 13,
                               fontWeight: FontWeight.w600,
                             ),
                           ),
@@ -183,14 +182,14 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen>
                             keyboardType: TextInputType.emailAddress,
                             textInputAction: TextInputAction.done,
                             onFieldSubmitted: (_) => _handleSend(),
-                            style: const TextStyle(
-                              color: Colors.black87,
+                            style: GoogleFonts.poppins(
+                              color: AppColors.textPrimary,
                               fontSize: 14,
                             ),
                             decoration: InputDecoration(
                               hintText: 'Enter your email address',
-                              hintStyle: const TextStyle(
-                                color: Color(0xFFAFC8D6),
+                              hintStyle: GoogleFonts.poppins(
+                                color: AppColors.textMuted,
                                 fontSize: 13,
                               ),
                               filled: true,
@@ -200,37 +199,23 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen>
                                 vertical: 14,
                               ),
                               border: OutlineInputBorder(
-                                borderRadius: BorderRadius.circular(8),
+                                borderRadius: BorderRadius.circular(10),
                                 borderSide: const BorderSide(
-                                  color: _fieldBorder,
+                                  color: AppColors.inputBorder,
                                   width: 1,
                                 ),
                               ),
                               enabledBorder: OutlineInputBorder(
-                                borderRadius: BorderRadius.circular(8),
+                                borderRadius: BorderRadius.circular(10),
                                 borderSide: const BorderSide(
-                                  color: _fieldBorder,
+                                  color: AppColors.inputBorder,
                                   width: 1,
                                 ),
                               ),
                               focusedBorder: OutlineInputBorder(
-                                borderRadius: BorderRadius.circular(8),
+                                borderRadius: BorderRadius.circular(10),
                                 borderSide: const BorderSide(
-                                  color: _accentColor,
-                                  width: 1.5,
-                                ),
-                              ),
-                              errorBorder: OutlineInputBorder(
-                                borderRadius: BorderRadius.circular(8),
-                                borderSide: const BorderSide(
-                                  color: Colors.redAccent,
-                                  width: 1.2,
-                                ),
-                              ),
-                              focusedErrorBorder: OutlineInputBorder(
-                                borderRadius: BorderRadius.circular(8),
-                                borderSide: const BorderSide(
-                                  color: Colors.redAccent,
+                                  color: AppColors.inputBorderFocus,
                                   width: 1.5,
                                 ),
                               ),
@@ -257,9 +242,9 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen>
                                   ? null
                                   : _handleSend,
                               style: ElevatedButton.styleFrom(
-                                backgroundColor: _accentColor,
+                                backgroundColor: AppColors.primary,
                                 foregroundColor: Colors.white,
-                                elevation: 2,
+                                elevation: 1,
                                 shape: RoundedRectangleBorder(
                                   borderRadius: BorderRadius.circular(10),
                                 ),
@@ -273,11 +258,12 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen>
                                         color: Colors.white,
                                       ),
                                     )
-                                  : const Text(
+                                  : Text(
                                       'Send',
-                                      style: TextStyle(
-                                        fontWeight: FontWeight.w700,
+                                      style: GoogleFonts.poppins(
+                                        fontWeight: FontWeight.w600,
                                         fontSize: 15,
+                                        color: Colors.white,
                                       ),
                                     ),
                             ),

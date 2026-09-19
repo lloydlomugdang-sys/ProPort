@@ -1,7 +1,6 @@
 // LOCATION: lib/screens/portfolio/portfolio_export_screen.dart
 
 import 'package:flutter/material.dart';
-import 'package:google_fonts/google_fonts.dart';
 
 import '../../constants/app_colors.dart';
 import '../../constants/app_text_styles.dart';
@@ -9,6 +8,7 @@ import '../../services/document_scope.dart';
 import '../../services/portfolio_export_service.dart';
 import '../../services/portfolio_scope.dart';
 import '../../widgets/grad_app_bar.dart';
+import '../../widgets/primary_button.dart';
 
 import 'models/portfolio_models.dart';
 import 'portfolio_preview_screen.dart';
@@ -210,9 +210,11 @@ class _PortfolioExportScreenState extends State<PortfolioExportScreen>
                       _buildExportCard(),
                       const SizedBox(height: 28),
 
-                      _ExportButton(
+                      PrimaryButton(
+                        label: 'Export Portfolio',
                         isLoading: _isExporting,
                         onPressed: _onExport,
+                        height: 52,
                       ),
                       if (_isExporting) ...[
                         const SizedBox(height: 12),
@@ -321,96 +323,6 @@ class _PortfolioExportScreenState extends State<PortfolioExportScreen>
       color: AppColors.background,
       padding: const EdgeInsets.symmetric(vertical: 12),
       child: const StepIndicatorLight(currentStep: 3),
-    );
-  }
-}
-
-// ───────────────────────────────────────────────────────────────────────────────
-// Export button
-// ───────────────────────────────────────────────────────────────────────────────
-class _ExportButton extends StatefulWidget {
-  const _ExportButton({required this.onPressed, this.isLoading = false});
-
-  final VoidCallback onPressed;
-  final bool isLoading;
-
-  @override
-  State<_ExportButton> createState() => _ExportButtonState();
-}
-
-class _ExportButtonState extends State<_ExportButton>
-    with SingleTickerProviderStateMixin {
-  late final AnimationController _ctrl;
-  late final Animation<double> _scale;
-
-  @override
-  void initState() {
-    super.initState();
-
-    _ctrl = AnimationController(
-      vsync: this,
-      duration: const Duration(milliseconds: 90),
-      reverseDuration: const Duration(milliseconds: 180),
-    );
-
-    _scale = Tween<double>(
-      begin: 1.0,
-      end: 0.97,
-    ).animate(CurvedAnimation(parent: _ctrl, curve: Curves.easeIn));
-  }
-
-  @override
-  void dispose() {
-    _ctrl.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return GestureDetector(
-      onTapDown: (_) => _ctrl.forward(),
-      onTapUp: (_) => _ctrl.reverse(),
-      onTapCancel: () => _ctrl.reverse(),
-      onTap: widget.isLoading ? null : widget.onPressed,
-      child: AnimatedBuilder(
-        animation: _scale,
-        builder: (_, child) =>
-            Transform.scale(scale: _scale.value, child: child),
-        child: Container(
-          width: double.infinity,
-          height: 52,
-          decoration: BoxDecoration(
-            color: AppColors.secondary,
-            borderRadius: BorderRadius.circular(12),
-            boxShadow: [
-              BoxShadow(
-                color: AppColors.primary.withValues(alpha: 0.25),
-                blurRadius: 12,
-                offset: const Offset(0, 4),
-              ),
-            ],
-          ),
-          child: Center(
-            child: widget.isLoading
-                ? const SizedBox(
-                    width: 22,
-                    height: 22,
-                    child: CircularProgressIndicator(
-                      strokeWidth: 2.5,
-                      valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
-                    ),
-                  )
-                : Text(
-                    'Export Portfolio',
-                    style: GoogleFonts.poppins(
-                      fontSize: 15,
-                      fontWeight: FontWeight.w600,
-                      color: Colors.white,
-                    ),
-                  ),
-          ),
-        ),
-      ),
     );
   }
 }

@@ -5,6 +5,7 @@ import 'package:google_fonts/google_fonts.dart';
 import '../../constants/app_colors.dart';
 import '../../constants/app_text_styles.dart';
 import '../../widgets/grad_app_bar.dart';
+import '../../widgets/primary_button.dart';
 import 'models/portfolio_models.dart';
 import 'portfolio_export_screen.dart';
 import 'widgets/section_counter_row.dart';
@@ -126,9 +127,10 @@ class _PortfolioSummaryScreenState extends State<PortfolioSummaryScreen>
                           const SizedBox(height: 28),
 
                           // ── Next button ────────────────────────────────
-                          _PortfolioActionButton(
+                          PrimaryButton(
                             label: 'Next',
                             onPressed: _onNext,
+                            height: 52,
                           ),
                         ],
                       );
@@ -251,83 +253,6 @@ class _PortfolioSummaryScreenState extends State<PortfolioSummaryScreen>
       color: AppColors.background,
       padding: const EdgeInsets.symmetric(vertical: 12),
       child: const StepIndicatorLight(currentStep: 2),
-    );
-  }
-}
-
-// ─── Reusable action button for portfolio flow screens ────────────────────────
-class _PortfolioActionButton extends StatefulWidget {
-  const _PortfolioActionButton({required this.label, required this.onPressed});
-
-  final String label;
-  final VoidCallback onPressed;
-
-  @override
-  State<_PortfolioActionButton> createState() => _PortfolioActionButtonState();
-}
-
-class _PortfolioActionButtonState extends State<_PortfolioActionButton>
-    with SingleTickerProviderStateMixin {
-  late final AnimationController _ctrl;
-  late final Animation<double> _scale;
-
-  @override
-  void initState() {
-    super.initState();
-    _ctrl = AnimationController(
-      vsync: this,
-      duration: const Duration(milliseconds: 90),
-      reverseDuration: const Duration(milliseconds: 180),
-    );
-    _scale = Tween<double>(
-      begin: 1.0,
-      end: 0.97,
-    ).animate(CurvedAnimation(parent: _ctrl, curve: Curves.easeIn));
-  }
-
-  @override
-  void dispose() {
-    _ctrl.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return GestureDetector(
-      onTapDown: (_) => _ctrl.forward(),
-      onTapUp: (_) => _ctrl.reverse(),
-      onTapCancel: () => _ctrl.reverse(),
-      onTap: widget.onPressed,
-      child: AnimatedBuilder(
-        animation: _scale,
-        builder: (_, child) =>
-            Transform.scale(scale: _scale.value, child: child),
-        child: Container(
-          width: double.infinity,
-          height: 52,
-          decoration: BoxDecoration(
-            color: AppColors.secondary,
-            borderRadius: BorderRadius.circular(12),
-            boxShadow: [
-              BoxShadow(
-                color: AppColors.primary.withValues(alpha: 0.25),
-                blurRadius: 12,
-                offset: const Offset(0, 4),
-              ),
-            ],
-          ),
-          child: Center(
-            child: Text(
-              widget.label,
-              style: GoogleFonts.poppins(
-                fontSize: 15,
-                fontWeight: FontWeight.w600,
-                color: Colors.white,
-              ),
-            ),
-          ),
-        ),
-      ),
     );
   }
 }

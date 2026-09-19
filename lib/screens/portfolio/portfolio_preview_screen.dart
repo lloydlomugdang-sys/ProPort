@@ -341,42 +341,151 @@ class _PreviewSheet extends StatelessWidget {
     final folder = category?.folders
         .where((value) => value.key == document.folderKey)
         .firstOrNull;
+    final isPdf = document.fileKind == 'pdf' ||
+        document.originalFileName.toLowerCase().endsWith('.pdf');
     return Container(
       key: ValueKey('preview-document-${document.id}'),
       margin: const EdgeInsets.only(bottom: 16),
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
+        color: Colors.white,
         border: Border.all(color: AppColors.cardBorder),
-        borderRadius: BorderRadius.circular(10),
+        borderRadius: BorderRadius.circular(12),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.02),
+            blurRadius: 4,
+            offset: const Offset(0, 2),
+          ),
+        ],
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(
-            document.title,
-            style: AppTextStyles.bodyMedium.copyWith(
-              fontWeight: FontWeight.w600,
-            ),
+          Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(7),
+                decoration: BoxDecoration(
+                  color: (isPdf ? AppColors.filePdf : AppColors.fileImage)
+                      .withValues(alpha: 0.10),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Icon(
+                  isPdf
+                      ? Icons.picture_as_pdf_rounded
+                      : Icons.image_rounded,
+                  size: 20,
+                  color: isPdf ? AppColors.filePdf : AppColors.fileImage,
+                ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      document.title,
+                      style: AppTextStyles.bodyMedium.copyWith(
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      '${category?.name ?? document.categoryKey} / ${folder?.name ?? document.folderKey}',
+                      style: AppTextStyles.labelSmall.copyWith(
+                        color: AppColors.textSecondary,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
           ),
-          const SizedBox(height: 6),
-          Text(
-            '${category?.name ?? document.categoryKey} / ${folder?.name ?? document.folderKey}',
-            style: AppTextStyles.labelSmall,
+          const SizedBox(height: 10),
+          Row(
+            children: [
+              const Icon(
+                Icons.calendar_today_outlined,
+                size: 13,
+                color: AppColors.textMuted,
+              ),
+              const SizedBox(width: 4),
+              Text(
+                document.documentDate.toIso8601String().substring(0, 10),
+                style: AppTextStyles.labelMedium,
+              ),
+              const SizedBox(width: 12),
+              const Icon(
+                Icons.attach_file_rounded,
+                size: 13,
+                color: AppColors.textMuted,
+              ),
+              const SizedBox(width: 4),
+              Expanded(
+                child: Text(
+                  document.originalFileName,
+                  style: AppTextStyles.labelSmall,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+            ],
           ),
-          Text(
-            document.documentDate.toIso8601String().substring(0, 10),
-            style: AppTextStyles.labelMedium,
-          ),
-          Text(document.originalFileName, style: AppTextStyles.labelSmall),
           if (document.description?.trim().isNotEmpty ?? false) ...[
-            const SizedBox(height: 8),
-            Text('Description', style: AppTextStyles.labelMedium),
-            Text(document.description!, style: AppTextStyles.bodySmall),
+            const SizedBox(height: 10),
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.fromLTRB(12, 8, 12, 8),
+              decoration: BoxDecoration(
+                color: AppColors.background.withValues(alpha: 0.6),
+                borderRadius: BorderRadius.circular(8),
+                border: const Border(
+                  left: BorderSide(color: AppColors.primary, width: 3),
+                ),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Description',
+                    style: AppTextStyles.labelSmall.copyWith(
+                      fontWeight: FontWeight.w600,
+                      color: AppColors.primary,
+                    ),
+                  ),
+                  const SizedBox(height: 3),
+                  Text(document.description!, style: AppTextStyles.bodySmall),
+                ],
+              ),
+            ),
           ],
           if (document.reflection?.trim().isNotEmpty ?? false) ...[
-            const SizedBox(height: 8),
-            Text('Reflection', style: AppTextStyles.labelMedium),
-            Text(document.reflection!, style: AppTextStyles.bodySmall),
+            const SizedBox(height: 10),
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.fromLTRB(12, 8, 12, 8),
+              decoration: BoxDecoration(
+                color: AppColors.primary.withValues(alpha: 0.04),
+                borderRadius: BorderRadius.circular(8),
+                border: const Border(
+                  left: BorderSide(color: AppColors.secondary, width: 3),
+                ),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Reflection',
+                    style: AppTextStyles.labelSmall.copyWith(
+                      fontWeight: FontWeight.w600,
+                      color: AppColors.secondary,
+                    ),
+                  ),
+                  const SizedBox(height: 3),
+                  Text(document.reflection!, style: AppTextStyles.bodySmall),
+                ],
+              ),
+            ),
           ],
         ],
       ),

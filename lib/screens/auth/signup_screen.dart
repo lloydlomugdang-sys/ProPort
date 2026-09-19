@@ -295,10 +295,16 @@ class _SignupScreenState extends State<SignupScreen>
       width: double.infinity,
       decoration: BoxDecoration(
         color: _cardColor,
-        borderRadius: BorderRadius.circular(8),
-        // No shadow — flat card matches wireframe
+        borderRadius: BorderRadius.circular(14),
+        boxShadow: [
+          BoxShadow(
+            color: AppColors.primary.withValues(alpha: 0.18),
+            blurRadius: 16,
+            offset: const Offset(0, 4),
+          ),
+        ],
       ),
-      padding: const EdgeInsets.fromLTRB(14, 14, 14, 14),
+      padding: const EdgeInsets.all(16),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         mainAxisSize: MainAxisSize.min,
@@ -421,10 +427,10 @@ class _SignupScreenState extends State<SignupScreen>
       onTap: _isLoading || isRateLimited ? null : _createAccount,
       child: Container(
         width: double.infinity,
-        height: 36,
+        height: 42,
         decoration: BoxDecoration(
           color: _btnColor,
-          borderRadius: BorderRadius.circular(4),
+          borderRadius: BorderRadius.circular(10),
         ),
         child: Center(
           child: _isLoading

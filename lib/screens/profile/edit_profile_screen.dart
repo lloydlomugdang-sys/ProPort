@@ -202,7 +202,23 @@ class _EditProfileScreenState extends State<EditProfileScreen>
         key: ValueKey(label),
         initialValue: value,
         isExpanded: true,
-        decoration: InputDecoration(labelText: label),
+        decoration: InputDecoration(
+          labelText: label,
+          labelStyle: GoogleFonts.poppins(
+            fontSize: 13,
+            color: AppColors.textSecondary,
+          ),
+          border: const UnderlineInputBorder(
+            borderSide: BorderSide(color: AppColors.divider),
+          ),
+          enabledBorder: const UnderlineInputBorder(
+            borderSide: BorderSide(color: AppColors.divider),
+          ),
+          focusedBorder: const UnderlineInputBorder(
+            borderSide: BorderSide(color: AppColors.primary, width: 1.5),
+          ),
+          contentPadding: const EdgeInsets.symmetric(vertical: 4),
+        ),
         items: values
             .map(
               (item) => DropdownMenuItem(
@@ -212,6 +228,12 @@ class _EditProfileScreenState extends State<EditProfileScreen>
                   item.isEmpty ? '$label not set' : item,
                   maxLines: 2,
                   overflow: TextOverflow.ellipsis,
+                  style: GoogleFonts.poppins(
+                    fontSize: 14,
+                    color: item.isEmpty
+                        ? AppColors.textMuted
+                        : AppColors.textPrimary,
+                  ),
                 ),
               ),
             )
@@ -434,6 +456,7 @@ class _EditProfileScreenState extends State<EditProfileScreen>
                       icon: Icons.account_balance_outlined,
                       value: _school,
                       isLast: true,
+                      isLocked: true,
                     ),
                   ],
                 ),

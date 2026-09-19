@@ -130,9 +130,34 @@ class _HomeScreenState extends State<HomeScreen>
                   onPressed: _onGeneratePortfolio,
                   height: 54,
                 ),
-                TextButton(
-                  onPressed: () => _onGeneratePortfolio(showHistory: true),
-                  child: const Text('My Portfolios'),
+                const SizedBox(height: 12),
+                SizedBox(
+                  width: double.infinity,
+                  height: 48,
+                  child: OutlinedButton.icon(
+                    onPressed: () => _onGeneratePortfolio(showHistory: true),
+                    icon: const Icon(
+                      Icons.history_edu_outlined,
+                      size: 20,
+                      color: AppColors.primary,
+                    ),
+                    label: Text(
+                      'My Portfolios',
+                      style: AppTextStyles.bodyMedium.copyWith(
+                        color: AppColors.primary,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                    style: OutlinedButton.styleFrom(
+                      side: const BorderSide(
+                        color: AppColors.primary,
+                        width: 1.2,
+                      ),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                    ),
+                  ),
                 ),
               ],
             ),
@@ -228,24 +253,58 @@ class _HomeScreenState extends State<HomeScreen>
                         fullName!.isEmpty ? 'Name not provided' : fullName,
                         style: AppTextStyles.h3,
                       ),
-                      const SizedBox(height: 2),
+                      const SizedBox(height: 3),
                       Text(
                         program!.isEmpty ? 'Program not set' : program,
-                        style: AppTextStyles.bodySmall,
-                      ),
-                      const SizedBox(height: 1),
-                      Text(
-                        yearLevel!.isEmpty ? 'Year level not set' : yearLevel,
-                        style: AppTextStyles.labelSmall.copyWith(
-                          color: AppColors.primary,
-                          fontWeight: FontWeight.w600,
+                        style: AppTextStyles.bodySmall.copyWith(
+                          color: AppColors.textPrimary,
                         ),
                       ),
-                      Text(
-                        user.school.trim().isEmpty
-                            ? 'School not set'
-                            : user.school.trim(),
-                        style: AppTextStyles.bodySmall,
+                      const SizedBox(height: 5),
+                      Row(
+                        children: [
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 8,
+                              vertical: 2,
+                            ),
+                            decoration: BoxDecoration(
+                              color: AppColors.primary.withValues(alpha: 0.08),
+                              borderRadius: BorderRadius.circular(6),
+                            ),
+                            child: Text(
+                              yearLevel!.isEmpty
+                                  ? 'Year level not set'
+                                  : yearLevel,
+                              style: AppTextStyles.labelSmall.copyWith(
+                                color: AppColors.primary,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 4),
+                      Row(
+                        children: [
+                          const Icon(
+                            Icons.school_outlined,
+                            size: 14,
+                            color: AppColors.textMuted,
+                          ),
+                          const SizedBox(width: 5),
+                          Expanded(
+                            child: Text(
+                              user.school.trim().isEmpty
+                                  ? 'School not set'
+                                  : user.school.trim(),
+                              style: AppTextStyles.bodySmall.copyWith(
+                                color: AppColors.textMuted,
+                              ),
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                        ],
                       ),
                     ],
                   ),

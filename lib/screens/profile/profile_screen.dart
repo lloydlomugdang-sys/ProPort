@@ -224,6 +224,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                       ? 'School not set'
                       : profile.school,
                   isLast: true,
+                  isLocked: true,
                 ),
               ],
             ),

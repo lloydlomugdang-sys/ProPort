@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import 'package:google_fonts/google_fonts.dart';
+import '../../constants/app_colors.dart';
 import 'widgets/auth_form_scroll_view.dart';
 import 'widgets/auth_form_feedback.dart';
 import '../../services/api_client.dart';
@@ -30,9 +32,6 @@ class _NewPasswordScreenState extends State<NewPasswordScreen>
   static const Color _bgColor = Color(0xFFCFE2ED);
   static const Color _darkTeal = Color(0xFF1A4F72);
   static const Color _accentColor = Color(0xFF1E7BAE);
-  static const Color _subtitleColor = Color(0xFF1E7BAE);
-  static const Color _fieldBorder = Color(0xFFB0CDD9);
-  static const Color _hintColor = Color(0xFFAFC8D6);
 
   @override
   void initState() {
@@ -151,21 +150,21 @@ class _NewPasswordScreenState extends State<NewPasswordScreen>
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           RichText(
-                            text: const TextSpan(
+                            text: TextSpan(
                               children: [
                                 TextSpan(
                                   text: 'New ',
-                                  style: TextStyle(
-                                    color: Color(0xFF1A4F72),
-                                    fontWeight: FontWeight.w900,
+                                  style: GoogleFonts.poppins(
+                                    color: AppColors.primary,
+                                    fontWeight: FontWeight.w700,
                                     fontSize: 28,
                                   ),
                                 ),
                                 TextSpan(
                                   text: 'Password',
-                                  style: TextStyle(
-                                    color: Colors.black87,
-                                    fontWeight: FontWeight.w900,
+                                  style: GoogleFonts.poppins(
+                                    color: AppColors.textPrimary,
+                                    fontWeight: FontWeight.w400,
                                     fontSize: 28,
                                   ),
                                 ),
@@ -175,22 +174,22 @@ class _NewPasswordScreenState extends State<NewPasswordScreen>
 
                           const SizedBox(height: 8),
 
-                          const Text(
-                            'Create a unique password.',
-                            style: TextStyle(
-                              color: _subtitleColor,
-                              fontSize: 13.5,
-                              fontWeight: FontWeight.w500,
+                          Text(
+                            'Create a unique, secure password.',
+                            style: GoogleFonts.poppins(
+                              color: AppColors.textSecondary,
+                              fontSize: 13,
+                              fontWeight: FontWeight.w400,
                             ),
                           ),
 
-                          const SizedBox(height: 40),
+                          const SizedBox(height: 32),
 
-                          const Text(
-                            'New password',
-                            style: TextStyle(
-                              color: _darkTeal,
-                              fontSize: 13.5,
+                          Text(
+                            'New Password',
+                            style: GoogleFonts.poppins(
+                              color: AppColors.textPrimary,
+                              fontSize: 13,
                               fontWeight: FontWeight.w600,
                             ),
                           ),
@@ -226,11 +225,11 @@ class _NewPasswordScreenState extends State<NewPasswordScreen>
 
                           const SizedBox(height: 20),
 
-                          const Text(
+                          Text(
                             'Confirm Password',
-                            style: TextStyle(
-                              color: _darkTeal,
-                              fontSize: 13.5,
+                            style: GoogleFonts.poppins(
+                              color: AppColors.textPrimary,
+                              fontSize: 13,
                               fontWeight: FontWeight.w600,
                             ),
                           ),
@@ -320,17 +319,22 @@ class _NewPasswordScreenState extends State<NewPasswordScreen>
       obscureText: obscureText,
       textInputAction: textInputAction,
       onFieldSubmitted: onFieldSubmitted,
-      style: const TextStyle(color: Colors.black87, fontSize: 14),
+      style: GoogleFonts.poppins(color: AppColors.textPrimary, fontSize: 14),
       decoration: InputDecoration(
         hintText: hintText,
-        hintStyle: const TextStyle(color: _hintColor, fontSize: 13),
+        hintStyle: GoogleFonts.poppins(
+          color: AppColors.textMuted,
+          fontSize: 13,
+        ),
         filled: true,
         fillColor: Colors.white,
         suffixIcon: IconButton(
           tooltip: obscureText ? 'Show password' : 'Hide password',
           icon: Icon(
-            obscureText ? Icons.visibility_off : Icons.visibility,
-            color: const Color(0xFF8BB5C8),
+            obscureText
+                ? Icons.visibility_off_outlined
+                : Icons.visibility_outlined,
+            color: AppColors.neutral,
             size: 20,
           ),
           onPressed: onToggle,
@@ -340,24 +344,27 @@ class _NewPasswordScreenState extends State<NewPasswordScreen>
           vertical: 14,
         ),
         border: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(8),
-          borderSide: const BorderSide(color: _fieldBorder, width: 1),
+          borderRadius: BorderRadius.circular(10),
+          borderSide: const BorderSide(color: AppColors.inputBorder, width: 1),
         ),
         enabledBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(8),
-          borderSide: const BorderSide(color: _fieldBorder, width: 1),
+          borderRadius: BorderRadius.circular(10),
+          borderSide: const BorderSide(color: AppColors.inputBorder, width: 1),
         ),
         focusedBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(8),
-          borderSide: const BorderSide(color: _accentColor, width: 1.5),
+          borderRadius: BorderRadius.circular(10),
+          borderSide: const BorderSide(
+            color: AppColors.inputBorderFocus,
+            width: 1.5,
+          ),
         ),
         errorBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(8),
-          borderSide: const BorderSide(color: Colors.redAccent, width: 1.2),
+          borderRadius: BorderRadius.circular(10),
+          borderSide: const BorderSide(color: AppColors.danger, width: 1.2),
         ),
         focusedErrorBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(8),
-          borderSide: const BorderSide(color: Colors.redAccent, width: 1.5),
+          borderRadius: BorderRadius.circular(10),
+          borderSide: const BorderSide(color: AppColors.danger, width: 1.5),
         ),
       ),
       validator: validator,

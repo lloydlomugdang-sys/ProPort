@@ -135,7 +135,13 @@ class _PortfolioListScreenState extends State<PortfolioListScreen> {
           ),
           TextButton(
             onPressed: () => Navigator.pop(dialogContext, true),
-            child: const Text('Delete'),
+            child: Text(
+              'Delete',
+              style: AppTextStyles.labelLarge.copyWith(
+                color: AppColors.danger,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
           ),
         ],
       ),
@@ -182,14 +188,15 @@ class _PortfolioListScreenState extends State<PortfolioListScreen> {
       body: Column(
         children: [
           Expanded(child: _buildContent(service, portfolios)),
-          Padding(
-            padding: const EdgeInsets.fromLTRB(20, 12, 20, 20),
-            child: PrimaryButton(
-              label: 'Create Portfolio',
-              icon: Icons.add_rounded,
-              onPressed: _create,
+          if (portfolios.isNotEmpty)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(20, 12, 20, 20),
+              child: PrimaryButton(
+                label: 'Create Portfolio',
+                icon: Icons.add_rounded,
+                onPressed: _create,
+              ),
             ),
-          ),
         ],
       ),
     );
@@ -237,11 +244,13 @@ class _PortfolioListScreenState extends State<PortfolioListScreen> {
     }
 
     if (portfolios.isEmpty) {
-      return const EmptyState(
-        key: Key('portfolio-empty'),
+      return EmptyState(
+        key: const Key('portfolio-empty'),
         message: 'No portfolios yet.',
         subtitle: 'Create one to save your portfolio title-page information.',
         icon: Icons.description_outlined,
+        actionLabel: 'Create Portfolio',
+        onAction: _create,
       );
     }
 

@@ -1,6 +1,7 @@
 // LOCATION: lib/screens/auth/login_screen.dart
 
 import 'package:flutter/material.dart';
+import '../../constants/app_colors.dart';
 import 'widgets/auth_form_scroll_view.dart';
 import 'widgets/auth_form_feedback.dart';
 import 'package:google_fonts/google_fonts.dart';
@@ -223,9 +224,16 @@ class _LoginScreenState extends State<LoginScreen>
       width: double.infinity,
       decoration: BoxDecoration(
         color: _cardColor,
-        borderRadius: BorderRadius.circular(12),
+        borderRadius: BorderRadius.circular(14),
+        boxShadow: [
+          BoxShadow(
+            color: AppColors.primary.withValues(alpha: 0.18),
+            blurRadius: 16,
+            offset: const Offset(0, 4),
+          ),
+        ],
       ),
-      padding: const EdgeInsets.fromLTRB(14, 14, 14, 14),
+      padding: const EdgeInsets.all(16),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         mainAxisSize: MainAxisSize.min,
@@ -334,10 +342,10 @@ class _LoginScreenState extends State<LoginScreen>
       onTap: _isLoading || isRateLimited ? null : _loginUser,
       child: Container(
         width: double.infinity,
-        height: 36,
+        height: 50,
         decoration: BoxDecoration(
           color: _btnColor,
-          borderRadius: BorderRadius.circular(12),
+          borderRadius: BorderRadius.circular(10),
         ),
         child: Center(
           child: _isLoading

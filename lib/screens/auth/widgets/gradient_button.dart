@@ -61,13 +61,17 @@ class _GradientButtonState extends State<GradientButton>
           width: double.infinity,
           height: 50,
           decoration: BoxDecoration(
-            color: AppColors.authSecondary,
+            gradient: const LinearGradient(
+              colors: AppColors.authButtonGradient,
+              begin: Alignment.centerLeft,
+              end: Alignment.centerRight,
+            ),
             borderRadius: BorderRadius.circular(12),
             boxShadow: [
               BoxShadow(
-                color: Colors.black.withValues(alpha: 0.18),
-                blurRadius: 8,
-                offset: const Offset(0, 3),
+                color: AppColors.primary.withValues(alpha: 0.22),
+                blurRadius: 10,
+                offset: const Offset(0, 4),
               ),
             ],
           ),

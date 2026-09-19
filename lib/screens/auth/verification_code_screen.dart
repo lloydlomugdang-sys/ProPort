@@ -1,5 +1,7 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:google_fonts/google_fonts.dart';
+import '../../constants/app_colors.dart';
 import 'widgets/auth_form_scroll_view.dart';
 import 'widgets/auth_form_feedback.dart';
 import 'package:flutter/services.dart';
@@ -43,8 +45,6 @@ class _VerificationCodeScreenState extends State<VerificationCodeScreen>
 
   static const Color _bgColor = Color(0xFFCFE2ED);
   static const Color _darkTeal = Color(0xFF1A4F72);
-  static const Color _accentColor = Color(0xFF1E7BAE);
-  static const Color _subtitleColor = Color(0xFF1E7BAE);
   static const Color _boxBorder = Color(0xFFB0CDD9);
   static const Color _boxActiveBorder = Color(0xFF1E7BAE);
 
@@ -277,21 +277,21 @@ class _VerificationCodeScreenState extends State<VerificationCodeScreen>
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         RichText(
-                          text: const TextSpan(
+                          text: TextSpan(
                             children: [
                               TextSpan(
                                 text: 'Verification ',
-                                style: TextStyle(
-                                  color: Color(0xFF1A4F72),
-                                  fontWeight: FontWeight.w900,
+                                style: GoogleFonts.poppins(
+                                  color: AppColors.primary,
+                                  fontWeight: FontWeight.w700,
                                   fontSize: 28,
                                 ),
                               ),
                               TextSpan(
                                 text: 'Code',
-                                style: TextStyle(
-                                  color: Colors.black87,
-                                  fontWeight: FontWeight.w900,
+                                style: GoogleFonts.poppins(
+                                  color: AppColors.textPrimary,
+                                  fontWeight: FontWeight.w400,
                                   fontSize: 28,
                                 ),
                               ),
@@ -301,22 +301,22 @@ class _VerificationCodeScreenState extends State<VerificationCodeScreen>
 
                         const SizedBox(height: 8),
 
-                        const Text(
+                        Text(
                           'We sent a code to your email.',
-                          style: TextStyle(
-                            color: _subtitleColor,
-                            fontSize: 13.5,
-                            fontWeight: FontWeight.w500,
+                          style: GoogleFonts.poppins(
+                            color: AppColors.textSecondary,
+                            fontSize: 13,
+                            fontWeight: FontWeight.w400,
                           ),
                         ),
 
-                        const SizedBox(height: 40),
+                        const SizedBox(height: 36),
 
-                        const Text(
+                        Text(
                           'Enter the code to continue',
-                          style: TextStyle(
-                            color: _darkTeal,
-                            fontSize: 13.5,
+                          style: GoogleFonts.poppins(
+                            color: AppColors.textPrimary,
+                            fontSize: 13,
                             fontWeight: FontWeight.w600,
                           ),
                         ),
@@ -342,9 +342,9 @@ class _VerificationCodeScreenState extends State<VerificationCodeScreen>
                                 ? null
                                 : _handleContinue,
                             style: ElevatedButton.styleFrom(
-                              backgroundColor: _accentColor,
+                              backgroundColor: AppColors.primary,
                               foregroundColor: Colors.white,
-                              elevation: 2,
+                              elevation: 1,
                               shape: RoundedRectangleBorder(
                                 borderRadius: BorderRadius.circular(10),
                               ),
@@ -358,11 +358,12 @@ class _VerificationCodeScreenState extends State<VerificationCodeScreen>
                                       color: Colors.white,
                                     ),
                                   )
-                                : const Text(
+                                : Text(
                                     'Continue',
-                                    style: TextStyle(
-                                      fontWeight: FontWeight.w700,
+                                    style: GoogleFonts.poppins(
+                                      fontWeight: FontWeight.w600,
                                       fontSize: 15,
+                                      color: Colors.white,
                                     ),
                                   ),
                           ),
@@ -378,11 +379,11 @@ class _VerificationCodeScreenState extends State<VerificationCodeScreen>
                               _resendSeconds > 0
                                   ? 'Resend Code (${_resendSeconds}s)'
                                   : 'Resend Code',
-                              style: TextStyle(
+                              style: GoogleFonts.poppins(
                                 color: _resendSeconds > 0
-                                    ? const Color(0xFF8BB5C8)
-                                    : _accentColor,
-                                fontSize: 13.5,
+                                    ? AppColors.textMuted
+                                    : AppColors.primary,
+                                fontSize: 13,
                                 fontWeight: FontWeight.w600,
                                 decoration: _resendSeconds == 0
                                     ? TextDecoration.underline
@@ -417,8 +418,8 @@ class _VerificationCodeScreenState extends State<VerificationCodeScreen>
           textAlign: TextAlign.center,
           maxLength: 1,
           inputFormatters: [FilteringTextInputFormatter.digitsOnly],
-          style: const TextStyle(
-            color: _darkTeal,
+          style: GoogleFonts.poppins(
+            color: AppColors.textPrimary,
             fontSize: 22,
             fontWeight: FontWeight.w700,
           ),

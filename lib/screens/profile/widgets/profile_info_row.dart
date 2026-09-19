@@ -11,11 +11,15 @@ class ProfileInfoRow extends StatelessWidget {
     required this.icon,
     required this.value,
     this.isLast = false,
+    this.isLocked = false,
+    this.trailing,
   });
 
   final IconData icon;
   final String value;
   final bool isLast;
+  final bool isLocked;
+  final Widget? trailing;
 
   @override
   Widget build(BuildContext context) {
@@ -38,12 +42,51 @@ class ProfileInfoRow extends StatelessWidget {
                   ),
                 ),
               ),
+              if (trailing != null)
+                trailing!
+              else if (isLocked)
+                Tooltip(
+                  message: 'School is fixed for this account',
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 8,
+                      vertical: 4,
+                    ),
+                    decoration: BoxDecoration(
+                      color: AppColors.surface.withValues(alpha: 0.35),
+                      borderRadius: BorderRadius.circular(6),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        const Icon(
+                          Icons.lock_outline_rounded,
+                          size: 13,
+                          color: AppColors.neutral,
+                        ),
+                        const SizedBox(width: 4),
+                        Text(
+                          'Institutional',
+                          style: GoogleFonts.poppins(
+                            fontSize: 10,
+                            fontWeight: FontWeight.w500,
+                            color: AppColors.neutral,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
             ],
           ),
         ),
         if (!isLast)
-          const Divider(height: 1, indent: 16, endIndent: 16,
-              color: AppColors.divider),
+          const Divider(
+            height: 1,
+            indent: 16,
+            endIndent: 16,
+            color: AppColors.divider,
+          ),
       ],
     );
   }
