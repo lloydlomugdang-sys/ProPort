@@ -7,6 +7,7 @@ import '../../services/document_models.dart';
 import '../../services/document_service.dart';
 import '../../widgets/grad_app_bar.dart';
 import '../../widgets/primary_button.dart';
+import '../../widgets/document_image_preview.dart';
 import 'models/portfolio_models.dart';
 import 'portfolio_list_screen.dart';
 import 'portfolio_export_screen.dart';
@@ -403,6 +404,46 @@ class _PreviewSheet extends StatelessWidget {
               ),
             ],
           ),
+          if (!isPdf) ...[
+            const SizedBox(height: 12),
+            Container(
+              decoration: BoxDecoration(
+                color: AppColors.background.withValues(alpha: 0.5),
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(color: AppColors.cardBorder),
+              ),
+              padding: const EdgeInsets.all(6),
+              child: DocumentImagePreview(
+                documentId: document.id,
+                fit: BoxFit.contain,
+                maxHeight: 260,
+                borderRadius: BorderRadius.circular(8),
+                showFullScreenOnTap: true,
+                cacheWidth: 1080,
+              ),
+            ),
+            if (document.pageCount > 1) ...[
+              const SizedBox(height: 6),
+              Align(
+                alignment: Alignment.centerRight,
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                  decoration: BoxDecoration(
+                    color: AppColors.primary.withValues(alpha: 0.08),
+                    borderRadius: BorderRadius.circular(6),
+                  ),
+                  child: Text(
+                    '${document.pageCount} pages • Page 1 shown',
+                    style: AppTextStyles.labelSmall.copyWith(
+                      color: AppColors.primary,
+                      fontSize: 11,
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ],
           const SizedBox(height: 10),
           Row(
             children: [
@@ -500,7 +541,7 @@ class _PreviewSheet extends StatelessWidget {
         _buildDivider(),
         const SizedBox(height: 14),
         Text(
-          'Title page saved in My Portfolios. This preview uses your current document details; original uploaded file pages are not shown.',
+          'Title page saved in My Portfolios. This preview uses your current document details and visual previews of stored files.',
           textAlign: TextAlign.center,
           style: AppTextStyles.labelSmall.copyWith(fontStyle: FontStyle.italic),
         ),

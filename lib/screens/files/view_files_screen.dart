@@ -10,6 +10,7 @@ import '../../widgets/file_list_item.dart';
 import '../../widgets/filter_chip_bar.dart';
 import '../../widgets/grad_app_bar.dart';
 import '../../widgets/search_bar_field.dart';
+import '../../widgets/document_image_preview.dart';
 import 'document_ocr_screen.dart';
 
 class ViewFilesScreen extends StatefulWidget {
@@ -196,10 +197,16 @@ class _ViewFilesScreenState extends State<ViewFilesScreen> {
                       separatorBuilder: (_, _) => const SizedBox(height: 10),
                       itemBuilder: (_, index) {
                         final document = visible[index];
+                        final isImage = document.fileKind == 'image';
                         return FileListItem(
                           fileName: document.originalFileName,
                           fileType: document.fileTypeLabel,
                           year: document.documentDate.year.toString(),
+                          thumbnail: isImage
+                              ? DocumentThumbnail(
+                                  documentId: document.id,
+                                )
+                              : null,
                           onTap: () => Navigator.push(
                             context,
                             MaterialPageRoute<void>(

@@ -30,12 +30,18 @@ class DocumentService extends ChangeNotifier {
   String? _errorMessage;
   final Map<String, DocumentOcrResult> _ocrResults = {};
   final Set<String> _extractingDocumentIds = {};
+  static const int maxCachedDocuments = 30;
+  static const int maxCachedBytes = 30 * 1024 * 1024; // 30 MiB mobile-safe ceiling
+  final Map<String, Uint8List> _contentCache = {};
+  int _currentCachedBytes = 0;
+  final Map<String, Future<Uint8List>> _inFlightContentRequests = {};
   int _authGeneration = 0;
   int _loadOperation = 0;
 
   List<DocumentRecord> get documents => List.unmodifiable(_documents);
   List<DocumentCategory> get categories => List.unmodifiable(_categories);
   DocumentSummary get summary => _summary;
+  int get currentCachedBytes => _currentCachedBytes;
   bool get hasLoadedDocuments => _hasLoadedDocuments;
   bool get hasLoadedCategories => _hasLoadedCategories;
   bool get isLoading => _isLoading;
@@ -161,6 +167,19 @@ class DocumentService extends ChangeNotifier {
         .where((document) => document.id != documentId)
         .toList(growable: false);
     _ocrResults.remove(documentId);
+    final removedPrimary = _contentCache.remove(documentId);
+    if (removedPrimary != null) {
+      _currentCachedBytes -= removedPrimary.length;
+    }
+    final attachmentKeys = _contentCache.keys
+        .where((key) => key.startsWith('$documentId:'))
+        .toList(growable: false);
+    for (final key in attachmentKeys) {
+      final removed = _contentCache.remove(key);
+      if (removed != null) {
+        _currentCachedBytes -= removed.length;
+      }
+    }
     if (existing != null) _summary = _summary.removing(existing);
     _hasLoadedDocuments = true;
     notifyListeners();
@@ -281,6 +300,84 @@ class DocumentService extends ChangeNotifier {
     return result;
   }
 
+  Uint8List? getCachedContent(String documentId, {String? attachmentId}) {
+    final cacheKey = attachmentId != null && attachmentId.isNotEmpty
+        ? '$documentId:$attachmentId'
+        : documentId;
+    return _contentCache[cacheKey];
+  }
+
+  Future<Uint8List> getDocumentContent(
+    String documentId, {
+    String? attachmentId,
+  }) async {
+    final cacheKey = attachmentId != null && attachmentId.isNotEmpty
+        ? '$documentId:$attachmentId'
+        : documentId;
+
+    final cached = _contentCache[cacheKey];
+    if (cached != null) return cached;
+
+    final inFlight = _inFlightContentRequests[cacheKey];
+    if (inFlight != null) return inFlight;
+
+    final path = attachmentId != null && attachmentId.isNotEmpty
+        ? '$_documentsPath/$documentId/attachments/$attachmentId/content'
+        : '$_documentsPath/$documentId/content';
+
+    final request = () async {
+      try {
+        final bytes = await _authService.authenticatedGetBytes(path);
+        _putInContentCache(cacheKey, bytes);
+        return bytes;
+      } finally {
+        _inFlightContentRequests.remove(cacheKey);
+      }
+    }();
+
+    _inFlightContentRequests[cacheKey] = request;
+    return request;
+  }
+
+  @visibleForTesting
+  void setCachedContent(
+    String documentId,
+    Uint8List bytes, {
+    String? attachmentId,
+  }) {
+    final cacheKey = attachmentId != null && attachmentId.isNotEmpty
+        ? '$documentId:$attachmentId'
+        : documentId;
+    _putInContentCache(cacheKey, bytes);
+  }
+
+  void _putInContentCache(String key, Uint8List bytes) {
+    if (bytes.length > maxCachedBytes) {
+      // Single payload exceeds the total cache ceiling; avoid caching.
+      return;
+    }
+
+    if (_contentCache.containsKey(key)) {
+      final old = _contentCache.remove(key);
+      if (old != null) {
+        _currentCachedBytes -= old.length;
+      }
+    }
+
+    while (_contentCache.isNotEmpty &&
+        (_contentCache.length >= maxCachedDocuments ||
+            (_currentCachedBytes + bytes.length) > maxCachedBytes)) {
+      final oldestKey = _contentCache.keys.first;
+      final evicted = _contentCache.remove(oldestKey);
+      if (evicted != null) {
+        _currentCachedBytes -= evicted.length;
+      }
+    }
+
+    _contentCache[key] = bytes;
+    _currentCachedBytes += bytes.length;
+  }
+
   Future<void> _loadDocuments(int authGeneration) async {
     final response = await _authService.authenticatedGetJson(_documentsPath);
     final data = _dataOf(response);
@@ -338,6 +435,9 @@ class DocumentService extends ChangeNotifier {
     _errorMessage = null;
     _ocrResults.clear();
     _extractingDocumentIds.clear();
+    _contentCache.clear();
+    _currentCachedBytes = 0;
+    _inFlightContentRequests.clear();
     notifyListeners();
   }
 

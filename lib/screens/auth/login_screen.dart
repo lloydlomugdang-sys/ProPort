@@ -194,22 +194,30 @@ class _LoginScreenState extends State<LoginScreen>
                     const SizedBox(height: 16),
 
                   // ── Title & Subtitle matching mockup ───────────
-                  Text(
-                    'Welcome Back!',
-                    style: GoogleFonts.poppins(
-                      fontSize: 26,
-                      fontWeight: FontWeight.w700,
-                      color: AppColors.textPrimary,
-                      height: 1.25,
-                    ),
-                  ),
-                  const SizedBox(height: 6),
-                  Text(
-                    'Sign in to continue your journey.',
-                    style: GoogleFonts.poppins(
-                      fontSize: 14,
-                      fontWeight: FontWeight.w400,
-                      color: AppColors.textSecondary,
+                  Center(
+                    child: Column(
+                      children: [
+                        Text(
+                          'Log In',
+                          textAlign: TextAlign.center,
+                          style: GoogleFonts.poppins(
+                            fontSize: 26,
+                            fontWeight: FontWeight.w700,
+                            color: AppColors.textPrimary,
+                            height: 1.25,
+                          ),
+                        ),
+                        const SizedBox(height: 6),
+                        Text(
+                          'Sign in to continue your journey.',
+                          textAlign: TextAlign.center,
+                          style: GoogleFonts.poppins(
+                            fontSize: 14,
+                            fontWeight: FontWeight.w400,
+                            color: AppColors.textSecondary,
+                          ),
+                        ),
+                      ],
                     ),
                   ),
 

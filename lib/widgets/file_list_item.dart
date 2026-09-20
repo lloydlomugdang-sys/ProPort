@@ -10,6 +10,7 @@ class FileListItem extends StatelessWidget {
     required this.fileType,
     required this.year,
     required this.onTap,
+    this.thumbnail,
     this.onDelete,
     this.onRename,
   });
@@ -18,6 +19,7 @@ class FileListItem extends StatelessWidget {
   final String fileType;
   final String year;
   final VoidCallback onTap;
+  final Widget? thumbnail;
   final VoidCallback? onDelete;
   final VoidCallback? onRename;
 
@@ -67,7 +69,10 @@ class FileListItem extends StatelessWidget {
                 color: _iconColor.withValues(alpha: 0.12),
                 borderRadius: BorderRadius.circular(12),
               ),
-              child: Icon(_icon, color: _iconColor, size: 24),
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(12),
+                child: thumbnail ?? Icon(_icon, color: _iconColor, size: 24),
+              ),
             ),
             const SizedBox(width: 12),
             Expanded(

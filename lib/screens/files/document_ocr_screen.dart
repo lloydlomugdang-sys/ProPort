@@ -5,8 +5,23 @@ import '../../constants/app_colors.dart';
 import '../../services/api_client.dart';
 import '../../services/document_models.dart';
 import '../../services/document_scope.dart';
+import '../../widgets/document_image_preview.dart';
 import '../../widgets/grad_app_bar.dart';
 import '../../widgets/primary_button.dart';
+
+class _DocumentPage {
+  const _DocumentPage({
+    required this.pageNumber,
+    required this.documentId,
+    this.attachmentId,
+    required this.fileName,
+  });
+
+  final int pageNumber;
+  final String documentId;
+  final String? attachmentId; // null indicates primary document content (Page 1)
+  final String fileName;
+}
 
 class DocumentOcrScreen extends StatefulWidget {
   const DocumentOcrScreen({super.key, required this.document});
@@ -19,32 +34,94 @@ class DocumentOcrScreen extends StatefulWidget {
 
 class _DocumentOcrScreenState extends State<DocumentOcrScreen> {
   final _reviewedTextController = TextEditingController();
+  late final PageController _pageController;
+  int _currentPageIndex = 0;
   bool _loadRequested = false;
-  bool _isLoading = true;
+  bool _isLoadingOcr = true;
   bool _isProcessing = false;
   bool _isSaving = false;
   String? _errorMessage;
   String? _successMessage;
   DocumentOcrResult? _ocr;
+  late final List<_DocumentPage> _pages;
+
+  @override
+  void initState() {
+    super.initState();
+    _pageController = PageController();
+    _pages = _buildPageList(widget.document);
+  }
 
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
     if (_loadRequested) return;
     _loadRequested = true;
+    final cached = DocumentScope.of(context).ocrFor(widget.document.id);
+    if (cached != null) {
+      _applyResult(cached);
+      _isLoadingOcr = false;
+    }
     WidgetsBinding.instance.addPostFrameCallback((_) => _loadOcr());
   }
 
   @override
   void dispose() {
     _reviewedTextController.dispose();
+    _pageController.dispose();
     super.dispose();
+  }
+
+  List<_DocumentPage> _buildPageList(DocumentRecord document) {
+    // Page 1 is always the primary document content.
+    final list = <_DocumentPage>[
+      _DocumentPage(
+        pageNumber: 1,
+        documentId: document.id,
+        attachmentId: null,
+        fileName: document.originalFileName,
+      ),
+    ];
+
+    if (document.attachments != null && document.attachments!.isNotEmpty) {
+      final additional = document.attachments!
+          .where((a) => a.order > 0 || (a.id != '1' && a.id != 'att-1'))
+          .toList();
+
+      if (additional.isEmpty && document.attachments!.length > 1) {
+        for (int i = 1; i < document.attachments!.length; i++) {
+          final att = document.attachments![i];
+          list.add(
+            _DocumentPage(
+              pageNumber: list.length + 1,
+              documentId: document.id,
+              attachmentId: att.id,
+              fileName: att.originalFileName,
+            ),
+          );
+        }
+      } else {
+        additional.sort((a, b) => a.order.compareTo(b.order));
+        for (final att in additional) {
+          list.add(
+            _DocumentPage(
+              pageNumber: list.length + 1,
+              documentId: document.id,
+              attachmentId: att.id,
+              fileName: att.originalFileName,
+            ),
+          );
+        }
+      }
+    }
+
+    return list;
   }
 
   Future<void> _loadOcr() async {
     if (!mounted) return;
     setState(() {
-      _isLoading = true;
+      _isLoadingOcr = _ocr == null;
       _errorMessage = null;
       _successMessage = null;
     });
@@ -63,7 +140,7 @@ class _DocumentOcrScreenState extends State<DocumentOcrScreen> {
         );
       }
     } finally {
-      if (mounted) setState(() => _isLoading = false);
+      if (mounted) setState(() => _isLoadingOcr = false);
     }
   }
 
@@ -192,47 +269,261 @@ class _DocumentOcrScreenState extends State<DocumentOcrScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final isImage = widget.document.fileKind == 'image';
+
     return Scaffold(
       backgroundColor: AppColors.background,
-      appBar: const GradBackAppBar(title: 'Extracted Text'),
+      appBar: const GradBackAppBar(title: 'Document Details'),
       body: SafeArea(
-        child: _isLoading
-            ? const Center(
-                child: CircularProgressIndicator(color: AppColors.primary),
-              )
-            : SingleChildScrollView(
-                padding: const EdgeInsets.fromLTRB(16, 16, 16, 32),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    _DocumentCard(document: widget.document),
-                    if (_errorMessage != null) ...[
-                      const SizedBox(height: 12),
-                      _MessageCard(message: _errorMessage!, isError: true),
-                    ],
-                    if (_successMessage != null) ...[
-                      const SizedBox(height: 12),
-                      _MessageCard(message: _successMessage!),
-                    ],
-                    const SizedBox(height: 16),
-                    ..._statusContent(),
-                  ],
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.fromLTRB(16, 16, 16, 32),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              // ── Top Section: Actual Document Preview ─────────────
+              if (isImage)
+                _buildImageSection()
+              else
+                _buildPdfSection(),
+
+              const SizedBox(height: 16),
+
+              // ── Document Metadata Card ───────────────────────────
+              _DocumentCard(document: widget.document),
+
+              if (_errorMessage != null) ...[
+                const SizedBox(height: 12),
+                _MessageCard(message: _errorMessage!, isError: true),
+              ],
+              if (_successMessage != null) ...[
+                const SizedBox(height: 12),
+                _MessageCard(message: _successMessage!),
+              ],
+
+              const SizedBox(height: 20),
+
+              // ── Extracted Text Section Header ────────────────────
+              Text(
+                'Extracted Text',
+                style: GoogleFonts.poppins(
+                  fontSize: 16,
+                  fontWeight: FontWeight.w700,
+                  color: AppColors.primary,
                 ),
               ),
+              const SizedBox(height: 10),
+
+              // ── Stored OCR or Extraction Content ─────────────────
+              ..._statusContent(),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildImageSection() {
+    if (_pages.length > 1) {
+      return Container(
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: AppColors.cardBorder),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withValues(alpha: 0.04),
+              blurRadius: 10,
+              offset: const Offset(0, 2),
+            ),
+          ],
+        ),
+        clipBehavior: Clip.antiAlias,
+        child: Column(
+          children: [
+            SizedBox(
+              height: 320,
+              child: PageView.builder(
+                controller: _pageController,
+                itemCount: _pages.length,
+                onPageChanged: (index) => setState(() => _currentPageIndex = index),
+                itemBuilder: (context, index) {
+                  final page = _pages[index];
+                  return Container(
+                    padding: const EdgeInsets.all(8),
+                    color: AppColors.background.withValues(alpha: 0.5),
+                    child: DocumentImagePreview(
+                      documentId: page.documentId,
+                      attachmentId: page.attachmentId,
+                      fit: BoxFit.contain,
+                      maxHeight: 304,
+                      borderRadius: BorderRadius.circular(12),
+                      showFullScreenOnTap: true,
+                      cacheWidth: 1080,
+                    ),
+                  );
+                },
+              ),
+            ),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+              decoration: const BoxDecoration(
+                border: Border(top: BorderSide(color: AppColors.divider)),
+              ),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  IconButton(
+                    icon: const Icon(Icons.chevron_left_rounded),
+                    onPressed: _currentPageIndex > 0
+                        ? () => _pageController.previousPage(
+                              duration: const Duration(milliseconds: 250),
+                              curve: Curves.easeInOut,
+                            )
+                        : null,
+                    tooltip: 'Previous page',
+                  ),
+                  Text(
+                    'Page ${_currentPageIndex + 1} of ${_pages.length}',
+                    style: GoogleFonts.poppins(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w600,
+                      color: AppColors.textPrimary,
+                    ),
+                  ),
+                  IconButton(
+                    icon: const Icon(Icons.chevron_right_rounded),
+                    onPressed: _currentPageIndex < _pages.length - 1
+                        ? () => _pageController.nextPage(
+                              duration: const Duration(milliseconds: 250),
+                              curve: Curves.easeInOut,
+                            )
+                        : null,
+                    tooltip: 'Next page',
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+
+    // Single page image document
+    final singlePage = _pages.first;
+    return Container(
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: AppColors.cardBorder),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.04),
+            blurRadius: 10,
+            offset: const Offset(0, 2),
+          ),
+        ],
+      ),
+      padding: const EdgeInsets.all(10),
+      child: DocumentImagePreview(
+        documentId: singlePage.documentId,
+        attachmentId: singlePage.attachmentId,
+        fit: BoxFit.contain,
+        maxHeight: 320,
+        borderRadius: BorderRadius.circular(12),
+        showFullScreenOnTap: true,
+        cacheWidth: 1080,
+      ),
+    );
+  }
+
+  Widget _buildPdfSection() {
+    return Container(
+      padding: const EdgeInsets.all(24),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: AppColors.cardBorder),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.04),
+            blurRadius: 10,
+            offset: const Offset(0, 2),
+          ),
+        ],
+      ),
+      child: Column(
+        children: [
+          Container(
+            width: 64,
+            height: 64,
+            decoration: BoxDecoration(
+              color: AppColors.filePdf.withValues(alpha: 0.12),
+              shape: BoxShape.circle,
+            ),
+            child: const Icon(
+              Icons.picture_as_pdf_rounded,
+              color: AppColors.filePdf,
+              size: 36,
+            ),
+          ),
+          const SizedBox(height: 12),
+          Text(
+            widget.document.originalFileName,
+            textAlign: TextAlign.center,
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
+            style: GoogleFonts.poppins(
+              fontSize: 14,
+              fontWeight: FontWeight.w600,
+              color: AppColors.textPrimary,
+            ),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            'PDF Document • ${(widget.document.sizeBytes / 1024).toStringAsFixed(1)} KB',
+            style: GoogleFonts.poppins(
+              fontSize: 12,
+              color: AppColors.textSecondary,
+            ),
+          ),
+        ],
       ),
     );
   }
 
   List<Widget> _statusContent() {
+    if (_isLoadingOcr && _ocr == null) {
+      return [
+        Container(
+          padding: const EdgeInsets.all(20),
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(14),
+            border: Border.all(color: AppColors.cardBorder),
+          ),
+          child: const Center(
+            child: SizedBox(
+              width: 24,
+              height: 24,
+              child: CircularProgressIndicator(
+                strokeWidth: 2.5,
+                color: AppColors.primary,
+              ),
+            ),
+          ),
+        ),
+      ];
+    }
+
     final status = _ocr?.status ?? DocumentOcrStatus.notProcessed;
     if (status == DocumentOcrStatus.ready) {
       return [
         Text(
           'Review and edit the extracted text',
           style: GoogleFonts.poppins(
-            fontSize: 15,
-            fontWeight: FontWeight.w600,
-            color: AppColors.textPrimary,
+            fontSize: 14,
+            fontWeight: FontWeight.w500,
+            color: AppColors.textSecondary,
           ),
         ),
         const SizedBox(height: 8),
@@ -307,7 +598,7 @@ class _DocumentOcrScreenState extends State<DocumentOcrScreen> {
       _MessageCard(
         message: failed
             ? 'The last text extraction did not complete. Your original file is unchanged.'
-            : 'Extract text from this ${widget.document.fileKind == 'pdf' ? 'PDF' : 'image'}, then review and save any corrections.',
+            : 'No extracted text yet.',
         isError: failed,
       ),
       const SizedBox(height: 16),
