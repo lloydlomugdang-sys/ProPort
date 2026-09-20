@@ -10,6 +10,9 @@ String authFormError(Object error) {
   if (error.statusCode == 429 || error.code == 'RATE_LIMITED') {
     return 'Too many attempts. Please wait a moment and try again.';
   }
+  if (error.code == 'SERVER_WAKING') {
+    return 'The server is waking up. Please wait a moment and try again.';
+  }
   if (error.statusCode != null && error.statusCode! >= 500) {
     return 'Something went wrong on the server. Please try again.';
   }
@@ -28,8 +31,12 @@ String authFormError(Object error) {
       return 'The code is invalid or expired. Check it or request a new code.';
     case 'INVALID_OR_EXPIRED_RESET_TOKEN':
       return 'This password reset has expired. Please request a new code.';
+    case 'COLD_START_TIMEOUT':
+      return 'The server is taking longer than usual to wake up. Please try again in a few moments.';
     case 'NETWORK_TIMEOUT':
       return 'The server took too long to respond. Please try again.';
+    case 'NETWORK_OFFLINE':
+      return 'No internet connection. Please check your network and try again.';
     case 'NETWORK_ERROR':
       return 'Unable to connect. Check your internet connection and try again.';
   }

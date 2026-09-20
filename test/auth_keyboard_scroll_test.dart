@@ -10,7 +10,7 @@ import 'package:proport_app/screens/settings/change_password_screen.dart';
 
 void main() {
   final screens = <String, ({Widget screen, String action})>{
-    'Login': (screen: const LoginScreen(), action: 'Login'),
+    'Login': (screen: const LoginScreen(), action: 'Log In'),
     'Change Password': (
       screen: const ChangePasswordScreen(),
       action: 'Save Password',
@@ -79,7 +79,7 @@ void main() {
           if (position.pixels >= position.maxScrollExtent) break;
         }
         expect(position.pixels, greaterThan(0));
-        final action = find.text(entry.value.action);
+        final action = find.text(entry.value.action).last;
         expect(action.hitTestable(), findsOneWidget);
         expect(tester.getRect(action).bottom, lessThan(844 - keyboardHeight));
         expect(tester.testTextInput.isVisible, isTrue);

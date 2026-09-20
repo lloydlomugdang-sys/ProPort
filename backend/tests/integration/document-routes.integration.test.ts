@@ -702,6 +702,62 @@ describe.sequential('authenticated document API with disposable storage and Mong
     ).resolves.toMatchObject({ status: 'ready', reviewedText: editedText });
   });
 
+  it('re-runs OCR extraction when document is already ready, calling engine exactly once and updating stored text', async () => {
+    const pngId = uploadedIds[2]!;
+    // 1. Confirm document OCR is already ready
+    const initialGet = await app!.inject({
+      method: 'GET',
+      url: `/api/v1/documents/${pngId}/ocr`,
+      headers: bearer(firstUser.accessToken),
+    });
+    expect(initialGet.statusCode).toBe(200);
+    const initialData = initialGet.json<{ readonly data: { readonly ocr: OcrBody } }>().data.ocr;
+    expect(initialData.status).toBe('ready');
+    const oldText = initialData.rawText;
+    expect(oldText).toBeDefined();
+
+    // 2. Clear call count and verify GET produces 0 OCR engine calls
+    ocrEngine.calls.length = 0;
+    const secondGet = await app!.inject({
+      method: 'GET',
+      url: `/api/v1/documents/${pngId}/ocr`,
+      headers: bearer(firstUser.accessToken),
+    });
+    expect(secondGet.statusCode).toBe(200);
+    expect(ocrEngine.calls.length).toBe(0);
+
+    // 3. Configure mock engine to return brand new text differing from old fixture
+    const brandNewText = 'Newly extracted OCR text from explicit reprocess request at 2026-09-21.';
+    expect(brandNewText).not.toBe(oldText);
+    ocrEngine.nextRawText = brandNewText;
+
+    // 4. POST /api/v1/documents/:id/ocr to re-extract
+    const reprocessResponse = await app!.inject({
+      method: 'POST',
+      url: `/api/v1/documents/${pngId}/ocr`,
+      headers: bearer(firstUser.accessToken),
+      payload: {},
+    });
+    expect(reprocessResponse.statusCode).toBe(200);
+    expect(ocrEngine.calls.length).toBe(1);
+
+    const reprocessedOcr = reprocessResponse.json<{ readonly data: { readonly ocr: OcrBody } }>().data.ocr;
+    expect(reprocessedOcr.status).toBe('ready');
+    expect(reprocessedOcr.rawText).toBe(brandNewText);
+    expect(reprocessedOcr.reviewedText).toBe(brandNewText);
+
+    // 5. Verify the new text was persisted to the database and returned on subsequent GET
+    const persistedGet = await app!.inject({
+      method: 'GET',
+      url: `/api/v1/documents/${pngId}/ocr`,
+      headers: bearer(firstUser.accessToken),
+    });
+    expect(persistedGet.statusCode).toBe(200);
+    expect(persistedGet.json<{ readonly data: { readonly ocr: OcrBody } }>().data.ocr.rawText).toBe(brandNewText);
+    // GET still caused 0 additional engine calls
+    expect(ocrEngine.calls.length).toBe(1);
+  });
+
   it('suggests from saved reviewed text while preserving raw OCR and existing document metadata', async () => {
     const id = uploadedIds[0]!;
     const before = await app!.inject({ method: 'GET', url: `/api/v1/documents/${id}`, headers: bearer(firstUser.accessToken) });

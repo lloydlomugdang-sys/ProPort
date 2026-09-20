@@ -124,6 +124,7 @@ class DocumentService extends ChangeNotifier {
         fileName: single.name,
         mimeType: single.mimeType,
         fileBytes: single.bytes,
+        requestTimeout: ApiTimeoutPolicy.upload,
       );
     } else {
       final multipartFiles = effectiveFiles
@@ -140,6 +141,7 @@ class DocumentService extends ChangeNotifier {
         _documentsPath,
         fields: fields,
         files: multipartFiles,
+        requestTimeout: ApiTimeoutPolicy.upload,
       );
     }
 

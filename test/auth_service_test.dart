@@ -79,7 +79,7 @@ void main() {
   );
 
   test(
-    'login applies scoped loginTimeout of 30 seconds and overrides shorter default',
+    'login applies scoped loginTimeout of coldStartTolerant (60s) and overrides shorter default',
     () async {
       Duration? capturedTimeout;
       final api = _TimeoutCapturingApiClient(
@@ -97,7 +97,7 @@ void main() {
       final store = _MemoryTokenStore();
       final auth = AuthService(apiClient: api, tokenStore: store);
 
-      expect(AuthService.loginTimeout, const Duration(seconds: 30));
+      expect(AuthService.loginTimeout, ApiTimeoutPolicy.coldStartTolerant);
 
       final user = await auth.login(
         email: 'student@example.com',

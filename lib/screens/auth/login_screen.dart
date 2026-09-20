@@ -1,5 +1,6 @@
 // LOCATION: lib/screens/auth/login_screen.dart
 
+import 'dart:async';
 import 'package:flutter/material.dart';
 import '../../constants/app_colors.dart';
 import 'widgets/auth_form_scroll_view.dart';
@@ -9,6 +10,7 @@ import '../../services/api_client.dart';
 import '../../services/auth_models.dart';
 import '../../services/auth_scope.dart';
 import '../../services/auth_service.dart';
+import '../../services/server_prewarm_service.dart';
 import '../main_screen.dart';
 import 'signup_screen.dart';
 import 'forgot_password_screen.dart';
@@ -30,14 +32,13 @@ class _LoginScreenState extends State<LoginScreen>
   final _passwordCtrl = TextEditingController();
   bool _isLoading = false;
 
-
-
   late final AnimationController _fadeCtrl;
   late final Animation<double> _fadeAnim;
 
   @override
   void initState() {
     super.initState();
+    ServerPrewarmService.instance.prewarm();
     _fadeCtrl = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 380),
@@ -85,7 +86,9 @@ class _LoginScreenState extends State<LoginScreen>
       _showError('Password must be no more than 128 characters.');
       return;
     }
-    setState(() => _isLoading = true);
+    setState(() {
+      _isLoading = true;
+    });
     try {
       await AuthScope.of(context).login(email: email, password: password);
       if (!mounted) return;
@@ -125,7 +128,11 @@ class _LoginScreenState extends State<LoginScreen>
     } catch (_) {
       _showError('Unable to log in right now. Please try again.');
     } finally {
-      if (mounted) setState(() => _isLoading = false);
+      if (mounted) {
+        setState(() {
+          _isLoading = false;
+        });
+      }
     }
   }
 
@@ -193,31 +200,17 @@ class _LoginScreenState extends State<LoginScreen>
                   ] else
                     const SizedBox(height: 16),
 
-                  // ── Title & Subtitle matching mockup ───────────
+                  // ── Title matching mockup ──────────────────────
                   Center(
-                    child: Column(
-                      children: [
-                        Text(
-                          'Log In',
-                          textAlign: TextAlign.center,
-                          style: GoogleFonts.poppins(
-                            fontSize: 26,
-                            fontWeight: FontWeight.w700,
-                            color: AppColors.textPrimary,
-                            height: 1.25,
-                          ),
-                        ),
-                        const SizedBox(height: 6),
-                        Text(
-                          'Sign in to continue your journey.',
-                          textAlign: TextAlign.center,
-                          style: GoogleFonts.poppins(
-                            fontSize: 14,
-                            fontWeight: FontWeight.w400,
-                            color: AppColors.textSecondary,
-                          ),
-                        ),
-                      ],
+                    child: Text(
+                      'Log In',
+                      textAlign: TextAlign.center,
+                      style: GoogleFonts.poppins(
+                        fontSize: 26,
+                        fontWeight: FontWeight.w700,
+                        color: AppColors.textPrimary,
+                        height: 1.25,
+                      ),
                     ),
                   ),
 
@@ -370,6 +363,7 @@ class _LoginScreenState extends State<LoginScreen>
 
   Widget _loginButton() {
     return GestureDetector(
+      key: const Key('loginButton'),
       onTap: _isLoading || isRateLimited ? null : _loginUser,
       child: AnimatedContainer(
         duration: const Duration(milliseconds: 180),
@@ -392,16 +386,31 @@ class _LoginScreenState extends State<LoginScreen>
         ),
         child: Center(
           child: _isLoading
-              ? const SizedBox(
-                  width: 20,
-                  height: 20,
-                  child: CircularProgressIndicator(
-                    strokeWidth: 2.2,
-                    valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
-                  ),
+              ? Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const SizedBox(
+                      width: 18,
+                      height: 18,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2.2,
+                        valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+                    Text(
+                      'Logging in...',
+                      style: GoogleFonts.poppins(
+                        fontSize: 14,
+                        fontWeight: FontWeight.w600,
+                        color: Colors.white,
+                      ),
+                    ),
+                  ],
                 )
               : Text(
-                  'Login',
+                  'Log In',
                   style: GoogleFonts.poppins(
                     fontSize: 15,
                     fontWeight: FontWeight.w600,

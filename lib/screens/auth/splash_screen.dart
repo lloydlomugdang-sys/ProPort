@@ -5,6 +5,7 @@ import 'package:google_fonts/google_fonts.dart';
 import '../../constants/app_colors.dart';
 import '../../services/auth_scope.dart';
 import '../../services/auth_service.dart';
+import '../../services/server_prewarm_service.dart';
 import '../main_screen.dart';
 import 'login_screen.dart';
 
@@ -27,6 +28,7 @@ class _SplashScreenState extends State<SplashScreen>
   @override
   void initState() {
     super.initState();
+    ServerPrewarmService.instance.prewarm();
     _ctrl = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 1200),

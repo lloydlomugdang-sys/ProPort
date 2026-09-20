@@ -29,7 +29,7 @@ class AuthService extends ChangeNotifier {
 
   // Scoped timeout for login requests to accommodate hosting cold starts
   // (e.g. Render spin-ups taking > 6 seconds).
-  static const loginTimeout = Duration(seconds: 30);
+  static const loginTimeout = ApiTimeoutPolicy.coldStartTolerant;
 
   final ApiClient _apiClient;
   final SecureTokenStore _tokenStore;
@@ -64,6 +64,7 @@ class AuthService extends ChangeNotifier {
         'email': email,
         'password': password,
       },
+      requestTimeout: ApiTimeoutPolicy.coldStartTolerant,
     );
     return _parseUser(_dataOf(response)['user']);
   }
@@ -75,6 +76,7 @@ class AuthService extends ChangeNotifier {
     final response = await _apiClient.postJson(
       '$_authPath/email-verification/verify',
       body: {'email': email, 'code': code},
+      requestTimeout: ApiTimeoutPolicy.coldStartTolerant,
     );
     final session = _parseSession(_dataOf(response));
     await _persistAndApply(session);
@@ -85,6 +87,7 @@ class AuthService extends ChangeNotifier {
     await _apiClient.postJson(
       '$_authPath/email-verification/resend',
       body: {'email': email},
+      requestTimeout: ApiTimeoutPolicy.coldStartTolerant,
     );
   }
 
@@ -106,6 +109,7 @@ class AuthService extends ChangeNotifier {
     await _apiClient.postJson(
       '$_authPath/password-reset/request',
       body: {'email': email},
+      requestTimeout: ApiTimeoutPolicy.coldStartTolerant,
     );
   }
 
@@ -116,6 +120,7 @@ class AuthService extends ChangeNotifier {
     final response = await _apiClient.postJson(
       '$_authPath/password-reset/verify',
       body: {'email': email, 'code': code},
+      requestTimeout: ApiTimeoutPolicy.coldStartTolerant,
     );
     final resetToken = _dataOf(response)['resetToken'];
     if (resetToken is! String || resetToken.isEmpty) {
@@ -138,14 +143,18 @@ class AuthService extends ChangeNotifier {
     await _apiClient.postJson(
       '$_authPath/password-reset/complete',
       body: {'resetToken': resetToken, 'newPassword': newPassword},
+      requestTimeout: ApiTimeoutPolicy.coldStartTolerant,
     );
     await _clearLocalSession();
   }
 
   Future<AuthUser> fetchCurrentUser() async {
     final response = await _authenticatedRequest(
-      (accessToken) =>
-          _apiClient.getJson(_currentUserPath, bearerToken: accessToken),
+      (accessToken) => _apiClient.getJson(
+        _currentUserPath,
+        bearerToken: accessToken,
+        requestTimeout: ApiTimeoutPolicy.quickRead,
+      ),
     );
     final data = _dataOf(response);
     if (data['profileOptions'] != null) {
@@ -203,6 +212,7 @@ class AuthService extends ChangeNotifier {
           'yearLevel': yearLevel,
           'school': school,
         },
+        requestTimeout: ApiTimeoutPolicy.mutation,
       ),
     );
     return _applyCurrentUser(_dataOf(response)['user']);
@@ -210,7 +220,10 @@ class AuthService extends ChangeNotifier {
 
   Future<Uint8List?> fetchAvatar() async {
     try {
-      final bytes = await authenticatedGetBytes(_avatarPath);
+      final bytes = await authenticatedGetBytes(
+        _avatarPath,
+        requestTimeout: ApiTimeoutPolicy.quickRead,
+      );
       _avatarBytes = bytes;
       notifyListeners();
       return bytes;
@@ -235,6 +248,7 @@ class AuthService extends ChangeNotifier {
       fileName: filename,
       mimeType: mimeType,
       fileBytes: bytes,
+      requestTimeout: ApiTimeoutPolicy.upload,
     );
     _avatarBytes = bytes;
     final user = _applyCurrentUser(_dataOf(response)['user']);
@@ -428,6 +442,7 @@ class AuthService extends ChangeNotifier {
         await _apiClient.postJson(
           '$_authPath/logout',
           body: {'refreshToken': refreshToken},
+          requestTimeout: ApiTimeoutPolicy.quickRead,
         );
       }
     } finally {
@@ -439,6 +454,7 @@ class AuthService extends ChangeNotifier {
     final response = await _apiClient.postJson(
       '$_authPath/refresh',
       body: {'refreshToken': refreshToken},
+      requestTimeout: ApiTimeoutPolicy.coldStartTolerant,
     );
     await _persistAndApply(_parseSession(_dataOf(response)));
   }

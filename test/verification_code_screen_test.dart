@@ -47,7 +47,7 @@ void main() {
 
     await tester.enterText(find.byType(TextField).at(0), 'student@example.com');
     await tester.enterText(find.byType(TextField).at(1), 'Password1');
-    await tester.tap(find.text('Login'));
+    await tester.tap(find.byKey(const Key('loginButton')));
     await tester.pumpAndSettle();
 
     expect(find.byType(VerificationCodeScreen), findsOneWidget);

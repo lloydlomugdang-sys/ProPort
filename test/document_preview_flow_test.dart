@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
@@ -77,6 +78,7 @@ class _TestDocumentService extends DocumentService {
   int extractOcrCalls = 0;
   int loadOcrCalls = 0;
   String? savedReviewedText;
+  Future<DocumentOcrResult> Function(String documentId)? onExtractText;
 
   @override
   List<DocumentRecord> get documents => _docs;
@@ -119,6 +121,9 @@ class _TestDocumentService extends DocumentService {
   @override
   Future<DocumentOcrResult> extractText(String documentId) async {
     extractOcrCalls++;
+    if (onExtractText != null) {
+      return onExtractText!(documentId);
+    }
     ocrResult = const DocumentOcrResult(
       status: DocumentOcrStatus.ready,
       rawText: 'Newly extracted text',
@@ -510,6 +515,154 @@ void main() {
       expect(docService.extractOcrCalls, 1);
       expect(find.text('Newly extracted text'), findsOneWidget);
     });
+
+    testWidgets('Extract Again dialog cancel does not trigger extraction', (
+      tester,
+    ) async {
+      final auth = _MockAuthService(contentBytes: samplePngBytes);
+      final doc = _makeImageDoc();
+      final docService = _TestDocumentService(
+        authService: auth,
+        documents: [doc],
+        ocrResult: const DocumentOcrResult(
+          status: DocumentOcrStatus.ready,
+          reviewedText: 'Existing text',
+        ),
+      );
+
+      await tester.pumpWidget(
+        _wrapWithScope(
+          documentService: docService,
+          child: DocumentOcrScreen(document: doc),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.ensureVisible(find.text('Extract Again'));
+      await tester.tap(find.text('Extract Again'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Extract text again?'), findsOneWidget);
+
+      // Tap Cancel
+      await tester.tap(find.text('Cancel'));
+      await tester.pumpAndSettle();
+
+      // Dialog is dismissed, 0 extraction calls made
+      expect(find.text('Extract text again?'), findsNothing);
+      expect(docService.extractOcrCalls, 0);
+      expect(find.text('Existing text'), findsOneWidget);
+    });
+
+    testWidgets('Extract Again displays extracting state with spinner and prevents duplicate taps', (
+      tester,
+    ) async {
+      final auth = _MockAuthService(contentBytes: samplePngBytes);
+      final doc = _makeImageDoc();
+      final completer = Completer<DocumentOcrResult>();
+      final docService = _TestDocumentService(
+        authService: auth,
+        documents: [doc],
+        ocrResult: const DocumentOcrResult(
+          status: DocumentOcrStatus.ready,
+          reviewedText: 'Existing text',
+        ),
+      );
+      docService.onExtractText = (_) => completer.future;
+
+      await tester.pumpWidget(
+        _wrapWithScope(
+          documentService: docService,
+          child: DocumentOcrScreen(document: doc),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.ensureVisible(find.text('Extract Again'));
+      await tester.tap(find.text('Extract Again'));
+      await tester.pumpAndSettle();
+
+      // Confirm extraction
+      await tester.tap(find.text('Extract Again').last);
+      // Pump one frame to start extraction without completing the future
+      await tester.pump();
+
+      // In-flight state: Extracting... with spinner
+      expect(find.text('Extracting...'), findsOneWidget);
+      expect(find.byType(CircularProgressIndicator), findsOneWidget);
+      expect(docService.extractOcrCalls, 1);
+
+      // Attempt repeated tap while processing
+      await tester.tap(find.text('Extracting...'));
+      await tester.pump();
+      // Should NOT trigger duplicate calls
+      expect(docService.extractOcrCalls, 1);
+
+      // Complete extraction
+      completer.complete(
+        const DocumentOcrResult(
+          status: DocumentOcrStatus.ready,
+          rawText: 'Brand new text',
+          reviewedText: 'Brand new text',
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      // Finished: shows normal button and new text
+      expect(find.text('Extract Again'), findsOneWidget);
+      expect(find.text('Brand new text'), findsOneWidget);
+    });
+
+    testWidgets('Extract Again failure preserves user-edited text in controller and displays error', (
+      tester,
+    ) async {
+      final auth = _MockAuthService(contentBytes: samplePngBytes);
+      final doc = _makeImageDoc();
+      final docService = _TestDocumentService(
+        authService: auth,
+        documents: [doc],
+        ocrResult: const DocumentOcrResult(
+          status: DocumentOcrStatus.ready,
+          reviewedText: 'Initial text',
+        ),
+      );
+      docService.onExtractText = (_) => throw const ApiException(
+            code: 'OCR_TIMEOUT',
+            message: 'Text extraction timed out. Please try again.',
+          );
+
+      await tester.pumpWidget(
+        _wrapWithScope(
+          documentService: docService,
+          child: DocumentOcrScreen(document: doc),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      // User modifies text locally in the text field
+      final textFieldFinder = find.byType(TextField);
+      expect(textFieldFinder, findsOneWidget);
+      await tester.enterText(textFieldFinder, 'User draft before failed re-extraction');
+      await tester.pumpAndSettle();
+
+      // Tap Extract Again and confirm
+      await tester.ensureVisible(find.text('Extract Again'));
+      await tester.tap(find.text('Extract Again'));
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.text('Extract Again').last);
+      await tester.pumpAndSettle();
+
+      // Verify error feedback is displayed
+      expect(find.text('Text extraction timed out. Please try again.'), findsOneWidget);
+
+      // CRITICAL: User-edited text must NOT be erased or overwritten with initial text
+      expect(find.text('User draft before failed re-extraction'), findsOneWidget);
+      expect(find.text('Initial text'), findsNothing);
+
+      // Button is enabled again
+      expect(find.text('Extract Again'), findsOneWidget);
+    });
   });
 
   group('Goal 4: Multi-Page Document Viewing', () {
@@ -572,7 +725,7 @@ void main() {
   });
 
   group('Goal 5: Login Screen Title & Subtitle Alignment', () {
-    testWidgets('Login screen displays centered "Log In", does NOT display "Welcome Back!", and centers subtitle', (
+    testWidgets('Login screen displays centered "Log In", does NOT display "Welcome Back!" or old subtitle', (
       tester,
     ) async {
       final auth = _MockAuthService();
@@ -587,24 +740,21 @@ void main() {
       );
       await tester.pumpAndSettle();
 
-      // "Log In" title is visible
-      expect(find.text('Log In'), findsOneWidget);
+      // "Log In" appears for title and button
+      expect(find.text('Log In'), findsNWidgets(2));
       // "Welcome Back!" is NOT visible
       expect(find.text('Welcome Back!'), findsNothing);
 
-      // Subtitle is visible
-      expect(find.text('Sign in to continue your journey.'), findsOneWidget);
+      // Old subtitle is removed
+      expect(find.text('Sign in to continue your journey.'), findsNothing);
 
-      // Verify centered alignment
-      final titleWidget = tester.widget<Text>(find.text('Log In'));
+      // Verify centered title alignment
+      final titleWidget = tester.widget<Text>(find.text('Log In').first);
       expect(titleWidget.textAlign, TextAlign.center);
-
-      final subtitleWidget = tester.widget<Text>(find.text('Sign in to continue your journey.'));
-      expect(subtitleWidget.textAlign, TextAlign.center);
 
       // Essential login components remain present
       expect(find.byType(TextField), findsNWidgets(2)); // Email & Password
-      expect(find.text('Login'), findsOneWidget);
+      expect(find.byKey(const Key('loginButton')), findsOneWidget);
       expect(find.text('Forgot password?'), findsOneWidget);
       expect(find.text('Sign Up'), findsOneWidget);
     });

@@ -169,6 +169,9 @@ class _DocumentOcrScreenState extends State<DocumentOcrScreen> {
       if (confirmed != true || !mounted) return;
     }
 
+    final wasReady = _ocr?.isReady == true;
+    final retainedText = _reviewedTextController.text;
+
     setState(() {
       _isProcessing = true;
       _errorMessage = null;
@@ -180,16 +183,41 @@ class _DocumentOcrScreenState extends State<DocumentOcrScreen> {
       ).extractText(widget.document.id);
       if (!mounted) return;
       _applyResult(result);
+      setState(() => _successMessage = 'Text extracted successfully.');
       _showSnack('Text extracted. Review it before saving changes.');
     } on ApiException catch (error) {
-      await _refreshFailedStatus();
-      if (mounted) setState(() => _errorMessage = _messageFor(error));
+      if (wasReady) {
+        if (mounted) {
+          setState(() {
+            _reviewedTextController.text = retainedText;
+            _errorMessage = _messageFor(error);
+          });
+        }
+      } else {
+        await _refreshFailedStatus();
+        if (mounted) {
+          setState(() {
+            _reviewedTextController.text = retainedText;
+            _errorMessage = _messageFor(error);
+          });
+        }
+      }
     } catch (_) {
-      await _refreshFailedStatus();
-      if (mounted) {
-        setState(
-          () => _errorMessage = 'Unable to extract text. Please try again.',
-        );
+      if (wasReady) {
+        if (mounted) {
+          setState(() {
+            _reviewedTextController.text = retainedText;
+            _errorMessage = 'Unable to extract text. Please try again.';
+          });
+        }
+      } else {
+        await _refreshFailedStatus();
+        if (mounted) {
+          setState(() {
+            _reviewedTextController.text = retainedText;
+            _errorMessage = 'Unable to extract text. Please try again.';
+          });
+        }
       }
     } finally {
       if (mounted) setState(() => _isProcessing = false);
@@ -290,15 +318,6 @@ class _DocumentOcrScreenState extends State<DocumentOcrScreen> {
 
               // ── Document Metadata Card ───────────────────────────
               _DocumentCard(document: widget.document),
-
-              if (_errorMessage != null) ...[
-                const SizedBox(height: 12),
-                _MessageCard(message: _errorMessage!, isError: true),
-              ],
-              if (_successMessage != null) ...[
-                const SizedBox(height: 12),
-                _MessageCard(message: _successMessage!),
-              ],
 
               const SizedBox(height: 20),
 
@@ -530,6 +549,7 @@ class _DocumentOcrScreenState extends State<DocumentOcrScreen> {
         TextField(
           key: const Key('ocr-reviewed-text'),
           controller: _reviewedTextController,
+          readOnly: _isProcessing,
           minLines: 12,
           maxLines: null,
           maxLength: 200000,
@@ -564,10 +584,26 @@ class _DocumentOcrScreenState extends State<DocumentOcrScreen> {
         ),
         const SizedBox(height: 12),
         SecondaryButton(
-          label: 'Extract Again',
-          onPressed: _requestExtraction,
+          key: const Key('extract-again-button'),
+          label: _isProcessing ? 'Extracting...' : 'Extract Again',
+          onPressed: (_isProcessing || _isSaving) ? null : _requestExtraction,
+          isLoading: _isProcessing,
           icon: Icons.document_scanner_outlined,
         ),
+        if (_isProcessing) ...[
+          const SizedBox(height: 12),
+          const _MessageCard(
+            message: 'Extracting text from document... This may take a moment.',
+          ),
+        ],
+        if (_errorMessage != null) ...[
+          const SizedBox(height: 12),
+          _MessageCard(message: _errorMessage!, isError: true),
+        ],
+        if (_successMessage != null) ...[
+          const SizedBox(height: 12),
+          _MessageCard(message: _successMessage!),
+        ],
       ];
     }
 
@@ -590,6 +626,10 @@ class _DocumentOcrScreenState extends State<DocumentOcrScreen> {
             icon: Icons.refresh,
           ),
         ],
+        if (_errorMessage != null) ...[
+          const SizedBox(height: 12),
+          _MessageCard(message: _errorMessage!, isError: true),
+        ],
       ];
     }
 
@@ -608,6 +648,14 @@ class _DocumentOcrScreenState extends State<DocumentOcrScreen> {
         isLoading: _isProcessing,
         icon: Icons.document_scanner_outlined,
       ),
+      if (_errorMessage != null) ...[
+        const SizedBox(height: 12),
+        _MessageCard(message: _errorMessage!, isError: true),
+      ],
+      if (_successMessage != null) ...[
+        const SizedBox(height: 12),
+        _MessageCard(message: _successMessage!),
+      ],
     ];
   }
 }
