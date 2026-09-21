@@ -26,10 +26,15 @@ const pdfStandardFontsUrl = pathToFileURL(
   `${join(pdfPackageRoot, 'standard_fonts')}${sep}`,
 ).href;
 
+// Bound libvips memory and descriptor caching on memory-constrained instances
+sharp.cache({ memory: 16, files: 0, items: 10 });
+
 export const OCR_PROCESSING_TIMEOUT_MS = 45_000;
 export const OCR_MAX_IMAGE_PIXELS = 25_000_000;
 export const OCR_MAX_PDF_PAGES = 100;
 export const OCR_MAX_TEXT_LENGTH = 200_000;
+export const OCR_MAX_WORKING_DIMENSION = 2000;
+export const OCR_MIN_UPSCALE_DIMENSION = 1000;
 
 export interface ImageDimensions {
   readonly width: number;
@@ -430,12 +435,18 @@ export async function preprocessOcrImage(
 ): Promise<Buffer> {
   let pipeline = sharp(contents).rotate();
 
-  const canUpscale =
-    dimensions.width < 2000 &&
-    dimensions.height < 2000 &&
-    dimensions.width * 2 * dimensions.height * 2 <= OCR_MAX_IMAGE_PIXELS;
-
-  if (canUpscale) {
+  const longestEdge = Math.max(dimensions.width, dimensions.height);
+  if (longestEdge > OCR_MAX_WORKING_DIMENSION) {
+    pipeline = pipeline.resize({
+      width: OCR_MAX_WORKING_DIMENSION,
+      height: OCR_MAX_WORKING_DIMENSION,
+      fit: 'inside',
+      withoutEnlargement: true,
+    });
+  } else if (
+    longestEdge < OCR_MIN_UPSCALE_DIMENSION &&
+    dimensions.width * 2 * dimensions.height * 2 <= OCR_MAX_IMAGE_PIXELS
+  ) {
     pipeline = pipeline.resize({
       width: dimensions.width * 2,
       height: dimensions.height * 2,
@@ -454,12 +465,18 @@ export async function preprocessOcrColorAware(
 ): Promise<Buffer> {
   let pipeline = sharp(contents).rotate();
 
-  const canUpscale =
-    dimensions.width < 2000 &&
-    dimensions.height < 2000 &&
-    dimensions.width * 2 * dimensions.height * 2 <= OCR_MAX_IMAGE_PIXELS;
-
-  if (canUpscale) {
+  const longestEdge = Math.max(dimensions.width, dimensions.height);
+  if (longestEdge > OCR_MAX_WORKING_DIMENSION) {
+    pipeline = pipeline.resize({
+      width: OCR_MAX_WORKING_DIMENSION,
+      height: OCR_MAX_WORKING_DIMENSION,
+      fit: 'inside',
+      withoutEnlargement: true,
+    });
+  } else if (
+    longestEdge < OCR_MIN_UPSCALE_DIMENSION &&
+    dimensions.width * 2 * dimensions.height * 2 <= OCR_MAX_IMAGE_PIXELS
+  ) {
     pipeline = pipeline.resize({
       width: dimensions.width * 2,
       height: dimensions.height * 2,
@@ -470,13 +487,12 @@ export async function preprocessOcrColorAware(
   const { data, info } = await pipeline.raw().toBuffer({ resolveWithObject: true });
   const channels = info.channels;
   const pixelCount = info.width * info.height;
-  const outData = Buffer.from(data);
 
   for (let i = 0; i < pixelCount; i += 1) {
     const idx = i * channels;
-    const r = outData[idx]!;
-    const g = outData[idx + 1]!;
-    const b = outData[idx + 2]!;
+    const r = data[idx]!;
+    const g = data[idx + 1]!;
+    const b = data[idx + 2]!;
 
     const isDarkInk =
       (r <= 90 && g <= 90 && b <= 100) ||
@@ -491,14 +507,14 @@ export async function preprocessOcrColorAware(
         g >= b + 15;
 
       if (isWarmOrnament) {
-        outData[idx] = 255;
-        outData[idx + 1] = 255;
-        outData[idx + 2] = 255;
+        data[idx] = 255;
+        data[idx + 1] = 255;
+        data[idx + 2] = 255;
       }
     }
   }
 
-  return await sharp(outData, {
+  return await sharp(data, {
     raw: {
       width: info.width,
       height: info.height,
@@ -518,24 +534,38 @@ export async function binarizeOcrImage(preprocessedBuffer: Buffer): Promise<Buff
 
 export class LocalOcrEngine implements OcrEngine {
   private activeJobs = 0;
+  private readonly activeDocumentIds = new Set<string>();
   public lastExecutedPassCount = 0;
   public lastExecutedCandidates: readonly OcrCandidate[] = [];
 
   constructor(
     private readonly timeoutMs = OCR_PROCESSING_TIMEOUT_MS,
-    private readonly maxConcurrentJobs = 2,
+    private readonly maxConcurrentJobs = 1,
   ) {}
 
+  isBusy(): boolean {
+    return this.activeJobs >= this.maxConcurrentJobs;
+  }
+
   async extract(input: OcrInput): Promise<OcrExtraction> {
-    if (this.activeJobs >= this.maxConcurrentJobs) {
+    if (input.documentId && this.activeDocumentIds.has(input.documentId)) {
       throw new OcrEngineError('unavailable');
     }
+    if (this.activeJobs >= this.maxConcurrentJobs) {
+      throw new OcrEngineError('busy');
+    }
     this.activeJobs += 1;
+    if (input.documentId) {
+      this.activeDocumentIds.add(input.documentId);
+    }
     try {
       if (input.fileKind === 'image') return await this.extractImage(input.contents);
       return await this.extractPdf(input.contents);
     } finally {
       this.activeJobs -= 1;
+      if (input.documentId) {
+        this.activeDocumentIds.delete(input.documentId);
+      }
     }
   }
 
@@ -546,7 +576,7 @@ export class LocalOcrEngine implements OcrEngine {
       throw new OcrEngineError('image-too-large');
     }
 
-    let preprocessedBuffer: Buffer;
+    let preprocessedBuffer: Buffer | null = null;
     try {
       preprocessedBuffer = await preprocessOcrImage(contents, dimensions);
     } catch (error) {
@@ -617,7 +647,10 @@ export class LocalOcrEngine implements OcrEngine {
         try {
           colorAwareBuffer = await preprocessOcrColorAware(contents, dimensions);
         } catch {
-          colorAwareBuffer = preprocessedBuffer;
+          colorAwareBuffer = preprocessedBuffer!;
+        }
+        if (colorAwareBuffer !== preprocessedBuffer) {
+          preprocessedBuffer = null;
         }
         if (timedOut) {
           await terminate();
@@ -654,24 +687,28 @@ export class LocalOcrEngine implements OcrEngine {
           }
           const targetBuffer =
             bestSoFar.pass === 'color-aware' ? colorAwareBuffer : preprocessedBuffer;
-          const result3 = await (worker as unknown as WorkerWithOutput).recognize(
-            targetBuffer as unknown as Tesseract.ImageLike,
-            {},
-            { text: true, blocks: true },
-          );
-          if (timedOut) {
-            await terminate();
-            throw new OcrEngineError('timeout');
+          if (targetBuffer) {
+            const result3 = await (worker as unknown as WorkerWithOutput).recognize(
+              targetBuffer as unknown as Tesseract.ImageLike,
+              {},
+              { text: true, blocks: true },
+            );
+            if (timedOut) {
+              await terminate();
+              throw new OcrEngineError('timeout');
+            }
+            const cand3: OcrCandidate = {
+              text: result3.data.text,
+              confidence: result3.data.confidence,
+              pass: 'sparse',
+              lines: extractLinesInfo(result3.data.blocks),
+            };
+            candidates.push(cand3);
           }
-          const cand3: OcrCandidate = {
-            text: result3.data.text,
-            confidence: result3.data.confidence,
-            pass: 'sparse',
-            lines: extractLinesInfo(result3.data.blocks),
-          };
-          candidates.push(cand3);
         }
       }
+
+      preprocessedBuffer = null;
 
       const winner = selectBestCandidate(candidates);
       this.lastExecutedPassCount = candidates.length;
@@ -695,6 +732,7 @@ export class LocalOcrEngine implements OcrEngine {
       if (error instanceof OcrEngineError) throw error;
       throw new OcrEngineError('unavailable', { cause: error });
     } finally {
+      preprocessedBuffer = null;
       if (timer !== undefined) clearTimeout(timer);
       await terminate();
     }

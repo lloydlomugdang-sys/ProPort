@@ -1,5 +1,5 @@
 import type { Model, Types } from 'mongoose';
-import type { Document, OcrEngineName } from '../models/index.js';
+import type { Document, OcrEngineName, OcrStatus } from '../models/index.js';
 import {
   asPersistedRecord,
   boundedLimit,
@@ -223,6 +223,40 @@ export class DocumentRepository {
       { $set: { ocr: { status: 'failed', engine, updatedAt: failedAt } } },
       { runValidators: true, strict: 'throw' },
     );
+  }
+
+  async releaseOcrClaim(
+    ownerId: Types.ObjectId,
+    id: Types.ObjectId,
+    processingId: string,
+    previousStatus?: OcrStatus,
+  ): Promise<void> {
+    if (previousStatus === 'ready') {
+      await this.model.updateOne(
+        { _id: id, ownerId, 'ocr.status': 'processing', 'ocr.processingId': processingId },
+        {
+          $set: {
+            'ocr.status': 'ready',
+            'ocr.updatedAt': new Date(),
+          },
+          $unset: {
+            'ocr.processingId': 1,
+            'ocr.processingExpiresAt': 1,
+          },
+        },
+        { runValidators: true, strict: 'throw' },
+      );
+    } else {
+      await this.model.updateOne(
+        { _id: id, ownerId, 'ocr.status': 'processing', 'ocr.processingId': processingId },
+        {
+          $unset: {
+            ocr: 1,
+          },
+        },
+        { runValidators: true, strict: 'throw' },
+      );
+    }
   }
 
   async updateReviewedOcrText(

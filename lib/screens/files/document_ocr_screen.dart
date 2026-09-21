@@ -186,7 +186,8 @@ class _DocumentOcrScreenState extends State<DocumentOcrScreen> {
       setState(() => _successMessage = 'Text extracted successfully.');
       _showSnack('Text extracted. Review it before saving changes.');
     } on ApiException catch (error) {
-      if (wasReady) {
+      final isBusy = error.code == 'OCR_BUSY' || error.statusCode == 503;
+      if (wasReady || isBusy) {
         if (mounted) {
           setState(() {
             _reviewedTextController.text = retainedText;
@@ -291,6 +292,11 @@ class _DocumentOcrScreenState extends State<DocumentOcrScreen> {
   String _messageFor(ApiException error) {
     if (error.code == 'SCANNED_PDF_OCR_NOT_SUPPORTED') {
       return 'This PDF appears to be scanned. For this demo, upload the page as JPG or PNG to extract its text.';
+    }
+    if (error.code == 'OCR_BUSY' || error.statusCode == 503) {
+      return error.message.isNotEmpty
+          ? error.message
+          : 'Server is busy processing another document. Please try again in a few moments.';
     }
     return error.message;
   }

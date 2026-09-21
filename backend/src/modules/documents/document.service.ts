@@ -186,6 +186,12 @@ function publicOcr(document: DocumentRecord): PublicDocumentOcr {
 function mappedOcrError(error: unknown): AppError {
   if (!(error instanceof OcrEngineError)) return ocrUnavailable(error);
   switch (error.reason) {
+    case 'busy':
+      return new AppError(
+        503,
+        'OCR_BUSY',
+        'The server is busy processing another document. Please try again in a few moments.',
+      );
     case 'invalid-image':
       return new AppError(422, 'INVALID_OCR_IMAGE', 'The uploaded image cannot be processed.');
     case 'image-too-large':
@@ -642,6 +648,18 @@ export class DocumentService {
     }
 
     const repositories = this.repositories();
+    if (
+      'isBusy' in this.ocrEngine &&
+      typeof (this.ocrEngine as { isBusy?: () => boolean }).isBusy === 'function' &&
+      (this.ocrEngine as { isBusy: () => boolean }).isBusy()
+    ) {
+      throw new AppError(
+        503,
+        'OCR_BUSY',
+        'The server is busy processing another document. Please try again in a few moments.',
+      );
+    }
+
     const processingId = randomUUID();
     const startedAt = new Date();
     const engine: OcrEngineName = document.fileKind === 'image' ? 'tesseract.js' : 'pdfjs';
@@ -695,6 +713,7 @@ export class DocumentService {
           contents,
           mimeType: att.mimeType,
           fileKind: att.fileKind,
+          documentId: document._id.toHexString(),
         });
         if (extracted.rawText.trim().length > 0) {
           textChunks.push(
@@ -724,6 +743,28 @@ export class DocumentService {
       if (completed === null) throw ocrUnavailable();
       return this.withSuggestions(publicOcr(completed));
     } catch (error) {
+      const isBusy =
+        (error instanceof OcrEngineError && error.reason === 'busy') ||
+        (error instanceof AppError && error.code === 'OCR_BUSY');
+
+      if (isBusy) {
+        try {
+          await repositories.documents.releaseOcrClaim(
+            ownerId,
+            document._id,
+            processingId,
+            document.ocr?.status,
+          );
+        } catch {
+          // Preserve the extraction error; release state is best-effort only.
+        }
+        throw new AppError(
+          503,
+          'OCR_BUSY',
+          'The server is busy processing another document. Please try again in a few moments.',
+        );
+      }
+
       try {
         await repositories.documents.failOcr(
           ownerId,

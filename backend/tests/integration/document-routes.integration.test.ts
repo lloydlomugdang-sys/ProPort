@@ -861,6 +861,7 @@ describe.sequential('authenticated document API with disposable storage and Mong
   it.each([
     ['protected-pdf', 422, 'PROTECTED_PDF_NOT_SUPPORTED'],
     ['timeout', 504, 'OCR_TIMEOUT'],
+    ['busy', 503, 'OCR_BUSY'],
   ] as const)('maps %s OCR failures to a safe API error', async (reason, status, code) => {
     const id = uploadedIds[0]!;
     ocrEngine.nextFailure = new OcrEngineError(reason);
@@ -874,6 +875,43 @@ describe.sequential('authenticated document API with disposable storage and Mong
       status,
       code,
     );
+  });
+
+  it('maps busy OCR failure to 503 OCR_BUSY and preserves existing ready state without marking failed', async () => {
+    const id = uploadedIds[2]!;
+    const initialOcr = await app!.inject({
+      method: 'GET',
+      url: `/api/v1/documents/${id}/ocr`,
+      headers: bearer(firstUser.accessToken),
+    });
+    expect(initialOcr.json()).toMatchObject({ data: { ocr: { status: 'ready' } } });
+    const readyText = (initialOcr.json() as { data: { ocr: { rawText: string } } }).data.ocr.rawText;
+
+    ocrEngine.nextFailure = new OcrEngineError('busy');
+    expectError(
+      await app!.inject({
+        method: 'POST',
+        url: `/api/v1/documents/${id}/ocr`,
+        headers: bearer(firstUser.accessToken),
+        payload: {},
+      }),
+      503,
+      'OCR_BUSY',
+    );
+
+    const afterBusy = await app!.inject({
+      method: 'GET',
+      url: `/api/v1/documents/${id}/ocr`,
+      headers: bearer(firstUser.accessToken),
+    });
+    expect(afterBusy.json()).toMatchObject({
+      data: {
+        ocr: {
+          status: 'ready',
+          rawText: readyText,
+        },
+      },
+    });
   });
 
   it('handles empty image results, validates endpoint bodies, and supports a successful retry', async () => {

@@ -74,6 +74,85 @@ describe('local OCR engine', () => {
     ).rejects.toMatchObject({ reason: 'image-too-large' });
   });
 
+  it('rejects concurrent extraction jobs when maxConcurrentJobs limit is reached with busy reason', async () => {
+    const singleWorkerEngine = new LocalOcrEngine(10_000, 1);
+    expect(singleWorkerEngine.isBusy()).toBe(false);
+
+    const slowJobPromise = singleWorkerEngine.extract({
+      contents: pdfFixture('GradPort embedded PDF text 1'),
+      mimeType: 'application/pdf',
+      fileKind: 'pdf',
+    });
+
+    await expect(
+      singleWorkerEngine.extract({
+        contents: pdfFixture('GradPort embedded PDF text 2'),
+        mimeType: 'application/pdf',
+        fileKind: 'pdf',
+      }),
+    ).rejects.toMatchObject({ reason: 'busy' });
+
+    await slowJobPromise;
+    expect(singleWorkerEngine.isBusy()).toBe(false);
+  });
+
+  it('rejects duplicate extraction job for the same documentId with unavailable reason', async () => {
+    const multiWorkerEngine = new LocalOcrEngine(10_000, 2);
+    const docId = 'doc-test-concurrent-123';
+    const firstJob = multiWorkerEngine.extract({
+      contents: pdfFixture('GradPort embedded PDF text 1'),
+      mimeType: 'application/pdf',
+      fileKind: 'pdf',
+      documentId: docId,
+    });
+
+    await expect(
+      multiWorkerEngine.extract({
+        contents: pdfFixture('GradPort embedded PDF text 2'),
+        mimeType: 'application/pdf',
+        fileKind: 'pdf',
+        documentId: docId,
+      }),
+    ).rejects.toMatchObject({ reason: 'unavailable' });
+
+    await firstJob;
+  });
+
+  describe('dimension scaling', () => {
+    it('upscales small images under 1000px longest edge by 2x', async () => {
+      const smallSvg = Buffer.from(
+        '<svg width="400" height="300" xmlns="http://www.w3.org/2000/svg"><rect width="100%" height="100%" fill="#ffffff"/></svg>',
+      );
+      const png = await sharp(smallSvg).png().toBuffer();
+      const preprocessed = await preprocessOcrImage(png, { width: 400, height: 300 });
+      const metadata = await sharp(preprocessed).metadata();
+      expect(metadata.width).toBe(800);
+      expect(metadata.height).toBe(600);
+    });
+
+    it('preserves native dimensions for images between 1000px and 2000px', async () => {
+      const medSvg = Buffer.from(
+        '<svg width="1500" height="1000" xmlns="http://www.w3.org/2000/svg"><rect width="100%" height="100%" fill="#ffffff"/></svg>',
+      );
+      const png = await sharp(medSvg).png().toBuffer();
+      const preprocessed = await preprocessOcrImage(png, { width: 1500, height: 1000 });
+      const metadata = await sharp(preprocessed).metadata();
+      expect(metadata.width).toBe(1500);
+      expect(metadata.height).toBe(1000);
+    });
+
+    it('clamps images over 2000px longest edge to max 2000px', async () => {
+      const largeSvg = Buffer.from(
+        '<svg width="3000" height="2000" xmlns="http://www.w3.org/2000/svg"><rect width="100%" height="100%" fill="#ffffff"/></svg>',
+      );
+      const png = await sharp(largeSvg).png().toBuffer();
+      const preprocessed = await preprocessOcrImage(png, { width: 3000, height: 2000 });
+      const metadata = await sharp(preprocessed).metadata();
+      expect(metadata.width).toBe(2000);
+      expect(metadata.height).toBe(1333);
+    });
+  });
+
   describe('selectBestCandidate', () => {
     it('selects candidate with significantly higher confidence (> 3 points) as primary signal', () => {
       const candidates: OcrCandidate[] = [

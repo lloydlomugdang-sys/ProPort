@@ -663,6 +663,53 @@ void main() {
       // Button is enabled again
       expect(find.text('Extract Again'), findsOneWidget);
     });
+
+    testWidgets('Extract Again receives OCR_BUSY: preserves text, shows retry message, and keeps retry action enabled', (
+      tester,
+    ) async {
+      final auth = _MockAuthService(contentBytes: samplePngBytes);
+      final doc = _makeImageDoc();
+      final docService = _TestDocumentService(
+        authService: auth,
+        documents: [doc],
+        ocrResult: const DocumentOcrResult(
+          status: DocumentOcrStatus.ready,
+          rawText: 'Original extracted text',
+          reviewedText: 'Original reviewed text',
+        ),
+      );
+
+      docService.onExtractText = (_) => throw const ApiException(
+            statusCode: 503,
+            code: 'OCR_BUSY',
+            message: 'The server is busy processing another document. Please try again in a few moments.',
+          );
+
+      await tester.pumpWidget(
+        _wrapWithScope(
+          documentService: docService,
+          child: DocumentOcrScreen(document: doc),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.text('Original reviewed text'), findsOneWidget);
+
+      await tester.ensureVisible(find.text('Extract Again'));
+      await tester.tap(find.text('Extract Again'));
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.text('Extract Again').last);
+      await tester.pumpAndSettle();
+
+      expect(
+        find.text('The server is busy processing another document. Please try again in a few moments.'),
+        findsOneWidget,
+      );
+
+      expect(find.text('Original reviewed text'), findsOneWidget);
+      expect(find.text('Extract Again'), findsOneWidget);
+    });
   });
 
   group('Goal 4: Multi-Page Document Viewing', () {

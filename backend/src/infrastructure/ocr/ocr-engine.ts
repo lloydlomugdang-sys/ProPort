@@ -4,6 +4,7 @@ export interface OcrInput {
   readonly contents: Buffer;
   readonly mimeType: string;
   readonly fileKind: 'image' | 'pdf';
+  readonly documentId?: string;
 }
 
 export interface OcrExtraction {
@@ -12,6 +13,7 @@ export interface OcrExtraction {
 }
 
 export type OcrEngineFailureReason =
+  | 'busy'
   | 'invalid-image'
   | 'image-too-large'
   | 'invalid-pdf'
