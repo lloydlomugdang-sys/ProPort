@@ -14,4 +14,8 @@ class DocumentScope extends InheritedNotifier<DocumentService> {
     assert(scope != null, 'No DocumentScope found above this context.');
     return scope!.notifier!;
   }
+
+  static DocumentService? maybeOf(BuildContext context) {
+    return context.dependOnInheritedWidgetOfExactType<DocumentScope>()?.notifier;
+  }
 }

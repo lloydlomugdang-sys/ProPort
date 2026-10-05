@@ -4,6 +4,10 @@ import type { PublicDocumentCategory } from '../../modules/documents/document.se
 export interface MetadataProvider {
   readonly model?: string;
   recommend(text: string, categories: readonly PublicDocumentCategory[]): Promise<unknown>;
+  separateCompiled?(
+    pages: readonly { readonly pageNumber: number; readonly text: string }[],
+    categories: readonly PublicDocumentCategory[],
+  ): Promise<unknown>;
 }
 
 export type MetadataFailureCode =
@@ -44,5 +48,38 @@ export const metadataRecommendationSchema = {
     title: { type: ['string', 'null'] },
     date: { type: ['string', 'null'] },
     descriptionQuotes: { type: 'array', maxItems: 3, items: { type: 'string' } },
+  },
+} as const;
+
+export const compiledDocumentSeparationSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['documents'],
+  properties: {
+    documents: {
+      type: 'array',
+      items: {
+        type: 'object',
+        additionalProperties: false,
+        required: [
+          'startPage',
+          'endPage',
+          'categoryKey',
+          'folderKey',
+          'title',
+          'documentDate',
+          'confidence',
+        ],
+        properties: {
+          startPage: { type: 'integer' },
+          endPage: { type: 'integer' },
+          categoryKey: { type: ['string', 'null'] },
+          folderKey: { type: ['string', 'null'] },
+          title: { type: ['string', 'null'] },
+          documentDate: { type: ['string', 'null'] },
+          confidence: { type: 'number' },
+        },
+      },
+    },
   },
 } as const;

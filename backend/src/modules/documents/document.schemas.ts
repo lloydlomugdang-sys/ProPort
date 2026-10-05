@@ -248,3 +248,127 @@ export const documentOcrPatchSchema = {
     reviewedText: { type: 'string', maxLength: 200_000 },
   },
 } as const;
+
+export const documentPatchSchema = {
+  type: 'object',
+  additionalProperties: false,
+  properties: {
+    categoryKey: { type: 'string', minLength: 1, maxLength: 100 },
+    folderKey: { type: 'string', minLength: 1, maxLength: 100 },
+    title: { type: 'string', minLength: 1, maxLength: 250 },
+    documentDate: { type: 'string', pattern: '^\\d{4}-\\d{2}-\\d{2}$' },
+    description: { type: 'string', maxLength: 2_000 },
+    reflection: { type: 'string', maxLength: 5_000 },
+  },
+} as const;
+
+export const compiledAnalyzeResponseSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['data', 'meta'],
+  properties: {
+    data: {
+      type: 'object',
+      additionalProperties: false,
+      required: ['sessionId', 'originalFileName', 'totalPages', 'documents'],
+      properties: {
+        sessionId: { type: 'string' },
+        originalFileName: { type: 'string' },
+        totalPages: { type: 'integer', minimum: 1 },
+        documents: {
+          type: 'array',
+          items: {
+            type: 'object',
+            additionalProperties: false,
+            required: ['startPage', 'endPage', 'categoryKey', 'folderKey', 'title', 'documentDate', 'confidence'],
+            properties: {
+              startPage: { type: 'integer', minimum: 1 },
+              endPage: { type: 'integer', minimum: 1 },
+              categoryKey: { type: 'string' },
+              folderKey: { type: 'string' },
+              title: { type: 'string' },
+              documentDate: { type: ['string', 'null'] },
+              confidence: { type: 'number' },
+            },
+          },
+        },
+      },
+    },
+    meta: metaSchema,
+  },
+} as const;
+
+export const compiledSplitSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['sessionId', 'idempotencyKey', 'segments'],
+  properties: {
+    sessionId: { type: 'string' },
+    idempotencyKey: { type: 'string', minLength: 1, maxLength: 128 },
+    segments: {
+      type: 'array',
+      minItems: 1,
+      items: {
+        type: 'object',
+        additionalProperties: false,
+        required: ['startPage', 'endPage', 'categoryKey', 'folderKey', 'title', 'documentDate'],
+        properties: {
+          startPage: { type: 'integer', minimum: 1 },
+          endPage: { type: 'integer', minimum: 1 },
+          categoryKey: { type: 'string' },
+          folderKey: { type: 'string' },
+          title: { type: 'string', minLength: 1, maxLength: 250 },
+          documentDate: { type: 'string', pattern: '^\\d{4}-\\d{2}-\\d{2}$' },
+          description: { type: 'string', maxLength: 2_000 },
+          reflection: { type: 'string', maxLength: 5_000 },
+        },
+      },
+    },
+  },
+} as const;
+
+export const compiledSplitResponseSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['data', 'meta'],
+  properties: {
+    data: {
+      type: 'object',
+      additionalProperties: false,
+      required: ['documents'],
+      properties: {
+        documents: {
+          type: 'array',
+          items: documentSchema,
+        },
+      },
+    },
+    meta: metaSchema,
+  },
+} as const;
+
+export const compiledCancelSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['sessionId'],
+  properties: {
+    sessionId: { type: 'string' },
+  },
+} as const;
+
+export const compiledCancelResponseSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['data', 'meta'],
+  properties: {
+    data: {
+      type: 'object',
+      additionalProperties: false,
+      required: ['cancelled'],
+      properties: {
+        cancelled: { type: 'boolean' },
+      },
+    },
+    meta: metaSchema,
+  },
+} as const;

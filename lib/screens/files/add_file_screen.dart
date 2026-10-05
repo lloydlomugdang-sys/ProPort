@@ -1,5 +1,7 @@
 // LOCATION: lib/screens/files/add_file_screen.dart
 
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 
@@ -14,6 +16,7 @@ import '../../services/document_service.dart';
 import '../../widgets/grad_app_bar.dart';
 import '../../widgets/primary_button.dart';
 import 'batch_review_screen.dart';
+import 'compiled_review_screen.dart';
 import 'widgets/custom_dropdown.dart';
 import 'widgets/date_picker_field.dart';
 import 'widgets/optional_field.dart';
@@ -235,7 +238,14 @@ class _AddFileScreenState extends State<AddFileScreen>
 
         final service = DocumentScope.of(context);
         final queue = BatchUploadQueue(documentService: service);
-        queue.initialize(selected);
+        final defaultCat = _selectedContent ?? service.categories.firstOrNull?.key;
+        final catObj = service.categories.where((c) => c.key == defaultCat).firstOrNull;
+        final defaultFolder = _selectedFolder ?? catObj?.folders.firstOrNull?.key;
+        queue.initialize(
+          selected,
+          defaultCategoryKey: defaultCat,
+          defaultFolderKey: defaultFolder,
+        );
 
         final result = await Navigator.push<bool>(
           context,
@@ -325,8 +335,106 @@ class _AddFileScreenState extends State<AddFileScreen>
       final msg =
           errStr.contains('permission') || errStr.contains('denied')
           ? 'Camera permission was denied. Please allow camera access in device settings.'
-          : 'Unable to capture from camera. Please try again.';
+          : 'Unable to scan document. Please try again.';
       _showSnack(msg);
+    }
+  }
+
+  Future<void> _onPickCompiledPortfolioTap() async {
+    if (_isSubmitting || _isSuggesting) return;
+    try {
+      final selected = await _filePicker.pickDocuments(allowMultiple: false);
+      if (selected == null || selected.isEmpty || !mounted) return;
+      final file = selected.first;
+      if (file.mimeType != 'application/pdf') {
+        _showSnack('Compiled document separation requires a PDF file.');
+        return;
+      }
+      if (file.sizeBytes > DocumentService.maxUploadBytes) {
+        _showSnack('The selected file exceeds the 15 MB upload limit.');
+        return;
+      }
+      await _startCompiledSeparation(file);
+    } catch (_) {
+      if (!mounted) return;
+      _showSnack('Unable to read the selected file. Please try again.');
+    }
+  }
+
+  Future<void> _startCompiledSeparation(PickedDocument file) async {
+    final service = DocumentScope.of(context);
+    setState(() => _isSuggesting = true);
+
+    showDialog<void>(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => PopScope(
+        canPop: false,
+        child: AlertDialog(
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          content: Padding(
+            padding: const EdgeInsets.symmetric(vertical: 16),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const CircularProgressIndicator(color: AppColors.primary),
+                const SizedBox(height: 16),
+                Text(
+                  'Analyzing Document Sections...',
+                  style: GoogleFonts.poppins(fontWeight: FontWeight.w600, fontSize: 14),
+                ),
+                const SizedBox(height: 6),
+                Text(
+                  'GradPort AI is identifying document types and boundaries.',
+                  textAlign: TextAlign.center,
+                  style: GoogleFonts.poppins(fontSize: 12, color: AppColors.textMuted),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+
+    try {
+      final analysis = await service.analyzeCompiledDocument(file);
+      if (!mounted) return;
+      Navigator.pop(context); // Close loading dialog
+      setState(() => _isSuggesting = false);
+
+      final splitSuccess = await Navigator.push<bool>(
+        context,
+        MaterialPageRoute(
+          builder: (ctx) => DocumentScope(
+            documentService: service,
+            child: CompiledReviewScreen(
+              analysis: analysis,
+              file: file,
+            ),
+          ),
+        ),
+      );
+
+      if (splitSuccess == true && mounted) {
+        await service.load(force: true);
+        if (mounted) Navigator.pop(context, true);
+      }
+    } on ApiException catch (e) {
+      if (!mounted) return;
+      Navigator.pop(context); // Close loading dialog
+      setState(() => _isSuggesting = false);
+      if (e.code == 'COMPILED_INSUFFICIENT_TEXT') {
+        _showSnack(
+          'This PDF does not contain sufficient digital text to separate automatically. Please upload individual files or ensure the PDF was exported with selectable text.',
+        );
+      } else {
+        _showSnack(e.message.isNotEmpty ? e.message : 'Unable to analyze compiled file.');
+      }
+    } catch (_) {
+      if (!mounted) return;
+      Navigator.pop(context); // Close loading dialog
+      setState(() => _isSuggesting = false);
+      _showSnack('Unable to separate compiled document. Please try again.');
     }
   }
 
@@ -438,6 +546,7 @@ class _AddFileScreenState extends State<AddFileScreen>
           duration: const Duration(seconds: 3),
         ),
       );
+      unawaited(_filePicker.cleanCache());
       Navigator.pop(context, true);
     } on ApiException catch (error) {
       final msg = switch (error.statusCode) {
@@ -668,30 +777,134 @@ class _AddFileScreenState extends State<AddFileScreen>
 
                 if (_pickedFiles.isEmpty) ...[
                   const SizedBox(height: 10),
-                  SizedBox(
-                    width: double.infinity,
-                    child: OutlinedButton.icon(
-                      onPressed: _onCameraCaptureTap,
-                      icon: const Icon(Icons.camera_alt_rounded, size: 18),
-                      label: Text(
-                        'Scan Camera',
-                        style: GoogleFonts.poppins(
-                          fontSize: 12.5,
-                          fontWeight: FontWeight.w600,
+                  Row(
+                    children: [
+                      Expanded(
+                        child: OutlinedButton.icon(
+                          onPressed: _onCameraCaptureTap,
+                          icon: const Icon(Icons.camera_alt_rounded, size: 18),
+                          label: Text(
+                            'Scan Camera',
+                            style: GoogleFonts.poppins(
+                              fontSize: 12.5,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                          style: OutlinedButton.styleFrom(
+                            backgroundColor: Colors.white,
+                            foregroundColor: AppColors.primary,
+                            side: const BorderSide(
+                              color: AppColors.primary,
+                              width: 1.2,
+                            ),
+                            padding: const EdgeInsets.symmetric(vertical: 12),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                          ),
                         ),
                       ),
-                      style: OutlinedButton.styleFrom(
-                        backgroundColor: Colors.white,
-                        foregroundColor: AppColors.primary,
-                        side: const BorderSide(
-                          color: AppColors.primary,
-                          width: 1.2,
-                        ),
-                        padding: const EdgeInsets.symmetric(vertical: 12),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(12),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: OutlinedButton.icon(
+                          onPressed: _onPickCompiledPortfolioTap,
+                          icon: const Icon(Icons.splitscreen_rounded, size: 18),
+                          label: Text(
+                            'Split Portfolio',
+                            style: GoogleFonts.poppins(
+                              fontSize: 12.5,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                          style: OutlinedButton.styleFrom(
+                            backgroundColor: Colors.white,
+                            foregroundColor: AppColors.primary,
+                            side: const BorderSide(
+                              color: AppColors.primary,
+                              width: 1.2,
+                            ),
+                            padding: const EdgeInsets.symmetric(vertical: 12),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                          ),
                         ),
                       ),
+                    ],
+                  ),
+                ],
+
+                if (_pickedFiles.length == 1 &&
+                    _pickedFiles.first.mimeType == 'application/pdf') ...[
+                  const SizedBox(height: 10),
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(color: AppColors.primary.withValues(alpha: 0.3)),
+                    ),
+                    child: Row(
+                      children: [
+                        Container(
+                          padding: const EdgeInsets.all(8),
+                          decoration: BoxDecoration(
+                            color: AppColors.primary.withValues(alpha: 0.1),
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                          child: const Icon(
+                            Icons.auto_awesome,
+                            size: 20,
+                            color: AppColors.primary,
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                'Compiled Portfolio?',
+                                style: GoogleFonts.poppins(
+                                  fontSize: 13,
+                                  fontWeight: FontWeight.w600,
+                                  color: AppColors.textPrimary,
+                                ),
+                              ),
+                              Text(
+                                'Auto-separate individual documents in this PDF',
+                                style: GoogleFonts.poppins(
+                                  fontSize: 11,
+                                  color: AppColors.textMuted,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        ElevatedButton(
+                          onPressed: _isSuggesting || _isSubmitting
+                              ? null
+                              : () => _startCompiledSeparation(_pickedFiles.first),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: AppColors.primary,
+                            foregroundColor: Colors.white,
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 12,
+                              vertical: 8,
+                            ),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(8),
+                            ),
+                          ),
+                          child: Text(
+                            'Separate',
+                            style: GoogleFonts.poppins(
+                              fontSize: 12,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ),
+                      ],
                     ),
                   ),
                 ],

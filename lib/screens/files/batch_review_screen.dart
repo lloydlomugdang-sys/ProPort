@@ -4,6 +4,7 @@ import '../../constants/app_colors.dart';
 import '../../services/batch_upload_queue.dart';
 import '../../services/document_models.dart';
 import '../../services/document_scope.dart';
+import '../../widgets/app_empty_state.dart';
 import '../../widgets/grad_app_bar.dart';
 import 'models/batch_upload_item.dart';
 import 'widgets/custom_dropdown.dart';
@@ -42,85 +43,122 @@ class _BatchReviewScreenState extends State<BatchReviewScreen> {
     final queue = widget.queue;
     final items = queue.items;
 
-    return Scaffold(
-      backgroundColor: AppColors.background,
-      appBar: GradBackAppBar(
-        title: 'Review Files (${queue.savedCount}/${queue.totalCount})',
-      ),
-      body: Column(
-        children: [
-          // Queue progress header
-          _buildProgressBanner(queue),
-
-          // Document review list
-          Expanded(
-            child: items.isEmpty
-                ? Center(
-                    child: Text(
-                      'No documents selected.',
-                      style: GoogleFonts.poppins(
-                        fontSize: 14,
-                        color: AppColors.textMuted,
-                      ),
-                    ),
-                  )
-                : ListView.builder(
-                    physics: const BouncingScrollPhysics(),
-                    padding: const EdgeInsets.fromLTRB(16, 12, 16, 100),
-                    itemCount: items.length,
-                    itemBuilder: (context, index) {
-                      final item = items[index];
-                      return _BatchItemCard(
-                        key: ValueKey(item.id),
-                        item: item,
-                        index: index,
-                        total: items.length,
-                        categories: categories,
-                        onUpdateMetadata: (metadata) {
-                          queue.updateItemMetadata(
-                            item.id,
-                            categoryKey: metadata.categoryKey,
-                            folderKey: metadata.folderKey,
-                            title: metadata.title,
-                            documentDate: metadata.documentDate,
-                            description: metadata.description,
-                            reflection: metadata.reflection,
-                          );
-                        },
-                        onSave: () async {
-                          final success = await queue.saveItem(item.id);
-                          if (!context.mounted) return;
-                          if (success) {
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              SnackBar(
-                                content: Text(
-                                  'Saved "${item.title ?? item.fileName}"',
-                                  style: GoogleFonts.poppins(
-                                    fontSize: 13,
-                                    color: Colors.white,
-                                  ),
-                                ),
-                                backgroundColor: AppColors.success,
-                                behavior: SnackBarBehavior.floating,
-                              ),
-                            );
-                          }
-                        },
-                        onRetry: () => queue.retry(item.id),
-                        onRemove: () => queue.remove(item.id),
-                      );
-                    },
-                  ),
+    return PopScope(
+      canPop: !queue.hasActiveUploads,
+      onPopInvokedWithResult: (didPop, result) async {
+        if (didPop) return;
+        final shouldLeave = await showDialog<bool>(
+          context: context,
+          builder: (dialogCtx) => AlertDialog(
+            title: Text(
+              'Uploads in Progress',
+              style: GoogleFonts.poppins(fontWeight: FontWeight.w600),
+            ),
+            content: Text(
+              'Uploads are still in progress. Leaving will cancel remaining queued uploads. Completed uploads are safely saved in your portfolio.',
+              style: GoogleFonts.poppins(fontSize: 13),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(dialogCtx, false),
+                child: const Text('Stay'),
+              ),
+              ElevatedButton(
+                onPressed: () => Navigator.pop(dialogCtx, true),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: AppColors.danger,
+                  foregroundColor: Colors.white,
+                ),
+                child: const Text('Leave'),
+              ),
+            ],
           ),
-          if (items.isNotEmpty) _buildBottomBar(context, queue),
-        ],
+        );
+        if (shouldLeave == true && context.mounted) {
+          Navigator.pop(context, false);
+        }
+      },
+      child: Scaffold(
+        backgroundColor: AppColors.background,
+        appBar: GradBackAppBar(
+          title: 'Review Files (${queue.completedCount}/${queue.totalCount})',
+        ),
+        body: Column(
+          children: [
+            // Queue progress header
+            _buildProgressBanner(queue),
+
+            // Document review list
+            Expanded(
+              child: items.isEmpty
+                  ? AppEmptyState(
+                      title: 'No documents selected.',
+                      description:
+                          'Choose files to review metadata and start uploading.',
+                      icon: Icons.folder_open_rounded,
+                      actionLabel: 'Go Back',
+                      actionIcon: Icons.arrow_back_rounded,
+                      onAction: () => Navigator.pop(context, false),
+                    )
+                  : ListView.builder(
+                      physics: const BouncingScrollPhysics(),
+                      padding: const EdgeInsets.fromLTRB(16, 12, 16, 100),
+                      itemCount: items.length,
+                      itemBuilder: (context, index) {
+                        final item = items[index];
+                        return _BatchItemCard(
+                          key: ValueKey(item.id),
+                          item: item,
+                          index: index,
+                          total: items.length,
+                          categories: categories,
+                          onUpdateMetadata: (metadata) {
+                            queue.updateItemMetadata(
+                              item.id,
+                              categoryKey: metadata.categoryKey,
+                              folderKey: metadata.folderKey,
+                              title: metadata.title,
+                              documentDate: metadata.documentDate,
+                              description: metadata.description,
+                              reflection: metadata.reflection,
+                              isManual: true,
+                            );
+                          },
+                          onSave: () async {
+                            final success = await queue.saveItem(item.id);
+                            if (!context.mounted) return;
+                            if (success) {
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                SnackBar(
+                                  content: Text(
+                                    'Processing "${item.title ?? item.fileName}"',
+                                    style: GoogleFonts.poppins(
+                                      fontSize: 13,
+                                      color: Colors.white,
+                                    ),
+                                  ),
+                                  backgroundColor: AppColors.primary,
+                                  behavior: SnackBarBehavior.floating,
+                                ),
+                              );
+                            }
+                          },
+                          onRetry: () => queue.retry(item.id),
+                          onRemove: () => queue.remove(item.id),
+                        );
+                      },
+                    ),
+            ),
+            if (items.isNotEmpty) _buildBottomBar(context, queue),
+          ],
+        ),
       ),
     );
   }
 
   Widget _buildProgressBanner(BatchUploadQueue queue) {
     final progress = queue.totalCount > 0
-        ? (queue.savedCount + queue.readyCount) / queue.totalCount
+        ? (queue.completedCount + queue.failedCount) / queue.totalCount
         : 0.0;
 
     return Container(
@@ -146,7 +184,7 @@ class _BatchReviewScreenState extends State<BatchReviewScreen> {
                 ),
               ),
               Text(
-                '${queue.savedCount} saved • ${queue.readyCount} ready • ${queue.failedCount} failed',
+                '${queue.completedCount} completed • ${queue.processingCount} processing • ${queue.failedCount} failed',
                 style: GoogleFonts.poppins(
                   fontSize: 11,
                   color: AppColors.textMuted,
@@ -174,7 +212,7 @@ class _BatchReviewScreenState extends State<BatchReviewScreen> {
   }
 
   Widget _buildBottomBar(BuildContext context, BatchUploadQueue queue) {
-    final canSave = queue.validToSaveCount > 0 && !queue.isSavingAll;
+    final canSave = queue.validToSaveCount > 0 && !queue.isProcessingBatch;
 
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
@@ -198,7 +236,9 @@ class _BatchReviewScreenState extends State<BatchReviewScreen> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    '${queue.validToSaveCount} of ${queue.totalCount} Valid Documents',
+                    queue.isAllCompleted
+                        ? 'All Documents Completed'
+                        : '${queue.validToSaveCount} of ${queue.totalCount} Valid Documents',
                     style: GoogleFonts.poppins(
                       fontSize: 13,
                       fontWeight: FontWeight.w600,
@@ -206,12 +246,14 @@ class _BatchReviewScreenState extends State<BatchReviewScreen> {
                     ),
                   ),
                   Text(
-                    queue.isAllSaved
+                    queue.isAllCompleted
                         ? 'All documents saved!'
-                        : 'Review details before saving',
+                        : queue.isProcessingBatch
+                        ? 'Processing batch in progress...'
+                        : 'Review details before uploading',
                     style: GoogleFonts.poppins(
                       fontSize: 11,
-                      color: queue.isAllSaved
+                      color: queue.isAllCompleted
                           ? AppColors.success
                           : AppColors.textMuted,
                     ),
@@ -220,7 +262,7 @@ class _BatchReviewScreenState extends State<BatchReviewScreen> {
               ),
             ),
             const SizedBox(width: 12),
-            if (queue.isAllSaved)
+            if (queue.isAllCompleted)
               ElevatedButton.icon(
                 onPressed: () => Navigator.pop(context, true),
                 icon: const Icon(Icons.done_all_rounded, size: 18),
@@ -236,7 +278,7 @@ class _BatchReviewScreenState extends State<BatchReviewScreen> {
             else
               ElevatedButton.icon(
                 onPressed: canSave ? () => _saveAll(context, queue) : null,
-                icon: queue.isSavingAll
+                icon: queue.isProcessingBatch
                     ? const SizedBox(
                         width: 16,
                         height: 16,
@@ -245,8 +287,8 @@ class _BatchReviewScreenState extends State<BatchReviewScreen> {
                           color: Colors.white,
                         ),
                       )
-                    : const Icon(Icons.done_all_rounded, size: 18),
-                label: Text(queue.isSavingAll ? 'Saving...' : 'Save All Valid'),
+                    : const Icon(Icons.cloud_upload_rounded, size: 18),
+                label: Text(queue.isProcessingBatch ? 'Processing...' : 'Upload All Valid'),
                 style: ElevatedButton.styleFrom(
                   backgroundColor: AppColors.primary,
                   foregroundColor: Colors.white,
@@ -389,6 +431,7 @@ class _BatchItemCardState extends State<_BatchItemCard> {
     final item = widget.item;
     final currentCat = _findCategory(item.categoryKey);
     final currentFolder = _findFolder(currentCat, item.folderKey);
+    final isFieldEditable = !item.isProcessing;
 
     return Container(
       margin: const EdgeInsets.only(bottom: 14),
@@ -396,12 +439,12 @@ class _BatchItemCardState extends State<_BatchItemCard> {
         color: Colors.white,
         borderRadius: BorderRadius.circular(16),
         border: Border.all(
-          color: item.isSaved
+          color: item.isCompleted
               ? AppColors.success.withValues(alpha: 0.6)
               : item.isFailed
               ? AppColors.danger.withValues(alpha: 0.6)
               : AppColors.cardBorder,
-          width: item.isSaved || item.isFailed ? 1.5 : 1.2,
+          width: item.isCompleted || item.isFailed ? 1.5 : 1.2,
         ),
         boxShadow: [
           BoxShadow(
@@ -447,7 +490,7 @@ class _BatchItemCardState extends State<_BatchItemCard> {
                   ),
                 ),
                 _buildStatusChip(item),
-                if (!item.isSaved && !item.isProcessing)
+                if (!item.isUploaded && !item.isProcessing)
                   IconButton(
                     icon: const Icon(
                       Icons.close_rounded,
@@ -475,12 +518,14 @@ class _BatchItemCardState extends State<_BatchItemCard> {
                   const SizedBox(width: 12),
                   Expanded(
                     child: Text(
-                      item.status == BatchItemStatus.extractingText
-                          ? 'Extracting text and analyzing...'
-                          : item.status == BatchItemStatus.aiCategorizing
-                          ? 'AI categorizing document...'
+                      item.status == BatchItemStatus.extracting
+                          ? 'Extracting text (OCR)...'
+                          : item.status == BatchItemStatus.waitingForOcr
+                          ? 'Waiting for OCR worker...'
                           : item.status == BatchItemStatus.uploading
                           ? 'Uploading to GradPort...'
+                          : item.status == BatchItemStatus.uploaded
+                          ? 'Uploaded. Preparing OCR...'
                           : 'Waiting in queue...',
                       style: GoogleFonts.poppins(
                         fontSize: 12,
@@ -525,323 +570,413 @@ class _BatchItemCardState extends State<_BatchItemCard> {
             ),
           ],
 
-          // Ready for review / Saved editable form
-          if (item.isReadyForReview || item.isSaved) ...[
-            // Confidence Badge & Warning
+          // Confidence & Auto-categorized Badges
+          if (item.confidence != null || item.isAutoCategorized)
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 4),
-              child: _buildConfidenceBadge(item),
+              child: Wrap(
+                spacing: 8,
+                runSpacing: 4,
+                crossAxisAlignment: WrapCrossAlignment.center,
+                children: [
+                  if (item.isAutoCategorized) _buildAutoCategorizedBadge(),
+                  if (item.confidence != null) _buildConfidenceBadge(item),
+                ],
+              ),
             ),
 
-            if (item.isLowConfidence)
-              Container(
-                margin: const EdgeInsets.fromLTRB(14, 4, 14, 8),
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 10,
-                  vertical: 6,
-                ),
-                decoration: BoxDecoration(
-                  color: Colors.amber.shade50,
-                  borderRadius: BorderRadius.circular(8),
-                  border: Border.all(color: Colors.amber.shade300),
-                ),
-                child: Row(
-                  children: [
-                    Icon(
-                      Icons.warning_amber_rounded,
-                      size: 16,
-                      color: Colors.amber.shade800,
+          if (item.confidence != null && item.isLowConfidence)
+            Container(
+              margin: const EdgeInsets.fromLTRB(14, 4, 14, 8),
+              padding: const EdgeInsets.symmetric(
+                horizontal: 10,
+                vertical: 6,
+              ),
+              decoration: BoxDecoration(
+                color: Colors.amber.shade50,
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(color: Colors.amber.shade300),
+              ),
+              child: Row(
+                children: [
+                  Icon(
+                    Icons.warning_amber_rounded,
+                    size: 16,
+                    color: Colors.amber.shade800,
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      'Low confidence: Please confirm the suggested category and folder.',
+                      style: GoogleFonts.poppins(
+                        fontSize: 11,
+                        color: Colors.amber.shade900,
+                      ),
                     ),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: Text(
-                        'Low confidence: Please confirm the suggested category and folder.',
-                        style: GoogleFonts.poppins(
-                          fontSize: 11,
-                          color: Colors.amber.shade900,
-                        ),
+                  ),
+                ],
+              ),
+            ),
+
+          // Form inputs
+          Padding(
+            padding: const EdgeInsets.fromLTRB(14, 8, 14, 14),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                // Content (Category) Dropdown
+                CustomDropdown(
+                  label: 'Content',
+                  hint: 'Select Category',
+                  required: true,
+                  enabled: isFieldEditable,
+                  items: widget.categories.map((c) => c.name).toList(),
+                  value: currentCat?.name,
+                  onChanged: (selectedName) {
+                    final selected = widget.categories
+                        .where((c) => c.name == selectedName)
+                        .firstOrNull;
+                    widget.onUpdateMetadata(
+                      _ItemMetadataChange(
+                        categoryKey: selected?.key,
+                        folderKey: selected?.folders.firstOrNull?.key,
+                      ),
+                    );
+                  },
+                ),
+                const SizedBox(height: 10),
+
+                // Folder Dropdown
+                CustomDropdown(
+                  label: 'Folder',
+                  hint: 'Select Folder',
+                  required: true,
+                  enabled: isFieldEditable && currentCat != null,
+                  items:
+                      currentCat?.folders.map((f) => f.name).toList() ??
+                      const [],
+                  value: currentFolder?.name,
+                  onChanged: (selectedName) {
+                    final selected = currentCat?.folders
+                        .where((f) => f.name == selectedName)
+                        .firstOrNull;
+                    widget.onUpdateMetadata(
+                      _ItemMetadataChange(folderKey: selected?.key),
+                    );
+                  },
+                ),
+                const SizedBox(height: 10),
+
+                // Title Field
+                Row(
+                  children: [
+                    Text(
+                      'Title',
+                      style: GoogleFonts.poppins(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w500,
+                        color: AppColors.textPrimary,
+                      ),
+                    ),
+                    Text(
+                      '*',
+                      style: GoogleFonts.poppins(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w600,
+                        color: AppColors.danger,
                       ),
                     ),
                   ],
                 ),
-              ),
-
-            // Form inputs
-            Padding(
-              padding: const EdgeInsets.fromLTRB(14, 8, 14, 14),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  // Content (Category) Dropdown
-                  CustomDropdown(
-                    label: 'Content',
-                    hint: 'Select Category',
-                    required: true,
-                    enabled: !item.isSaved,
-                    items: widget.categories.map((c) => c.name).toList(),
-                    value: currentCat?.name,
-                    onChanged: (selectedName) {
-                      final selected = widget.categories
-                          .where((c) => c.name == selectedName)
-                          .firstOrNull;
-                      widget.onUpdateMetadata(
-                        _ItemMetadataChange(
-                          categoryKey: selected?.key,
-                          folderKey: selected?.folders.firstOrNull?.key,
-                        ),
-                      );
-                    },
-                  ),
-                  const SizedBox(height: 10),
-
-                  // Folder Dropdown
-                  CustomDropdown(
-                    label: 'Folder',
-                    hint: 'Select Folder',
-                    required: true,
-                    enabled: !item.isSaved && currentCat != null,
-                    items:
-                        currentCat?.folders.map((f) => f.name).toList() ??
-                        const [],
-                    value: currentFolder?.name,
-                    onChanged: (selectedName) {
-                      final selected = currentCat?.folders
-                          .where((f) => f.name == selectedName)
-                          .firstOrNull;
-                      widget.onUpdateMetadata(
-                        _ItemMetadataChange(folderKey: selected?.key),
-                      );
-                    },
-                  ),
-                  const SizedBox(height: 10),
-
-                  // Title Field
-                  Row(
-                    children: [
-                      Text(
-                        'Title',
-                        style: GoogleFonts.poppins(
-                          fontSize: 13,
-                          fontWeight: FontWeight.w500,
-                          color: AppColors.textPrimary,
-                        ),
+                const SizedBox(height: 6),
+                TextField(
+                  controller: _titleCtrl,
+                  enabled: isFieldEditable,
+                  maxLength: 200,
+                  decoration: InputDecoration(
+                    hintText: 'Document title',
+                    counterText: '',
+                    hintStyle: GoogleFonts.poppins(
+                      fontSize: 13,
+                      color: AppColors.textMuted,
+                    ),
+                    contentPadding: const EdgeInsets.symmetric(
+                      horizontal: 14,
+                      vertical: 12,
+                    ),
+                    filled: true,
+                    fillColor: isFieldEditable
+                        ? Colors.white
+                        : AppColors.cardBorder.withValues(alpha: 0.2),
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(10),
+                      borderSide: const BorderSide(
+                        color: AppColors.cardBorder,
                       ),
-                      Text(
-                        '*',
-                        style: GoogleFonts.poppins(
-                          fontSize: 13,
-                          fontWeight: FontWeight.w600,
-                          color: AppColors.danger,
-                        ),
+                    ),
+                    enabledBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(10),
+                      borderSide: const BorderSide(
+                        color: AppColors.cardBorder,
                       ),
-                    ],
+                    ),
+                    disabledBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(10),
+                      borderSide: const BorderSide(
+                        color: AppColors.cardBorder,
+                      ),
+                    ),
                   ),
-                  const SizedBox(height: 6),
+                  style: GoogleFonts.poppins(
+                    fontSize: 13,
+                    color: isFieldEditable ? AppColors.textPrimary : AppColors.textMuted,
+                  ),
+                  onChanged: (val) {
+                    widget.onUpdateMetadata(_ItemMetadataChange(title: val));
+                  },
+                ),
+                const SizedBox(height: 10),
+
+                // Document Date
+                DatePickerField(
+                  label: 'Date',
+                  required: true,
+                  enabled: isFieldEditable,
+                  selectedDate: item.documentDate,
+                  onDateSelected: (date) {
+                    widget.onUpdateMetadata(
+                      _ItemMetadataChange(documentDate: date),
+                    );
+                  },
+                ),
+
+                // Optional details expander (Description & Reflection)
+                const SizedBox(height: 10),
+                InkWell(
+                  onTap: () => setState(() => _showDetails = !_showDetails),
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 4),
+                    child: Row(
+                      children: [
+                        Icon(
+                          _showDetails
+                              ? Icons.expand_less
+                              : Icons.expand_more,
+                          size: 18,
+                          color: AppColors.primary,
+                        ),
+                        const SizedBox(width: 4),
+                        Text(
+                          _showDetails
+                              ? 'Hide Details'
+                              : 'Add Description & Reflection',
+                          style: GoogleFonts.poppins(
+                            fontSize: 12,
+                            fontWeight: FontWeight.w500,
+                            color: AppColors.primary,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+
+                if (_showDetails) ...[
+                  const SizedBox(height: 8),
+                  Text(
+                    'Description',
+                    style: GoogleFonts.poppins(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w500,
+                      color: AppColors.textPrimary,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
                   TextField(
-                    controller: _titleCtrl,
-                    enabled: !item.isSaved,
-                    maxLength: 200,
+                    controller: _descCtrl,
+                    enabled: isFieldEditable,
+                    maxLines: 2,
+                    maxLength: 2000,
                     decoration: InputDecoration(
-                      hintText: 'Document title',
+                      hintText: 'Brief description',
                       counterText: '',
                       hintStyle: GoogleFonts.poppins(
-                        fontSize: 13,
+                        fontSize: 12,
                         color: AppColors.textMuted,
                       ),
-                      contentPadding: const EdgeInsets.symmetric(
-                        horizontal: 14,
-                        vertical: 12,
-                      ),
+                      contentPadding: const EdgeInsets.all(10),
                       filled: true,
-                      fillColor: Colors.white,
+                      fillColor: isFieldEditable
+                          ? Colors.white
+                          : AppColors.cardBorder.withValues(alpha: 0.2),
                       border: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(10),
+                        borderRadius: BorderRadius.circular(8),
                         borderSide: const BorderSide(
                           color: AppColors.cardBorder,
                         ),
                       ),
                       enabledBorder: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(10),
+                        borderRadius: BorderRadius.circular(8),
+                        borderSide: const BorderSide(
+                          color: AppColors.cardBorder,
+                        ),
+                      ),
+                      disabledBorder: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(8),
                         borderSide: const BorderSide(
                           color: AppColors.cardBorder,
                         ),
                       ),
                     ),
-                    style: GoogleFonts.poppins(fontSize: 13),
+                    style: GoogleFonts.poppins(
+                      fontSize: 12,
+                      color: isFieldEditable ? AppColors.textPrimary : AppColors.textMuted,
+                    ),
                     onChanged: (val) {
-                      widget.onUpdateMetadata(_ItemMetadataChange(title: val));
-                    },
-                  ),
-                  const SizedBox(height: 10),
-
-                  // Document Date
-                  DatePickerField(
-                    label: 'Date',
-                    required: true,
-                    selectedDate: item.documentDate,
-                    onDateSelected: (date) {
                       widget.onUpdateMetadata(
-                        _ItemMetadataChange(documentDate: date),
+                        _ItemMetadataChange(description: val),
                       );
                     },
                   ),
+                  const SizedBox(height: 8),
+                  Text(
+                    'Reflection',
+                    style: GoogleFonts.poppins(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w500,
+                      color: AppColors.textPrimary,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  TextField(
+                    controller: _reflCtrl,
+                    enabled: isFieldEditable,
+                    maxLines: 2,
+                    maxLength: 5000,
+                    decoration: InputDecoration(
+                      hintText: 'Personal learning reflection',
+                      counterText: '',
+                      hintStyle: GoogleFonts.poppins(
+                        fontSize: 12,
+                        color: AppColors.textMuted,
+                      ),
+                      contentPadding: const EdgeInsets.all(10),
+                      filled: true,
+                      fillColor: isFieldEditable
+                          ? Colors.white
+                          : AppColors.cardBorder.withValues(alpha: 0.2),
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(8),
+                        borderSide: const BorderSide(
+                          color: AppColors.cardBorder,
+                        ),
+                      ),
+                      enabledBorder: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(8),
+                        borderSide: const BorderSide(
+                          color: AppColors.cardBorder,
+                        ),
+                      ),
+                      disabledBorder: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(8),
+                        borderSide: const BorderSide(
+                          color: AppColors.cardBorder,
+                        ),
+                      ),
+                    ),
+                    style: GoogleFonts.poppins(
+                      fontSize: 12,
+                      color: isFieldEditable ? AppColors.textPrimary : AppColors.textMuted,
+                    ),
+                    onChanged: (val) {
+                      widget.onUpdateMetadata(
+                        _ItemMetadataChange(reflection: val),
+                      );
+                    },
+                  ),
+                ],
 
-                  // Optional details expander (Description & Reflection)
-                  const SizedBox(height: 10),
-                  InkWell(
-                    onTap: () => setState(() => _showDetails = !_showDetails),
-                    child: Padding(
-                      padding: const EdgeInsets.symmetric(vertical: 4),
-                      child: Row(
-                        children: [
-                          Icon(
-                            _showDetails
-                                ? Icons.expand_less
-                                : Icons.expand_more,
-                            size: 18,
-                            color: AppColors.primary,
-                          ),
-                          const SizedBox(width: 4),
-                          Text(
-                            _showDetails
-                                ? 'Hide Details'
-                                : 'Add Description & Reflection',
-                            style: GoogleFonts.poppins(
-                              fontSize: 12,
-                              fontWeight: FontWeight.w500,
-                              color: AppColors.primary,
-                            ),
-                          ),
-                        ],
+                // Action Button / Status indication for single document
+                if (item.isCompleted) ...[
+                  const SizedBox(height: 12),
+                  Row(
+                    children: [
+                      const Icon(
+                        Icons.check_circle_rounded,
+                        size: 16,
+                        color: AppColors.success,
+                      ),
+                      const SizedBox(width: 6),
+                      Text(
+                        'Document saved to GradPort',
+                        style: GoogleFonts.poppins(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w500,
+                          color: AppColors.success,
+                        ),
+                      ),
+                    ],
+                  ),
+                ] else if (item.isUploaded && !item.isFailed) ...[
+                  const SizedBox(height: 12),
+                  Row(
+                    children: [
+                      const SizedBox(
+                        width: 14,
+                        height: 14,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      ),
+                      const SizedBox(width: 8),
+                      Text(
+                        item.status == BatchItemStatus.extracting
+                            ? 'Extracting text...'
+                            : 'Uploaded, queued for OCR...',
+                        style: GoogleFonts.poppins(
+                          fontSize: 12,
+                          color: AppColors.textMuted,
+                        ),
+                      ),
+                    ],
+                  ),
+                ] else if (!item.isUploaded) ...[
+                  const SizedBox(height: 14),
+                  Align(
+                    alignment: Alignment.centerRight,
+                    child: ElevatedButton.icon(
+                      onPressed: (item.isValidForUpload && !item.isProcessing)
+                          ? widget.onSave
+                          : null,
+                      icon: item.isProcessing
+                          ? const SizedBox(
+                              width: 14,
+                              height: 14,
+                              child: CircularProgressIndicator(
+                                strokeWidth: 2,
+                                color: Colors.white,
+                              ),
+                            )
+                          : const Icon(Icons.check_rounded, size: 16),
+                      label: Text(
+                        item.isProcessing ? 'Processing...' : 'Save Document',
+                      ),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: AppColors.primary,
+                        foregroundColor: Colors.white,
+                        disabledBackgroundColor: AppColors.cardBorder,
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 14,
+                          vertical: 8,
+                        ),
                       ),
                     ),
                   ),
-
-                  if (_showDetails) ...[
-                    const SizedBox(height: 8),
-                    Text(
-                      'Description',
-                      style: GoogleFonts.poppins(
-                        fontSize: 12,
-                        fontWeight: FontWeight.w500,
-                        color: AppColors.textPrimary,
-                      ),
-                    ),
-                    const SizedBox(height: 4),
-                    TextField(
-                      controller: _descCtrl,
-                      enabled: !item.isSaved,
-                      maxLines: 2,
-                      maxLength: 2000,
-                      decoration: InputDecoration(
-                        hintText: 'Brief description',
-                        counterText: '',
-                        hintStyle: GoogleFonts.poppins(
-                          fontSize: 12,
-                          color: AppColors.textMuted,
-                        ),
-                        contentPadding: const EdgeInsets.all(10),
-                        border: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(8),
-                          borderSide: const BorderSide(
-                            color: AppColors.cardBorder,
-                          ),
-                        ),
-                      ),
-                      style: GoogleFonts.poppins(fontSize: 12),
-                      onChanged: (val) {
-                        widget.onUpdateMetadata(
-                          _ItemMetadataChange(description: val),
-                        );
-                      },
-                    ),
-                    const SizedBox(height: 8),
-                    Text(
-                      'Reflection',
-                      style: GoogleFonts.poppins(
-                        fontSize: 12,
-                        fontWeight: FontWeight.w500,
-                        color: AppColors.textPrimary,
-                      ),
-                    ),
-                    const SizedBox(height: 4),
-                    TextField(
-                      controller: _reflCtrl,
-                      enabled: !item.isSaved,
-                      maxLines: 2,
-                      maxLength: 5000,
-                      decoration: InputDecoration(
-                        hintText: 'Personal learning reflection',
-                        counterText: '',
-                        hintStyle: GoogleFonts.poppins(
-                          fontSize: 12,
-                          color: AppColors.textMuted,
-                        ),
-                        contentPadding: const EdgeInsets.all(10),
-                        border: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(8),
-                          borderSide: const BorderSide(
-                            color: AppColors.cardBorder,
-                          ),
-                        ),
-                      ),
-                      style: GoogleFonts.poppins(fontSize: 12),
-                      onChanged: (val) {
-                        widget.onUpdateMetadata(
-                          _ItemMetadataChange(reflection: val),
-                        );
-                      },
-                    ),
-                  ],
-
-                  // Action Button for single document
-                  if (!item.isSaved) ...[
-                    const SizedBox(height: 14),
-                    Align(
-                      alignment: Alignment.centerRight,
-                      child: ElevatedButton.icon(
-                        onPressed: item.isValidForSave ? widget.onSave : null,
-                        icon: const Icon(Icons.check_rounded, size: 16),
-                        label: const Text('Save Document'),
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: AppColors.primary,
-                          foregroundColor: Colors.white,
-                          disabledBackgroundColor: AppColors.cardBorder,
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(8),
-                          ),
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 14,
-                            vertical: 8,
-                          ),
-                        ),
-                      ),
-                    ),
-                  ] else ...[
-                    const SizedBox(height: 8),
-                    Row(
-                      children: [
-                        const Icon(
-                          Icons.check_circle_rounded,
-                          size: 16,
-                          color: AppColors.success,
-                        ),
-                        const SizedBox(width: 6),
-                        Text(
-                          'Document saved to GradPort',
-                          style: GoogleFonts.poppins(
-                            fontSize: 12,
-                            fontWeight: FontWeight.w500,
-                            color: AppColors.success,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ],
                 ],
-              ),
+              ],
             ),
-          ],
+          ),
         ],
       ),
     );
@@ -884,35 +1019,35 @@ class _BatchItemCardState extends State<_BatchItemCard> {
     String label;
 
     switch (item.status) {
-      case BatchItemStatus.waiting:
+      case BatchItemStatus.queued:
         bg = AppColors.cardBorder;
         fg = AppColors.textMuted;
-        label = 'Waiting';
-        break;
-      case BatchItemStatus.extractingText:
-        bg = AppColors.primary.withValues(alpha: 0.12);
-        fg = AppColors.primary;
-        label = 'OCR...';
-        break;
-      case BatchItemStatus.aiCategorizing:
-        bg = Colors.purple.shade50;
-        fg = Colors.purple.shade700;
-        label = 'AI...';
-        break;
-      case BatchItemStatus.readyForReview:
-        bg = AppColors.primary.withValues(alpha: 0.12);
-        fg = AppColors.primary;
-        label = 'Ready';
+        label = 'Queued';
         break;
       case BatchItemStatus.uploading:
         bg = Colors.blue.shade50;
         fg = Colors.blue.shade700;
-        label = 'Saving...';
+        label = 'Uploading...';
         break;
-      case BatchItemStatus.saved:
+      case BatchItemStatus.uploaded:
+        bg = Colors.indigo.shade50;
+        fg = Colors.indigo.shade700;
+        label = 'Uploaded';
+        break;
+      case BatchItemStatus.waitingForOcr:
+        bg = Colors.amber.shade50;
+        fg = Colors.amber.shade800;
+        label = 'Queued OCR';
+        break;
+      case BatchItemStatus.extracting:
+        bg = AppColors.primary.withValues(alpha: 0.12);
+        fg = AppColors.primary;
+        label = 'Extracting...';
+        break;
+      case BatchItemStatus.completed:
         bg = AppColors.success.withValues(alpha: 0.15);
         fg = AppColors.success;
-        label = 'Saved';
+        label = 'Completed';
         break;
       case BatchItemStatus.failed:
         bg = AppColors.danger.withValues(alpha: 0.15);
@@ -981,6 +1116,36 @@ class _BatchItemCardState extends State<_BatchItemCard> {
               fontSize: 11,
               fontWeight: FontWeight.w600,
               color: color,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildAutoCategorizedBadge() {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+      decoration: BoxDecoration(
+        color: AppColors.primary.withValues(alpha: 0.1),
+        borderRadius: BorderRadius.circular(6),
+        border: Border.all(color: AppColors.primary.withValues(alpha: 0.25)),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const Icon(
+            Icons.auto_awesome,
+            size: 12,
+            color: AppColors.primary,
+          ),
+          const SizedBox(width: 4),
+          Text(
+            'Auto-categorized',
+            style: GoogleFonts.poppins(
+              fontSize: 11,
+              fontWeight: FontWeight.w600,
+              color: AppColors.primary,
             ),
           ),
         ],

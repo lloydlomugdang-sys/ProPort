@@ -839,6 +839,65 @@ export class DocumentService {
     return { ...ocr, metadataSuggestions: suggestDocumentMetadata(ocr, categories) };
   }
 
+  async updateMetadata(
+    ownerId: Types.ObjectId,
+    documentId: string,
+    input: {
+      readonly categoryKey?: string;
+      readonly folderKey?: string;
+      readonly title?: string;
+      readonly documentDate?: string;
+      readonly description?: string;
+      readonly reflection?: string;
+    },
+  ): Promise<PublicDocument> {
+    const document = await this.ownedDocument(ownerId, documentId);
+    const repositories = this.repositories();
+
+    let categoryKey = document.categoryKey;
+    let folderKey = document.folderKey;
+
+    if (input.categoryKey !== undefined) {
+      categoryKey = normalizedRequired(input.categoryKey, 'categoryKey', 100);
+      const category = await repositories.documentCategories.findByKey(categoryKey);
+      if (category === null || !category.active) {
+        throw validationError('categoryKey', 'must identify an active document category');
+      }
+      if (input.folderKey !== undefined) {
+        folderKey = normalizedRequired(input.folderKey, 'folderKey', 100);
+      }
+      if (!category.folders.some((folder) => folder.active && folder.key === folderKey)) {
+        throw validationError('folderKey', 'must belong to the selected document category');
+      }
+    } else if (input.folderKey !== undefined) {
+      folderKey = normalizedRequired(input.folderKey, 'folderKey', 100);
+      const category = await repositories.documentCategories.findByKey(categoryKey);
+      if (
+        category === null ||
+        !category.active ||
+        !category.folders.some((folder) => folder.active && folder.key === folderKey)
+      ) {
+        throw validationError('folderKey', 'must belong to the selected document category');
+      }
+    }
+
+    const title = input.title !== undefined ? normalizedRequired(input.title, 'title', 250) : document.title;
+    const date = input.documentDate !== undefined ? documentDate(input.documentDate) : document.documentDate;
+    const description = input.description !== undefined ? normalizedOptional(input.description, 'description', 2_000) : document.description;
+    const reflection = input.reflection !== undefined ? normalizedOptional(input.reflection, 'reflection', 5_000) : document.reflection;
+
+    const updated = await repositories.documents.updateByIdForOwner(ownerId, document._id, {
+      categoryKey,
+      folderKey,
+      title,
+      documentDate: date,
+      ...(description !== undefined ? { description } : {}),
+      ...(reflection !== undefined ? { reflection } : {}),
+    });
+    if (updated === null) throw documentUnavailable();
+    return publicDocument(updated);
+  }
+
   async delete(ownerId: Types.ObjectId, documentId: string): Promise<void> {
     const document = await this.ownedDocument(ownerId, documentId);
     const keysToDelete = new Set<string>();

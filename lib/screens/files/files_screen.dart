@@ -2,13 +2,14 @@ import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 
 import '../../constants/app_colors.dart';
-import '../../constants/app_text_styles.dart';
 import '../../services/document_models.dart';
 import '../../services/document_scope.dart';
-import '../../widgets/empty_state.dart';
+import '../../widgets/app_empty_state.dart';
+import '../../widgets/app_skeleton.dart';
 import '../../widgets/folder_row_item.dart';
 import '../../widgets/grad_app_bar.dart';
 import '../../widgets/search_bar_field.dart';
+import 'add_file_screen.dart';
 import 'view_files_screen.dart';
 
 class FilesScreen extends StatefulWidget {
@@ -112,13 +113,38 @@ class _FilesScreenState extends State<FilesScreen> {
       backgroundColor: AppColors.background,
       appBar: const GradAppBar(title: 'Files'),
       body: service.isLoading && service.categories.isEmpty
-          ? const Center(
-              child: CircularProgressIndicator(color: AppColors.primary),
-            )
+          ? const FilesScreenSkeleton()
           : service.errorMessage != null && service.categories.isEmpty
           ? _LoadError(
               message: service.errorMessage!,
               onRetry: () => _load(force: true),
+            )
+          : service.categories.isEmpty
+          ? RefreshIndicator(
+              color: AppColors.primary,
+              onRefresh: () => _load(force: true),
+              child: SingleChildScrollView(
+                physics: const AlwaysScrollableScrollPhysics(
+                  parent: BouncingScrollPhysics(),
+                ),
+                child: SizedBox(
+                  height: MediaQuery.sizeOf(context).height - 200,
+                  child: AppEmptyState(
+                    title: 'No files yet',
+                    description:
+                        'Upload and organize your academic records, certificates, and portfolio documents here.',
+                    actionLabel: 'Add File',
+                    actionIcon: Icons.add_rounded,
+                    onAction: () => Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (_) => const AddFileScreen(),
+                      ),
+                    ),
+                    footnote: 'Supports PDF, JPG, and PNG files.',
+                  ),
+                ),
+              ),
             )
           : RefreshIndicator(
               color: AppColors.primary,
@@ -127,7 +153,12 @@ class _FilesScreenState extends State<FilesScreen> {
                 physics: const AlwaysScrollableScrollPhysics(
                   parent: BouncingScrollPhysics(),
                 ),
-                padding: const EdgeInsets.fromLTRB(20, 16, 20, 32),
+                padding: EdgeInsets.fromLTRB(
+                  20,
+                  16,
+                  20,
+                  100 + MediaQuery.paddingOf(context).bottom,
+                ),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
@@ -138,9 +169,20 @@ class _FilesScreenState extends State<FilesScreen> {
                     ),
                     const SizedBox(height: 20),
                     if (categories.isEmpty)
-                      const EmptyState(
-                        message: 'No folders found.',
-                        icon: Icons.folder_off_outlined,
+                      Padding(
+                        padding: const EdgeInsets.only(top: 24),
+                        child: AppEmptyState(
+                          title: 'No matching folders',
+                          description:
+                              'No folders found matching "$_query". Try a different search term.',
+                          icon: Icons.search_off_rounded,
+                          actionLabel: 'Clear Search',
+                          actionIcon: Icons.clear_rounded,
+                          onAction: () {
+                            _searchController.clear();
+                            setState(() => _query = '');
+                          },
+                        ),
                       )
                     else
                       ...categories.map(
@@ -179,7 +221,7 @@ class _CategorySection extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Padding(
-            padding: const EdgeInsets.only(bottom: 8, left: 2),
+            padding: const EdgeInsets.only(bottom: 8),
             child: Text(
               category.name,
               style: GoogleFonts.poppins(
@@ -202,30 +244,41 @@ class _CategorySection extends StatelessWidget {
                 ),
               ],
             ),
-            child: Column(
-              children: category.folders.asMap().entries.map((entry) {
-                final folder = entry.value;
-                return Column(
-                  children: [
-                    Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 14),
-                      child: FolderRowItem(
-                        name: folder.name,
-                        count: countForFolder(folder),
-                        onTap: () => onFolderTap(folder),
-                      ),
+            clipBehavior: Clip.antiAlias,
+            child: category.folders.isEmpty
+                ? const Padding(
+                    padding: EdgeInsets.all(12),
+                    child: AppEmptyState(
+                      isCompact: true,
+                      title: 'No folders in this category',
+                      description: '',
+                      icon: Icons.folder_open_rounded,
                     ),
-                    if (entry.key < category.folders.length - 1)
-                      const Divider(
-                        height: 1,
-                        indent: 14,
-                        endIndent: 14,
-                        color: AppColors.divider,
-                      ),
-                  ],
-                );
-              }).toList(),
-            ),
+                  )
+                : Column(
+                    children: category.folders.asMap().entries.map((entry) {
+                      final folder = entry.value;
+                      final isLast = entry.key == category.folders.length - 1;
+                      return Column(
+                        children: [
+                          FolderRowItem(
+                            name: folder.name,
+                            count: countForFolder(folder),
+                            onTap: () => onFolderTap(folder),
+                            isGrouped: true,
+                          ),
+                          if (!isLast)
+                            const Divider(
+                              height: 1,
+                              thickness: 1,
+                              indent: 16,
+                              endIndent: 16,
+                              color: AppColors.divider,
+                            ),
+                        ],
+                      );
+                    }).toList(),
+                  ),
           ),
         ],
       ),
@@ -244,23 +297,13 @@ class _LoadError extends StatelessWidget {
     return Center(
       child: Padding(
         padding: const EdgeInsets.all(24),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const Icon(
-              Icons.cloud_off_outlined,
-              color: AppColors.textMuted,
-              size: 42,
-            ),
-            const SizedBox(height: 12),
-            Text(
-              message,
-              textAlign: TextAlign.center,
-              style: AppTextStyles.bodySmall,
-            ),
-            const SizedBox(height: 12),
-            TextButton(onPressed: onRetry, child: const Text('Try Again')),
-          ],
+        child: AppEmptyState(
+          title: 'Unable to load files',
+          description: message,
+          icon: Icons.cloud_off_outlined,
+          actionLabel: 'Try Again',
+          actionIcon: Icons.refresh_rounded,
+          onAction: onRetry,
         ),
       ),
     );

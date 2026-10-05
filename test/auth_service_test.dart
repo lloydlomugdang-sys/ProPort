@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:typed_data';
 
@@ -573,6 +574,207 @@ void main() {
       auth.dispose();
     },
   );
+
+  group('Non-blocking avatar fetch decoupling', () {
+    test(
+      'login completes without waiting for avatar HTTP response',
+      () async {
+        final avatarCompleter = Completer<http.Response>();
+        final api = ApiClient(
+          baseUrl: 'http://example.test:3000',
+          client: MockClient((request) async {
+            if (request.url.path == '/api/v1/auth/login') {
+              return _jsonResponse(_sessionEnvelope(
+                refreshToken: 'refresh-avatar',
+                hasAvatar: true,
+              ));
+            }
+            if (request.url.path == '/api/v1/users/me/avatar') {
+              return avatarCompleter.future;
+            }
+            throw StateError('Unexpected request: ${request.url.path}');
+          }),
+        );
+        final store = _MemoryTokenStore();
+        final auth = AuthService(apiClient: api, tokenStore: store);
+
+        // Act: login should complete immediately even though avatarCompleter is still unresolved
+        final user = await auth.login(
+          email: 'student@example.com',
+          password: 'Password1',
+        );
+
+        expect(user.id, 'user-1');
+        expect(auth.isAuthenticated, isTrue);
+        expect(auth.avatarBytes, isNull); // Avatar has not arrived yet
+
+        // Complete the avatar request
+        avatarCompleter.complete(
+          http.Response.bytes(Uint8List.fromList([1, 2, 3]), 200, headers: {
+            'content-type': 'image/png',
+          }),
+        );
+
+        // Allow microtasks and async event loop to process
+        await Future<void>.delayed(const Duration(milliseconds: 10));
+
+        expect(auth.avatarBytes, equals(Uint8List.fromList([1, 2, 3])));
+        auth.dispose();
+      },
+    );
+
+    test(
+      'avatar fetch failure does not reject the login operation',
+      () async {
+        final api = ApiClient(
+          baseUrl: 'http://example.test:3000',
+          client: MockClient((request) async {
+            if (request.url.path == '/api/v1/auth/login') {
+              return _jsonResponse(_sessionEnvelope(
+                refreshToken: 'refresh-err',
+                hasAvatar: true,
+              ));
+            }
+            if (request.url.path == '/api/v1/users/me/avatar') {
+              return http.Response('Internal Server Error', 500);
+            }
+            throw StateError('Unexpected request: ${request.url.path}');
+          }),
+        );
+        final store = _MemoryTokenStore();
+        final auth = AuthService(apiClient: api, tokenStore: store);
+
+        final user = await auth.login(
+          email: 'student@example.com',
+          password: 'Password1',
+        );
+
+        expect(user.id, 'user-1');
+        expect(auth.isAuthenticated, isTrue);
+
+        await Future<void>.delayed(const Duration(milliseconds: 10));
+        expect(auth.avatarBytes, isNull);
+        auth.dispose();
+      },
+    );
+
+    test(
+      'session logout while fetch is in-flight does not apply stale avatar state',
+      () async {
+        final avatarCompleter = Completer<http.Response>();
+        final api = ApiClient(
+          baseUrl: 'http://example.test:3000',
+          client: MockClient((request) async {
+            if (request.url.path == '/api/v1/auth/login') {
+              return _jsonResponse(_sessionEnvelope(
+                refreshToken: 'refresh-logout-race',
+                hasAvatar: true,
+              ));
+            }
+            if (request.url.path == '/api/v1/auth/logout') {
+              return _jsonResponse({
+                'data': {'status': 'loggedOut'},
+                'meta': {'requestId': 'req-logout'},
+              });
+            }
+            if (request.url.path == '/api/v1/users/me/avatar') {
+              return avatarCompleter.future;
+            }
+            throw StateError('Unexpected request: ${request.url.path}');
+          }),
+        );
+        final store = _MemoryTokenStore();
+        final auth = AuthService(apiClient: api, tokenStore: store);
+
+        await auth.login(email: 'student@example.com', password: 'Password1');
+        expect(auth.isAuthenticated, isTrue);
+        expect(auth.avatarBytes, isNull);
+
+        // User logs out while avatar is still in-flight
+        await auth.logout();
+        expect(auth.isAuthenticated, isFalse);
+        expect(auth.user, isNull);
+        expect(auth.avatarBytes, isNull);
+
+        // Now avatar request completes late
+        avatarCompleter.complete(
+          http.Response.bytes(Uint8List.fromList([9, 9, 9]), 200),
+        );
+        await Future<void>.delayed(const Duration(milliseconds: 10));
+
+        // State MUST remain cleared and NOT apply late avatar bytes
+        expect(auth.isAuthenticated, isFalse);
+        expect(auth.user, isNull);
+        expect(auth.avatarBytes, isNull);
+        auth.dispose();
+      },
+    );
+
+    test(
+      'user switch while fetch is in-flight does not apply stale avatar state',
+      () async {
+        final avatarACompleter = Completer<http.Response>();
+        final api = ApiClient(
+          baseUrl: 'http://example.test:3000',
+          client: MockClient((request) async {
+            if (request.url.path == '/api/v1/auth/login') {
+              final body = jsonDecode(request.body) as Map<String, dynamic>;
+              if (body['email'] == 'userA@example.com') {
+                return _jsonResponse(_sessionEnvelope(
+                  userId: 'user-A',
+                  email: 'userA@example.com',
+                  refreshToken: 'refresh-A',
+                  hasAvatar: true,
+                ));
+              } else {
+                return _jsonResponse(_sessionEnvelope(
+                  userId: 'user-B',
+                  email: 'userB@example.com',
+                  refreshToken: 'refresh-B',
+                  hasAvatar: false,
+                ));
+              }
+            }
+            if (request.url.path == '/api/v1/auth/logout') {
+              return _jsonResponse({
+                'data': {'status': 'loggedOut'},
+                'meta': {'requestId': 'req-logout'},
+              });
+            }
+            if (request.url.path == '/api/v1/users/me/avatar') {
+              return avatarACompleter.future;
+            }
+            throw StateError('Unexpected request: ${request.url.path}');
+          }),
+        );
+        final store = _MemoryTokenStore();
+        final auth = AuthService(apiClient: api, tokenStore: store);
+
+        // User A logs in
+        await auth.login(email: 'userA@example.com', password: 'PasswordA');
+        expect(auth.user?.id, 'user-A');
+
+        // User A logs out
+        await auth.logout();
+
+        // User B logs in (hasAvatar = false)
+        await auth.login(email: 'userB@example.com', password: 'PasswordB');
+        expect(auth.user?.id, 'user-B');
+        expect(auth.avatarBytes, isNull);
+
+        // Now User A's avatar request resolves late
+        avatarACompleter.complete(
+          http.Response.bytes(Uint8List.fromList([7, 7, 7]), 200),
+        );
+        await Future<void>.delayed(const Duration(milliseconds: 10));
+
+        // User B must NOT have User A's avatar bytes
+        expect(auth.user?.id, 'user-B');
+        expect(auth.avatarBytes, isNull);
+        auth.dispose();
+      },
+    );
+  });
 }
 
 class _MemoryTokenStore implements SecureTokenStore {
@@ -637,10 +839,18 @@ http.Response _jsonResponse(Map<String, dynamic> body, {int statusCode = 200}) {
 Map<String, dynamic> _sessionEnvelope({
   required String refreshToken,
   String accessToken = 'access-token',
+  bool hasAvatar = false,
+  String userId = 'user-1',
+  String email = 'student@example.com',
 }) {
   return {
     'data': {
-      'user': _userJson(status: 'active'),
+      'user': _userJson(
+        status: 'active',
+        id: userId,
+        email: email,
+        hasAvatar: hasAvatar,
+      ),
       'tokens': {
         'tokenType': 'Bearer',
         'accessToken': accessToken,
@@ -660,16 +870,20 @@ Map<String, dynamic> _userJson({
   String program = '',
   String yearLevel = '',
   String school = '',
+  String id = 'user-1',
+  String email = 'student@example.com',
+  bool hasAvatar = false,
 }) {
   return {
-    'id': 'user-1',
-    'email': 'student@example.com',
+    'id': id,
+    'email': email,
     'firstName': firstName,
     'lastName': lastName,
     'program': program,
     'yearLevel': yearLevel,
     'school': school,
     'status': status,
+    'hasAvatar': hasAvatar,
     'emailVerifiedAt': status == 'active' ? '2030-01-01T00:00:00.000Z' : null,
   };
 }

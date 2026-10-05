@@ -86,10 +86,14 @@ class _PortfolioListScreenState extends State<PortfolioListScreen> {
         context,
       ).getPortfolio(portfolio.id);
       if (!mounted) return;
+      final exporter = PortfolioScope.exporterOf(context);
       await Navigator.push<void>(
         context,
         MaterialPageRoute(
-          builder: (_) => PortfolioPreviewScreen(portfolioInfo: loaded.info),
+          builder: (_) => PortfolioPreviewScreen(
+            portfolioInfo: loaded.info,
+            exporter: exporter,
+          ),
         ),
       );
     } on ApiException catch (error) {

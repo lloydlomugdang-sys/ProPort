@@ -29,4 +29,8 @@ class PortfolioScope extends InheritedNotifier<PortfolioService> {
     assert(scope != null, 'No PortfolioScope found above this context.');
     return scope!.notifier!;
   }
+
+  static PortfolioService? maybeOf(BuildContext context) {
+    return context.dependOnInheritedWidgetOfExactType<PortfolioScope>()?.notifier;
+  }
 }

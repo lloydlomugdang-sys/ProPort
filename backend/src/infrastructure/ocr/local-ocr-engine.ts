@@ -13,6 +13,7 @@ import {
   type OcrEngine,
   type OcrExtraction,
   type OcrInput,
+  type OcrPageText,
 } from './ocr-engine.js';
 
 const require = createRequire(import.meta.url);
@@ -767,6 +768,7 @@ export class LocalOcrEngine implements OcrEngine {
       }
 
       const pages: string[] = [];
+      const pageDetails: OcrPageText[] = [];
       let totalLength = 0;
       for (let pageNumber = 1; pageNumber <= pdf.numPages; pageNumber += 1) {
         const page = await pdf.getPage(pageNumber);
@@ -778,6 +780,7 @@ export class LocalOcrEngine implements OcrEngine {
           pieces.push(item.hasEOL ? '\n' : ' ');
         }
         const pageText = normalizeText(pieces.join(' '));
+        pageDetails.push({ pageNumber, text: pageText });
         if (pageText.length > 0) pages.push(pageText);
         totalLength += pageText.length;
         if (totalLength > OCR_MAX_TEXT_LENGTH) {
@@ -788,7 +791,7 @@ export class LocalOcrEngine implements OcrEngine {
       if (rawText.length === 0) {
         throw new OcrEngineError('scanned-pdf-not-supported');
       }
-      return { rawText, engine: 'pdfjs' };
+      return { rawText, engine: 'pdfjs', pages: pageDetails, totalPages: pdf.numPages };
     } catch (error) {
       if (error instanceof OcrEngineError) throw error;
       if (timedOut) throw new OcrEngineError('timeout', { cause: error });

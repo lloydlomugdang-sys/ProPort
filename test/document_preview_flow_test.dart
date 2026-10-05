@@ -15,7 +15,10 @@ import 'package:proport_app/services/document_models.dart';
 import 'package:proport_app/services/document_scope.dart';
 import 'package:proport_app/services/document_service.dart';
 import 'package:proport_app/services/secure_token_store.dart';
+import 'package:proport_app/services/pdf_thumbnail_renderer.dart';
 import 'package:proport_app/widgets/document_image_preview.dart';
+import 'package:proport_app/widgets/document_pdf_preview.dart';
+import 'package:proport_app/widgets/document_unsupported_preview.dart';
 
 final samplePngBytes = Uint8List.fromList([
   0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A,
@@ -28,6 +31,20 @@ final samplePngBytes = Uint8List.fromList([
   0x00, 0x00, 0x00, 0x49, 0x45, 0x4E, 0x44, 0xAE,
   0x42, 0x60, 0x82,
 ]);
+
+class _MockPdfThumbnailRenderer implements PdfThumbnailRenderer {
+  _MockPdfThumbnailRenderer({this.bytesToReturn, this.throwError = false});
+  final Uint8List? bytesToReturn;
+  final bool throwError;
+  int renderCalls = 0;
+
+  @override
+  Future<Uint8List?> renderPage1(Uint8List pdfBytes, {double dpi = 72.0}) async {
+    renderCalls++;
+    if (throwError) throw Exception('PDF raster failure');
+    return bytesToReturn ?? samplePngBytes;
+  }
+}
 
 class _TestTokenStore implements SecureTokenStore {
   @override
@@ -188,14 +205,39 @@ DocumentRecord _makePdfDoc({
   );
 }
 
+DocumentRecord _makeUnsupportedDoc({
+  String id = 'doc-docx-1',
+  String fileName = 'sample.docx',
+  String title = 'Research Paper',
+  String fileKind = 'doc',
+  String extension = 'docx',
+  int sizeBytes = 154200,
+}) {
+  return DocumentRecord(
+    id: id,
+    categoryKey: 'certificates',
+    folderKey: 'seminars',
+    title: title,
+    documentDate: DateTime(2026, 9, 20),
+    originalFileName: fileName,
+    mimeType:
+        'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+    fileKind: fileKind,
+    extension: extension,
+    sizeBytes: sizeBytes,
+    createdAt: DateTime(2026, 9, 20),
+    updatedAt: DateTime(2026, 9, 20),
+  );
+}
+
 Widget _wrapWithScope({
   required DocumentService documentService,
   required Widget child,
 }) {
-  return MaterialApp(
-    home: DocumentScope(
-      documentService: documentService,
-      child: child,
+  return DocumentScope(
+    documentService: documentService,
+    child: MaterialApp(
+      home: child,
     ),
   );
 }
@@ -204,7 +246,7 @@ void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
   group('Goal 1: Portfolio Preview Shows Actual Documents', () {
-    testWidgets('image document displays actual visual preview with contain fit', (
+    testWidgets('image document displays actual visual preview with contain fit and taps to details', (
       tester,
     ) async {
       final auth = _MockAuthService(contentBytes: samplePngBytes);
@@ -225,11 +267,9 @@ void main() {
       );
 
       await tester.pumpWidget(
-        MaterialApp(
-          home: DocumentScope(
-            documentService: docService,
-            child: const PortfolioPreviewScreen(portfolioInfo: portfolioInfo),
-          ),
+        _wrapWithScope(
+          documentService: docService,
+          child: const PortfolioPreviewScreen(portfolioInfo: portfolioInfo),
         ),
       );
       await tester.pumpAndSettle();
@@ -243,6 +283,13 @@ void main() {
 
       // Path requested was primary content (Page 1)
       expect(auth.requestedPaths, ['/api/v1/documents/doc-img-1/content']);
+
+      // Tapping the document card opens full DocumentOcrScreen
+      final docCardFinder = find.byKey(const ValueKey('preview-document-doc-img-1'));
+      await tester.ensureVisible(docCardFinder);
+      await tester.tap(docCardFinder);
+      await tester.pumpAndSettle();
+      expect(find.byType(DocumentOcrScreen), findsOneWidget);
     });
 
     testWidgets('one failed image falls back gracefully without blocking preview', (
@@ -266,11 +313,9 @@ void main() {
       );
 
       await tester.pumpWidget(
-        MaterialApp(
-          home: DocumentScope(
-            documentService: docService,
-            child: const PortfolioPreviewScreen(portfolioInfo: portfolioInfo),
-          ),
+        _wrapWithScope(
+          documentService: docService,
+          child: const PortfolioPreviewScreen(portfolioInfo: portfolioInfo),
         ),
       );
       await tester.pumpAndSettle();
@@ -283,11 +328,98 @@ void main() {
       expect(find.byIcon(Icons.broken_image_outlined), findsOneWidget);
     });
 
-    testWidgets('PDF document keeps clear PDF representation in Portfolio Preview', (
+    testWidgets('PDF document renders page 1 thumbnail and navigates to details on tap', (
+      tester,
+    ) async {
+      final auth = _MockAuthService(contentBytes: Uint8List.fromList([1, 2, 3]));
+      final doc = _makePdfDoc();
+      final docService = _TestDocumentService(
+        authService: auth,
+        documents: [doc],
+      );
+      final mockRenderer = _MockPdfThumbnailRenderer(bytesToReturn: samplePngBytes);
+      docService.pdfThumbnailRenderer = mockRenderer;
+
+      const portfolioInfo = PortfolioInfo(
+        fullName: 'John Lloyd',
+        yearAndSection: '4BSIT-1',
+        schedule: 'Mon 8-10',
+        instructorName: 'Prof',
+        course: 'BSIT',
+        courseCode: 'IT101',
+        semesterAndYear: '2026',
+      );
+
+      await tester.pumpWidget(
+        _wrapWithScope(
+          documentService: docService,
+          child: const PortfolioPreviewScreen(portfolioInfo: portfolioInfo),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.text('PDF Document'), findsOneWidget);
+      expect(find.text('sample.pdf'), findsWidgets);
+      expect(find.byType(DocumentPdfPreview), findsOneWidget);
+      expect(find.text('Page 1 • PDF'), findsOneWidget);
+      expect(mockRenderer.renderCalls, 1);
+      expect(docService.getCachedThumbnail('doc-pdf-1'), isNotNull);
+
+      // Tapping opens DocumentOcrScreen
+      final docCardFinder = find.byKey(const ValueKey('preview-document-doc-pdf-1'));
+      await tester.ensureVisible(docCardFinder);
+      await tester.tap(docCardFinder);
+      await tester.pumpAndSettle();
+      expect(find.byType(DocumentOcrScreen), findsOneWidget);
+    });
+
+    testWidgets('PDF document raster error falls back to clean PDF placeholder without crashing', (
+      tester,
+    ) async {
+      final auth = _MockAuthService(contentBytes: Uint8List.fromList([1, 2, 3]));
+      final doc = _makePdfDoc();
+      final docService = _TestDocumentService(
+        authService: auth,
+        documents: [doc],
+      );
+      final mockRenderer = _MockPdfThumbnailRenderer(throwError: true);
+      docService.pdfThumbnailRenderer = mockRenderer;
+
+      const portfolioInfo = PortfolioInfo(
+        fullName: 'John Lloyd',
+        yearAndSection: '4BSIT-1',
+        schedule: 'Mon 8-10',
+        instructorName: 'Prof',
+        course: 'BSIT',
+        courseCode: 'IT101',
+        semesterAndYear: '2026',
+      );
+
+      await tester.pumpWidget(
+        _wrapWithScope(
+          documentService: docService,
+          child: const PortfolioPreviewScreen(portfolioInfo: portfolioInfo),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.byType(DocumentPdfPreview), findsOneWidget);
+      expect(find.text('PDF Document • Tap to view'), findsOneWidget);
+      expect(find.byIcon(Icons.picture_as_pdf_rounded), findsWidgets);
+
+      // Tapping opens DocumentOcrScreen
+      final docCardFinder = find.byKey(const ValueKey('preview-document-doc-pdf-1'));
+      await tester.ensureVisible(docCardFinder);
+      await tester.tap(docCardFinder);
+      await tester.pumpAndSettle();
+      expect(find.byType(DocumentOcrScreen), findsOneWidget);
+    });
+
+    testWidgets('unsupported format (DOCX) renders polished placeholder card and opens details on tap', (
       tester,
     ) async {
       final auth = _MockAuthService();
-      final doc = _makePdfDoc();
+      final doc = _makeUnsupportedDoc(fileName: 'research_paper.docx');
       final docService = _TestDocumentService(
         authService: auth,
         documents: [doc],
@@ -304,20 +436,96 @@ void main() {
       );
 
       await tester.pumpWidget(
-        MaterialApp(
-          home: DocumentScope(
-            documentService: docService,
-            child: const PortfolioPreviewScreen(portfolioInfo: portfolioInfo),
-          ),
+        _wrapWithScope(
+          documentService: docService,
+          child: const PortfolioPreviewScreen(portfolioInfo: portfolioInfo),
         ),
       );
       await tester.pumpAndSettle();
 
-      expect(find.text('PDF Document'), findsOneWidget);
-      expect(find.text('sample.pdf'), findsOneWidget);
-      expect(find.byIcon(Icons.picture_as_pdf_rounded), findsWidgets);
-      // Did not attempt to render image preview for PDF
-      expect(find.byType(DocumentImagePreview), findsNothing);
+      expect(find.byType(DocumentUnsupportedPreview), findsOneWidget);
+      expect(
+        find.descendant(
+          of: find.byType(DocumentUnsupportedPreview),
+          matching: find.text('research_paper.docx'),
+        ),
+        findsOneWidget,
+      );
+      expect(find.text('DOCX'), findsOneWidget);
+      expect(find.textContaining('Word Document'), findsOneWidget);
+      expect(find.text('Tap to view details'), findsOneWidget);
+
+      // Tapping opens DocumentOcrScreen
+      final docCardFinder = find.byKey(const ValueKey('preview-document-doc-docx-1'));
+      await tester.ensureVisible(docCardFinder);
+      await tester.tap(docCardFinder);
+      await tester.pumpAndSettle();
+      expect(find.byType(DocumentOcrScreen), findsOneWidget);
+    });
+
+    testWidgets('unsupported format (XLSX) renders spreadsheet icon and badge', (
+      tester,
+    ) async {
+      final auth = _MockAuthService();
+      final doc = _makeUnsupportedDoc(
+        id: 'doc-xlsx-1',
+        fileName: 'grades.xlsx',
+        fileKind: 'sheet',
+        extension: 'xlsx',
+      );
+      final docService = _TestDocumentService(
+        authService: auth,
+        documents: [doc],
+      );
+
+      const portfolioInfo = PortfolioInfo(
+        fullName: 'John Lloyd',
+        yearAndSection: '4BSIT-1',
+        schedule: 'Mon 8-10',
+        instructorName: 'Prof',
+        course: 'BSIT',
+        courseCode: 'IT101',
+        semesterAndYear: '2026',
+      );
+
+      await tester.pumpWidget(
+        _wrapWithScope(
+          documentService: docService,
+          child: const PortfolioPreviewScreen(portfolioInfo: portfolioInfo),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.byType(DocumentUnsupportedPreview), findsOneWidget);
+      expect(
+        find.descendant(
+          of: find.byType(DocumentUnsupportedPreview),
+          matching: find.text('grades.xlsx'),
+        ),
+        findsOneWidget,
+      );
+      expect(find.text('XLSX'), findsOneWidget);
+      expect(find.textContaining('Spreadsheet'), findsOneWidget);
+    });
+
+    test('thumbnail cache is bounded and independent of raw content cache', () {
+      final auth = _MockAuthService();
+      final docService = DocumentService(authService: auth);
+
+      // Add 35 thumbnails
+      for (int i = 0; i < 35; i++) {
+        docService.setCachedThumbnail('doc-$i', samplePngBytes);
+      }
+      expect(docService.getCachedThumbnail('doc-0'), isNull); // evicted
+      expect(docService.getCachedThumbnail('doc-34'), isNotNull);
+
+      // Add 5 raw content items
+      for (int i = 0; i < 5; i++) {
+        docService.setCachedContent('raw-$i', samplePngBytes);
+      }
+      expect(docService.getCachedContent('raw-0'), isNotNull);
+      // Thumbnails still cached independently
+      expect(docService.getCachedThumbnail('doc-34'), isNotNull);
     });
   });
 

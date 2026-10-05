@@ -5,6 +5,8 @@ import '../../constants/app_colors.dart';
 import '../../services/api_client.dart';
 import '../../services/document_models.dart';
 import '../../services/document_scope.dart';
+import '../../widgets/app_empty_state.dart';
+import '../../widgets/app_skeleton.dart';
 import '../../widgets/document_image_preview.dart';
 import '../../widgets/grad_app_bar.dart';
 import '../../widgets/primary_button.dart';
@@ -517,26 +519,9 @@ class _DocumentOcrScreenState extends State<DocumentOcrScreen> {
   }
 
   List<Widget> _statusContent() {
-    if (_isLoadingOcr && _ocr == null) {
-      return [
-        Container(
-          padding: const EdgeInsets.all(20),
-          decoration: BoxDecoration(
-            color: Colors.white,
-            borderRadius: BorderRadius.circular(14),
-            border: Border.all(color: AppColors.cardBorder),
-          ),
-          child: const Center(
-            child: SizedBox(
-              width: 24,
-              height: 24,
-              child: CircularProgressIndicator(
-                strokeWidth: 2.5,
-                color: AppColors.primary,
-              ),
-            ),
-          ),
-        ),
+    if (_isLoadingOcr && _ocr == null && _reviewedTextController.text.isEmpty) {
+      return const [
+        OcrTextSkeleton(lineCount: 6),
       ];
     }
 
@@ -641,18 +626,20 @@ class _DocumentOcrScreenState extends State<DocumentOcrScreen> {
 
     final failed = status == DocumentOcrStatus.failed;
     return [
-      _MessageCard(
-        message: failed
-            ? 'The last text extraction did not complete. Your original file is unchanged.'
+      AppEmptyState(
+        isCompact: true,
+        title: failed
+            ? 'Text extraction did not complete'
             : 'No extracted text yet.',
-        isError: failed,
-      ),
-      const SizedBox(height: 16),
-      PrimaryButton(
-        label: failed ? 'Try Again' : 'Extract Text',
-        onPressed: _requestExtraction,
-        isLoading: _isProcessing,
-        icon: Icons.document_scanner_outlined,
+        description: failed
+            ? 'The last text extraction did not complete. Your original file is unchanged.'
+            : 'Extract text to search, copy, or include readable content in your portfolio.',
+        icon: failed
+            ? Icons.error_outline_rounded
+            : Icons.document_scanner_outlined,
+        actionLabel: failed ? 'Try Again' : 'Extract Text',
+        actionIcon: Icons.document_scanner_outlined,
+        onAction: _requestExtraction,
       ),
       if (_errorMessage != null) ...[
         const SizedBox(height: 12),

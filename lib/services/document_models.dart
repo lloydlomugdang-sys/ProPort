@@ -1,3 +1,4 @@
+import 'dart:io';
 import 'dart:typed_data';
 
 enum DocumentOcrStatus { notProcessed, processing, ready, failed }
@@ -138,17 +139,60 @@ class DocumentOcrResult {
 }
 
 class PickedDocument {
-  const PickedDocument({
+  PickedDocument({
     required this.name,
     required this.mimeType,
-    required this.bytes,
-  });
+    Uint8List? bytes,
+    this.path,
+    int? sizeBytes,
+  })  : _bytes = bytes,
+        _sizeBytes = sizeBytes ?? bytes?.length ?? 0 {
+    if (bytes == null && (path == null || path!.isEmpty)) {
+      throw ArgumentError('Either bytes or path must be provided.');
+    }
+  }
 
   final String name;
   final String mimeType;
-  final Uint8List bytes;
+  final String? path;
+  Uint8List? _bytes;
+  final int _sizeBytes;
 
-  int get sizeBytes => bytes.length;
+  int get sizeBytes => _sizeBytes;
+
+  bool get hasBytes => _bytes != null;
+
+  Uint8List get bytes {
+    final current = _bytes;
+    if (current != null) return current;
+    throw StateError(
+      'Document bytes have not been materialized. Call readBytes() asynchronously.',
+    );
+  }
+
+  Future<Uint8List> readBytes() async {
+    final current = _bytes;
+    if (current != null) return current;
+    final filePath = path;
+    if (filePath == null || filePath.isEmpty) {
+      throw const FileSystemException(
+        'File path is unavailable and bytes are not loaded.',
+      );
+    }
+    final file = File(filePath);
+    if (!await file.exists()) {
+      throw FileSystemException('File no longer exists at path: $filePath');
+    }
+    final data = await file.readAsBytes();
+    _bytes = data;
+    return data;
+  }
+
+  void releaseBytes() {
+    if (path != null && path!.isNotEmpty) {
+      _bytes = null;
+    }
+  }
 
   bool get hasSupportedUploadType {
     final extension = name.split('.').last.toLowerCase();
@@ -430,4 +474,138 @@ Map<String, int> _countMap(Object? value) {
     result[entry.key] = entry.value as int;
   }
   return Map.unmodifiable(result);
+}
+
+class CompiledDocumentProposal {
+  const CompiledDocumentProposal({
+    required this.startPage,
+    required this.endPage,
+    required this.categoryKey,
+    required this.folderKey,
+    required this.title,
+    this.documentDate,
+    this.confidence = 0.8,
+  });
+
+  final int startPage;
+  final int endPage;
+  final String categoryKey;
+  final String folderKey;
+  final String title;
+  final DateTime? documentDate;
+  final double confidence;
+
+  factory CompiledDocumentProposal.fromJson(Map<String, dynamic> json) {
+    final start = json['startPage'];
+    final end = json['endPage'];
+    if (start is! int || end is! int) throw const FormatException();
+    final dateStr = _optionalString(json, 'documentDate');
+    DateTime? parsedDate;
+    if (dateStr != null && dateStr.isNotEmpty) {
+      parsedDate = DateTime.tryParse(dateStr);
+    }
+    final confRaw = json['confidence'];
+    final conf = confRaw is num ? confRaw.toDouble() : 0.8;
+
+    return CompiledDocumentProposal(
+      startPage: start,
+      endPage: end,
+      categoryKey: _requiredString(json, 'categoryKey'),
+      folderKey: _requiredString(json, 'folderKey'),
+      title: _requiredString(json, 'title'),
+      documentDate: parsedDate,
+      confidence: conf,
+    );
+  }
+
+  CompiledDocumentProposal copyWith({
+    int? startPage,
+    int? endPage,
+    String? categoryKey,
+    String? folderKey,
+    String? title,
+    DateTime? documentDate,
+    double? confidence,
+  }) {
+    return CompiledDocumentProposal(
+      startPage: startPage ?? this.startPage,
+      endPage: endPage ?? this.endPage,
+      categoryKey: categoryKey ?? this.categoryKey,
+      folderKey: folderKey ?? this.folderKey,
+      title: title ?? this.title,
+      documentDate: documentDate ?? this.documentDate,
+      confidence: confidence ?? this.confidence,
+    );
+  }
+}
+
+class CompiledAnalysisResult {
+  const CompiledAnalysisResult({
+    required this.sessionId,
+    required this.originalFileName,
+    required this.totalPages,
+    required this.documents,
+  });
+
+  final String sessionId;
+  final String originalFileName;
+  final int totalPages;
+  final List<CompiledDocumentProposal> documents;
+
+  factory CompiledAnalysisResult.fromJson(Map<String, dynamic> json) {
+    final total = json['totalPages'];
+    if (total is! int) throw const FormatException();
+    final docsRaw = json['documents'];
+    if (docsRaw is! List) throw const FormatException();
+
+    return CompiledAnalysisResult(
+      sessionId: _requiredString(json, 'sessionId'),
+      originalFileName: _requiredString(json, 'originalFileName'),
+      totalPages: total,
+      documents: docsRaw
+          .whereType<Map<String, dynamic>>()
+          .map(CompiledDocumentProposal.fromJson)
+          .toList(),
+    );
+  }
+}
+
+class CompiledSplitSegment {
+  const CompiledSplitSegment({
+    required this.startPage,
+    required this.endPage,
+    required this.categoryKey,
+    required this.folderKey,
+    required this.title,
+    this.documentDate,
+    this.description,
+    this.reflection,
+  });
+
+  final int startPage;
+  final int endPage;
+  final String categoryKey;
+  final String folderKey;
+  final String title;
+  final DateTime? documentDate;
+  final String? description;
+  final String? reflection;
+
+  Map<String, dynamic> toJson() {
+    final date = documentDate ?? DateTime.now();
+    final dateStr =
+        '${date.year.toString().padLeft(4, '0')}-${date.month.toString().padLeft(2, '0')}-${date.day.toString().padLeft(2, '0')}';
+    return {
+      'startPage': startPage,
+      'endPage': endPage,
+      'categoryKey': categoryKey,
+      'folderKey': folderKey,
+      'title': title.trim(),
+      'documentDate': dateStr,
+      if (description != null && description!.trim().isNotEmpty)
+        'description': description!.trim(),
+      if (reflection != null && reflection!.trim().isNotEmpty)
+        'reflection': reflection!.trim(),
+    };
+  }
 }

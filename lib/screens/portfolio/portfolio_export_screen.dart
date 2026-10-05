@@ -33,6 +33,7 @@ class _PortfolioExportScreenState extends State<PortfolioExportScreen>
   bool _previewOpen = false;
   bool _isExporting = false;
   bool _isSharing = false;
+  bool _isSaving = false;
   String? _error;
   String? _coverageNote;
   PortfolioExportFile? _exportedFile;
@@ -78,7 +79,7 @@ class _PortfolioExportScreenState extends State<PortfolioExportScreen>
   // Export action
   // ─────────────────────────────────────────────────────────────────────────────
   Future<void> _onExport() async {
-    if (_isExporting || _previewOpen || _isSharing) return;
+    if (_isExporting || _previewOpen || _isSharing || _isSaving) return;
     final documents = DocumentScope.of(context);
     final exporter = PortfolioScope.exporterOf(context);
     setState(() {
@@ -113,7 +114,7 @@ class _PortfolioExportScreenState extends State<PortfolioExportScreen>
 
   Future<void> _onShare(BuildContext buttonContext) async {
     final file = _exportedFile;
-    if (file == null || _isSharing || _isExporting) return;
+    if (file == null || _isSharing || _isExporting || _isSaving) return;
     final box = buttonContext.findRenderObject() as RenderBox;
     final origin = box.localToGlobal(Offset.zero) & box.size;
     setState(() {
@@ -134,20 +135,61 @@ class _PortfolioExportScreenState extends State<PortfolioExportScreen>
     }
   }
 
+  Future<void> _onSaveToDevice() async {
+    final file = _exportedFile;
+    if (file == null || _isSaving || _isSharing || _isExporting) return;
+    setState(() {
+      _isSaving = true;
+      _error = null;
+    });
+    try {
+      final saved = await PortfolioScope.exporterOf(context).saveToDevice(file);
+      if (saved && mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Portfolio saved successfully.'),
+            backgroundColor: AppColors.primary,
+            duration: Duration(seconds: 3),
+          ),
+        );
+      }
+    } catch (_) {
+      if (mounted) {
+        setState(
+          () => _error = "We couldn't save your portfolio. Please try again.",
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _isSaving = false);
+    }
+  }
+
   Future<void> _onPreview() async {
     if (_previewOpen || _isExporting) return;
     _previewOpen = true;
     try {
       final documents = DocumentScope.of(context);
+      final exporter = PortfolioScope.exporterOf(context);
+      final portfolioService = PortfolioScope.maybeOf(context);
+      Widget screen = PortfolioPreviewScreen(
+        portfolioInfo: widget.portfolioInfo,
+        exportFormat: _exportedFile?.format,
+        initialExportedFile: _exportedFile,
+        exporter: exporter,
+      );
+      if (portfolioService != null) {
+        screen = PortfolioScope(
+          portfolioService: portfolioService,
+          exporter: exporter,
+          child: screen,
+        );
+      }
       await Navigator.push<void>(
         context,
         MaterialPageRoute(
           builder: (_) => DocumentScope(
             documentService: documents,
-            child: PortfolioPreviewScreen(
-              portfolioInfo: widget.portfolioInfo,
-              exportFormat: _exportedFile?.format,
-            ),
+            child: screen,
           ),
         ),
       );
@@ -223,7 +265,7 @@ class _PortfolioExportScreenState extends State<PortfolioExportScreen>
         ),
         const SizedBox(height: 4),
         Text(
-          'Temporary copy. Use Share to send or save it.',
+          'Temporary copy. Use Save to Device or Share to keep your portfolio.',
           textAlign: TextAlign.center,
           style: GoogleFonts.poppins(
             fontSize: 11,
@@ -233,15 +275,55 @@ class _PortfolioExportScreenState extends State<PortfolioExportScreen>
         const SizedBox(height: 16),
         SizedBox(
           width: double.infinity,
+          child: ElevatedButton.icon(
+            key: const Key('portfolio-export-save-btn'),
+            onPressed: (_isSaving || _isSharing || _isExporting)
+                ? null
+                : _onSaveToDevice,
+            icon: _isSaving
+                ? const SizedBox(
+                    width: 18,
+                    height: 18,
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2,
+                      color: Colors.white,
+                    ),
+                  )
+                : const Icon(Icons.download_rounded, size: 18),
+            label: Text(_isSaving ? 'Saving...' : 'Save to Device'),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: AppColors.primary,
+              foregroundColor: Colors.white,
+              elevation: 0,
+              shape: _roundedBorder(),
+              padding: const EdgeInsets.symmetric(vertical: 12),
+              textStyle: GoogleFonts.poppins(
+                fontSize: 13,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ),
+        ),
+        const SizedBox(height: 8),
+        SizedBox(
+          width: double.infinity,
           child: Builder(
-            builder: (buttonContext) => ElevatedButton.icon(
-              onPressed: _isSharing ? null : () => _onShare(buttonContext),
-              icon: const Icon(Icons.share_rounded, size: 18),
+            builder: (buttonContext) => OutlinedButton.icon(
+              key: const Key('portfolio-export-share-btn'),
+              onPressed: (_isSharing || _isSaving || _isExporting)
+                  ? null
+                  : () => _onShare(buttonContext),
+              icon: _isSharing
+                  ? const SizedBox(
+                      width: 18,
+                      height: 18,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : const Icon(Icons.share_rounded, size: 18),
               label: Text(_isSharing ? 'Sharing...' : 'Share'),
-              style: ElevatedButton.styleFrom(
-                backgroundColor: AppColors.primary,
-                foregroundColor: Colors.white,
-                elevation: 0,
+              style: OutlinedButton.styleFrom(
+                foregroundColor: AppColors.primary,
+                side: const BorderSide(color: AppColors.cardBorder, width: 1.2),
                 shape: _roundedBorder(),
                 padding: const EdgeInsets.symmetric(vertical: 12),
                 textStyle: GoogleFonts.poppins(

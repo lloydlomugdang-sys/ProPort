@@ -5,6 +5,7 @@ import 'constants/app_colors.dart';
 import 'screens/auth/splash_screen.dart';
 import 'services/auth_scope.dart';
 import 'services/auth_service.dart';
+import 'services/document_picker.dart';
 import 'services/document_scope.dart';
 import 'services/document_service.dart';
 import 'services/portfolio_export_service.dart';
@@ -75,6 +76,7 @@ class _GradPortAppState extends State<GradPortApp> {
         child: DocumentScope(
           documentService: _documentService,
           child: MaterialApp(
+            navigatorKey: DeviceDocumentPicker.navigatorKey,
             title: 'GradPort',
             debugShowCheckedModeBanner: false,
             theme: ThemeData(

@@ -186,4 +186,14 @@ export class AiMetadataService {
       metadataAnalysis: { source: Object.keys(metadataSuggestions).length ? 'rules' : 'none', aiStatus },
     };
   }
+
+  async separateCompiled(
+    pages: readonly { readonly pageNumber: number; readonly text: string }[],
+    categories: readonly PublicDocumentCategory[],
+  ): Promise<unknown> {
+    if (!this.provider || !this.provider.separateCompiled) {
+      return null;
+    }
+    return this.provider.separateCompiled(pages, categories);
+  }
 }

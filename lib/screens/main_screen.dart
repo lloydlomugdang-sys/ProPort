@@ -1,5 +1,7 @@
 // LOCATION: lib/screens/main_screen.dart
 
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 
@@ -61,6 +63,7 @@ class MainScreenState extends State<MainScreen>
     super.initState();
     _activeInstance = this;
     _filePicker = widget.filePicker ?? DeviceDocumentPicker();
+    unawaited(_filePicker.cleanCache());
     _quickActionCtrl = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 180),
@@ -161,7 +164,7 @@ class MainScreenState extends State<MainScreen>
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(
-            'Unable to capture from camera. Please try again.',
+            'Unable to scan document. Please try again.',
             style: GoogleFonts.poppins(fontSize: 13, color: Colors.white),
           ),
           backgroundColor: AppColors.primary,
@@ -222,7 +225,13 @@ class MainScreenState extends State<MainScreen>
         // 2–20 files: delegate to BatchUploadQueue / BatchReviewScreen
         final service = DocumentScope.of(context);
         final queue = BatchUploadQueue(documentService: service);
-        queue.initialize(selected);
+        final defaultCat = service.categories.firstOrNull;
+        final defaultFolder = defaultCat?.folders.firstOrNull;
+        queue.initialize(
+          selected,
+          defaultCategoryKey: defaultCat?.key,
+          defaultFolderKey: defaultFolder?.key,
+        );
         final result = await Navigator.push<bool>(
           context,
           MaterialPageRoute(

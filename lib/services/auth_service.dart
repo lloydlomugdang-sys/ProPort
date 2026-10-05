@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/foundation.dart';
 
 import 'api_client.dart';
@@ -42,6 +43,8 @@ class AuthService extends ChangeNotifier {
   String? _refreshToken;
   DateTime? _refreshTokenExpiresAt;
   Uint8List? _avatarBytes;
+  int _sessionEpoch = 0;
+  bool _disposed = false;
 
   AuthUser? get user => _user;
   Uint8List? get avatarBytes => _avatarBytes;
@@ -219,18 +222,28 @@ class AuthService extends ChangeNotifier {
   }
 
   Future<Uint8List?> fetchAvatar() async {
+    final currentUserId = _user?.id;
+    final epoch = _sessionEpoch;
     try {
       final bytes = await authenticatedGetBytes(
         _avatarPath,
         requestTimeout: ApiTimeoutPolicy.quickRead,
       );
-      _avatarBytes = bytes;
-      notifyListeners();
+      if (!_disposed &&
+          _sessionEpoch == epoch &&
+          (currentUserId == null || _user?.id == currentUserId)) {
+        _avatarBytes = bytes;
+        notifyListeners();
+      }
       return bytes;
     } on ApiException catch (error) {
       if (error.statusCode == 404) {
-        _avatarBytes = null;
-        notifyListeners();
+        if (!_disposed &&
+            _sessionEpoch == epoch &&
+            (currentUserId == null || _user?.id == currentUserId)) {
+          _avatarBytes = null;
+          notifyListeners();
+        }
         return null;
       }
       rethrow;
@@ -250,6 +263,7 @@ class AuthService extends ChangeNotifier {
       fileBytes: bytes,
       requestTimeout: ApiTimeoutPolicy.upload,
     );
+    _sessionEpoch++;
     _avatarBytes = bytes;
     final user = _applyCurrentUser(_dataOf(response)['user']);
     notifyListeners();
@@ -258,6 +272,7 @@ class AuthService extends ChangeNotifier {
 
   Future<AuthUser> deleteAvatar() async {
     final response = await authenticatedDeleteJson(_avatarPath);
+    _sessionEpoch++;
     _avatarBytes = null;
     final user = _applyCurrentUser(_dataOf(response)['user']);
     notifyListeners();
@@ -520,6 +535,7 @@ class AuthService extends ChangeNotifier {
     final user = _parseUser(value);
     _user = user;
     if (!user.hasAvatar) {
+      _sessionEpoch++;
       _avatarBytes = null;
     }
     notifyListeners();
@@ -546,6 +562,7 @@ class AuthService extends ChangeNotifier {
       throw const AuthStorageException();
     }
 
+    _sessionEpoch++;
     _user = session.user;
     _accessToken = session.accessToken;
     _accessTokenExpiresAt = session.accessTokenExpiresAt;
@@ -554,15 +571,20 @@ class AuthService extends ChangeNotifier {
     _avatarBytes = null;
     notifyListeners();
     if (session.user.hasAvatar) {
-      try {
-        await fetchAvatar();
-      } catch (_) {
-        // Best effort: login succeeds even if avatar fetch fails.
-      }
+      unawaited(_fetchAvatarSilently());
+    }
+  }
+
+  Future<void> _fetchAvatarSilently() async {
+    try {
+      await fetchAvatar();
+    } catch (_) {
+      // Best effort: background avatar fetch failure never fails the session.
     }
   }
 
   Future<void> _clearLocalSession() async {
+    _sessionEpoch++;
     _user = null;
     _profileOptions = null;
     _accessToken = null;
@@ -617,6 +639,8 @@ class AuthService extends ChangeNotifier {
 
   @override
   void dispose() {
+    _disposed = true;
+    _sessionEpoch++;
     if (_ownsApiClient) _apiClient.close();
     super.dispose();
   }

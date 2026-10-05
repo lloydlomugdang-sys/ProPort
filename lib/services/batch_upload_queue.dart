@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io';
 import 'package:flutter/foundation.dart';
 import '../screens/files/models/batch_upload_item.dart';
 import 'api_client.dart';
@@ -8,35 +9,69 @@ import 'document_service.dart';
 class BatchUploadQueue extends ChangeNotifier {
   BatchUploadQueue({
     required DocumentService documentService,
-    this.maxConcurrent = 2,
+    int? maxConcurrent,
+    int? maxConcurrentUploads,
     this.maxBatchSize = 20,
     this.maxRetries = 3,
-  }) : _documentService = documentService;
+  })  : maxConcurrentUploads = maxConcurrentUploads ?? maxConcurrent ?? 2,
+        _documentService = documentService;
 
   final DocumentService _documentService;
-  final int maxConcurrent;
+  final int maxConcurrentUploads;
   final int maxBatchSize;
   final int maxRetries;
 
+  // Compatibility alias for maxConcurrent
+  int get maxConcurrent => maxConcurrentUploads;
+
   final List<BatchUploadItem> _items = [];
-  int _activeWorkers = 0;
+  int _activeUploadWorkers = 0;
+  int _activeOcrWorkers = 0;
   bool _isDisposed = false;
-  bool _isSavingAll = false;
+  bool _isProcessingBatch = false;
+  Completer<int>? _batchCompleter;
 
   List<BatchUploadItem> get items => List.unmodifiable(_items);
   int get totalCount => _items.length;
-  int get readyCount => _items.where((i) => i.isReadyForReview).length;
-  int get savedCount => _items.where((i) => i.isSaved).length;
+  int get queuedCount =>
+      _items.where((i) => i.status == BatchItemStatus.queued).length;
+  int get uploadingCount =>
+      _items.where((i) => i.status == BatchItemStatus.uploading).length;
+  int get uploadedCount => _items.where((i) => i.isUploaded).length;
+  int get waitingForOcrCount =>
+      _items.where((i) => i.status == BatchItemStatus.waitingForOcr).length;
+  int get extractingCount =>
+      _items.where((i) => i.status == BatchItemStatus.extracting).length;
+  int get completedCount =>
+      _items.where((i) => i.status == BatchItemStatus.completed).length;
+  int get savedCount => completedCount;
   int get failedCount => _items.where((i) => i.isFailed).length;
   int get processingCount => _items.where((i) => i.isProcessing).length;
-  int get validToSaveCount => _items
-      .where((i) => i.isValidForSave && (i.isReadyForReview || i.isFailed))
-      .length;
-  bool get isAllProcessed => _items.every((i) => !i.isProcessing);
-  bool get isAllSaved => _items.isNotEmpty && _items.every((i) => i.isSaved);
-  bool get isSavingAll => _isSavingAll;
+  int get readyCount =>
+      _items.where((i) => i.status == BatchItemStatus.queued || i.isCompleted).length;
 
-  void initialize(List<PickedDocument> files) {
+  int get validToSaveCount =>
+      _items.where((i) => i.isValidForUpload && (i.status == BatchItemStatus.queued || i.isFailed)).length;
+
+  bool get isAllProcessed => _items.every((i) => !i.isProcessing);
+  bool get isAllCompleted => _items.isNotEmpty && _items.every((i) => i.isCompleted);
+  bool get isAllSaved => isAllCompleted;
+  bool get isProcessingBatch => _isProcessingBatch;
+  bool get isSavingAll => _isProcessingBatch;
+
+  bool get hasActiveUploads =>
+      _activeUploadWorkers > 0 ||
+      _items.any((i) => i.status == BatchItemStatus.uploading);
+
+  bool get hasPendingUploads =>
+      _items.any((i) => i.status == BatchItemStatus.queued || i.status == BatchItemStatus.uploading);
+
+  void initialize(
+    List<PickedDocument> files, {
+    String? defaultCategoryKey,
+    String? defaultFolderKey,
+    bool autoStart = false,
+  }) {
     if (files.length > maxBatchSize) {
       throw ArgumentError(
         'You can select up to $maxBatchSize documents. Selected: ${files.length}.',
@@ -49,101 +84,288 @@ class BatchUploadQueue extends ChangeNotifier {
         BatchUploadItem(
           id: 'batch_item_${DateTime.now().microsecondsSinceEpoch}_$i',
           file: file,
-          status: BatchItemStatus.waiting,
+          status: BatchItemStatus.queued,
+          title: _cleanFilename(file.name),
+          categoryKey: defaultCategoryKey,
+          folderKey: defaultFolderKey,
+          documentDate: DateTime.now(),
+          isManualCategory: false,
+          isAutoCategorized: false,
         ),
       );
     }
     notifyListeners();
-    _drainQueue();
+    if (autoStart) {
+      startProcessing();
+    }
   }
 
-  void _drainQueue() {
-    if (_isDisposed) return;
-    while (_activeWorkers < maxConcurrent) {
+  Future<int> startProcessing() async {
+    if (_isProcessingBatch) {
+      return _batchCompleter?.future ?? Future.value(completedCount);
+    }
+    _isProcessingBatch = true;
+    _batchCompleter = Completer<int>();
+    notifyListeners();
+
+    _drainUploadQueue();
+    _checkBatchCompletion();
+    return _batchCompleter!.future;
+  }
+
+  Future<int> saveAllValid() async {
+    return startProcessing();
+  }
+
+  void _drainUploadQueue() {
+    if (_isDisposed || !_isProcessingBatch) return;
+    while (_activeUploadWorkers < maxConcurrentUploads) {
       final nextIndex = _items.indexWhere(
-        (i) => i.status == BatchItemStatus.waiting,
+        (i) => i.status == BatchItemStatus.queued && i.isValidForUpload,
       );
       if (nextIndex == -1) break;
 
       final item = _items[nextIndex];
-      _activeWorkers++;
-      _processItem(item.id);
+      _activeUploadWorkers++;
+      _uploadItem(item.id);
     }
+    _checkBatchCompletion();
   }
 
-  Future<void> _processItem(String itemId) async {
+  Future<void> _uploadItem(String itemId) async {
     final index = _items.indexWhere((i) => i.id == itemId);
     if (index == -1 || _isDisposed) {
-      _activeWorkers--;
-      _drainQueue();
+      _activeUploadWorkers--;
+      _drainUploadQueue();
       return;
     }
 
-    // Step 1: Text extraction
     _items[index] = _items[index].copyWith(
-      status: BatchItemStatus.extractingText,
+      status: BatchItemStatus.uploading,
       errorMessage: null,
     );
     notifyListeners();
 
+    final current = _items[index];
+
+    // Lazy file materialization: read bytes only when upload worker starts
     try {
-      // Step 2: Categorization & OCR via backend preview
-      // Transition to aiCategorizing briefly or keep extracting
-      final item = _items[index];
-      final ocrResult = await _documentService.previewOcr(item.file);
+      await current.file.readBytes();
+    } on FileSystemException catch (_) {
+      if (_isDisposed) return;
+      _activeUploadWorkers--;
+      final curIdx = _items.indexWhere((i) => i.id == itemId);
+      if (curIdx != -1) {
+        _items[curIdx] = _items[curIdx].copyWith(
+          status: BatchItemStatus.failed,
+          errorMessage: 'The file could not be read from device storage. Please try again.',
+        );
+        notifyListeners();
+      }
+      _drainUploadQueue();
+      return;
+    } catch (_) {
+      if (_isDisposed) return;
+      _activeUploadWorkers--;
+      final curIdx = _items.indexWhere((i) => i.id == itemId);
+      if (curIdx != -1) {
+        _items[curIdx] = _items[curIdx].copyWith(
+          status: BatchItemStatus.failed,
+          errorMessage: 'Unable to access the selected file. Please try again.',
+        );
+        notifyListeners();
+      }
+      _drainUploadQueue();
+      return;
+    }
+
+    try {
+      final createdDoc = await _documentService.upload(
+        file: current.file,
+        categoryKey: current.categoryKey!,
+        folderKey: current.folderKey!,
+        title: current.title!.trim(),
+        documentDate: current.documentDate!,
+        description: current.description?.trim(),
+        reflection: current.reflection?.trim(),
+      );
+
+      // Immediately release in-memory bytes to free client RAM
+      current.file.releaseBytes();
 
       if (_isDisposed) return;
       final curIdx = _items.indexWhere((i) => i.id == itemId);
-      if (curIdx == -1) return;
+      if (curIdx != -1) {
+        final uploadedItem = _items[curIdx];
+        if (uploadedItem.isOcrEligible) {
+          _items[curIdx] = uploadedItem.copyWith(
+            status: BatchItemStatus.waitingForOcr,
+            documentId: createdDoc.id,
+            errorMessage: null,
+          );
+        } else {
+          // Unsupported or non-OCR formats complete immediately upon successful upload
+          _items[curIdx] = uploadedItem.copyWith(
+            status: BatchItemStatus.completed,
+            documentId: createdDoc.id,
+            errorMessage: null,
+          );
+        }
+        notifyListeners();
+      }
+    } on ApiException catch (e) {
+      current.file.releaseBytes();
+      if (_isDisposed) return;
+      final curIdx = _items.indexWhere((i) => i.id == itemId);
+      if (curIdx != -1) {
+        final errorMsg = e.statusCode == 415
+            ? 'This file format is not supported for upload.'
+            : e.statusCode == 413
+            ? 'The file exceeds the upload limit.'
+            : e.message.isNotEmpty
+            ? e.message
+            : 'Upload failed. Please retry.';
+        _items[curIdx] = _items[curIdx].copyWith(
+          status: BatchItemStatus.failed,
+          errorMessage: errorMsg,
+        );
+        notifyListeners();
+      }
+    } catch (_) {
+      current.file.releaseBytes();
+      if (_isDisposed) return;
+      final curIdx = _items.indexWhere((i) => i.id == itemId);
+      if (curIdx != -1) {
+        _items[curIdx] = _items[curIdx].copyWith(
+          status: BatchItemStatus.failed,
+          errorMessage: 'Upload failed. Please retry.',
+        );
+        notifyListeners();
+      }
+    } finally {
+      _activeUploadWorkers--;
+      if (!_isDisposed) {
+        _drainUploadQueue();
+        _drainOcrQueue();
+      }
+    }
+  }
 
-      final current = _items[curIdx];
-      final suggestions = ocrResult.metadataSuggestions;
-
-      // Extract suggested fields, preserving any user manual edits
-      final suggestedTitle =
-          suggestions?.title ?? _cleanFilename(current.fileName);
-      final suggestedDate = suggestions?.documentDate ?? DateTime.now();
-      final suggestedCategory = suggestions?.categoryKey;
-      final suggestedFolder = suggestions?.folderKey;
-      final suggestedDescription = suggestions?.description;
-      final confidence =
-          suggestions?.confidence ??
-          (suggestedCategory != null ? 'medium' : 'low');
-
-      _items[curIdx] = current.copyWith(
-        status: BatchItemStatus.readyForReview,
-        rawText: ocrResult.rawText,
-        reviewedText: ocrResult.reviewedText,
-        title: current.title ?? suggestedTitle,
-        documentDate: current.documentDate ?? suggestedDate,
-        categoryKey: current.categoryKey ?? suggestedCategory,
-        folderKey: current.folderKey ?? suggestedFolder,
-        description: current.description ?? suggestedDescription,
-        confidence: current.confidence ?? confidence,
+  void _drainOcrQueue() {
+    if (_isDisposed) return;
+    while (_activeOcrWorkers < 1) {
+      final nextIndex = _items.indexWhere(
+        (i) => i.status == BatchItemStatus.waitingForOcr && i.documentId != null,
       );
+      if (nextIndex == -1) break;
+
+      final item = _items[nextIndex];
+      _activeOcrWorkers++;
+      _extractOcrForItem(item.id);
+    }
+    _checkBatchCompletion();
+  }
+
+  Future<void> _extractOcrForItem(String itemId) async {
+    final index = _items.indexWhere((i) => i.id == itemId);
+    if (index == -1 || _isDisposed) {
+      _activeOcrWorkers--;
+      _drainOcrQueue();
+      return;
+    }
+
+    _items[index] = _items[index].copyWith(
+      status: BatchItemStatus.extracting,
+      errorMessage: null,
+    );
+    notifyListeners();
+
+    final current = _items[index];
+
+    try {
+      final ocrResult = await _documentService.extractText(current.documentId!);
+
+      if (_isDisposed) return;
+      final curIdx = _items.indexWhere((i) => i.id == itemId);
+      if (curIdx != -1) {
+        final existing = _items[curIdx];
+        final suggestions = ocrResult.metadataSuggestions;
+        final hasCategorySuggestion = suggestions != null &&
+            suggestions.categoryKey != null &&
+            suggestions.categoryKey!.trim().isNotEmpty;
+
+        String? updatedCategory = existing.categoryKey;
+        String? updatedFolder = existing.folderKey;
+        String? updatedTitle = existing.title;
+        DateTime? updatedDate = existing.documentDate;
+        String? updatedDescription = existing.description;
+        bool isAutoCategorized = existing.isAutoCategorized;
+
+        if (!existing.isManualCategory && hasCategorySuggestion) {
+          updatedCategory = suggestions.categoryKey;
+          updatedFolder = suggestions.folderKey ?? existing.folderKey;
+          if (suggestions.title != null && suggestions.title!.trim().isNotEmpty) {
+            updatedTitle = suggestions.title;
+          }
+          if (suggestions.documentDate != null) {
+            updatedDate = suggestions.documentDate;
+          }
+          if (suggestions.description != null && suggestions.description!.trim().isNotEmpty) {
+            updatedDescription = suggestions.description;
+          }
+          isAutoCategorized = true;
+
+          if (existing.documentId != null) {
+            try {
+              await _documentService.updateDocumentMetadata(
+                existing.documentId!,
+                categoryKey: updatedCategory,
+                folderKey: updatedFolder,
+                title: updatedTitle,
+                documentDate: updatedDate,
+                description: updatedDescription,
+              );
+            } catch (_) {
+              // Best-effort metadata sync
+            }
+          }
+        }
+
+        _items[curIdx] = existing.copyWith(
+          status: BatchItemStatus.completed,
+          rawText: ocrResult.rawText,
+          reviewedText: ocrResult.reviewedText,
+          categoryKey: updatedCategory,
+          folderKey: updatedFolder,
+          title: updatedTitle,
+          documentDate: updatedDate,
+          description: updatedDescription,
+          confidence: suggestions?.confidence ?? existing.confidence,
+          isAutoCategorized: isAutoCategorized,
+          errorMessage: null,
+        );
+        notifyListeners();
+      }
     } on ApiException catch (e) {
       if (_isDisposed) return;
       final curIdx = _items.indexWhere((i) => i.id == itemId);
       if (curIdx != -1) {
-        final current = _items[curIdx];
-        if (e.statusCode == 429 && current.retryCount < maxRetries) {
-          // Graceful 429 retry with exponential backoff
-          final delayMs = 500 * (1 << current.retryCount);
-          _items[curIdx] = current.copyWith(
-            status: BatchItemStatus.waiting,
-            retryCount: current.retryCount + 1,
-            errorMessage: 'Rate limit encountered; retrying...',
-          );
-          notifyListeners();
-          await Future.delayed(Duration(milliseconds: delayMs));
-        } else {
-          _items[curIdx] = current.copyWith(
-            status: BatchItemStatus.failed,
-            errorMessage: e.statusCode == 429
-                ? 'Rate limit exceeded. Please retry.'
-                : e.message,
-          );
-        }
+        final isBusy = e.statusCode == 503 || e.code == 'OCR_BUSY';
+        final errorMsg = isBusy
+            ? 'The server is busy extracting another document. Tap Retry to extract text.'
+            : e.statusCode == 504
+            ? 'Text extraction timed out. Tap Retry to try again.'
+            : e.statusCode == 422
+            ? 'No readable text was found in this document.'
+            : e.message.isNotEmpty
+            ? e.message
+            : 'Text extraction failed. Tap Retry to try again.';
+
+        _items[curIdx] = _items[curIdx].copyWith(
+          status: BatchItemStatus.failed,
+          errorMessage: errorMsg,
+        );
+        notifyListeners();
       }
     } catch (_) {
       if (_isDisposed) return;
@@ -151,15 +373,26 @@ class BatchUploadQueue extends ChangeNotifier {
       if (curIdx != -1) {
         _items[curIdx] = _items[curIdx].copyWith(
           status: BatchItemStatus.failed,
-          errorMessage: 'Unable to process document. Please retry.',
+          errorMessage: 'Text extraction failed. Tap Retry to try again.',
         );
+        notifyListeners();
       }
     } finally {
-      _activeWorkers--;
+      _activeOcrWorkers--;
       if (!_isDisposed) {
-        notifyListeners();
-        _drainQueue();
+        _drainOcrQueue();
       }
+    }
+  }
+
+  void _checkBatchCompletion() {
+    if (_isDisposed) return;
+    if (_isProcessingBatch && isAllProcessed) {
+      _isProcessingBatch = false;
+      if (_batchCompleter != null && !_batchCompleter!.isCompleted) {
+        _batchCompleter!.complete(completedCount);
+      }
+      notifyListeners();
     }
   }
 
@@ -167,18 +400,57 @@ class BatchUploadQueue extends ChangeNotifier {
     final index = _items.indexWhere((i) => i.id == itemId);
     if (index == -1 || _items[index].isProcessing) return;
 
-    _items[index] = _items[index].copyWith(
-      status: BatchItemStatus.waiting,
-      errorMessage: null,
-    );
-    notifyListeners();
-    _drainQueue();
+    final item = _items[index];
+
+    // If documentId exists, upload already succeeded!
+    // NEVER re-upload or duplicate document. Retry OCR only.
+    if (item.documentId != null) {
+      _items[index] = item.copyWith(
+        status: BatchItemStatus.waitingForOcr,
+        errorMessage: null,
+      );
+      notifyListeners();
+      _drainOcrQueue();
+    } else {
+      // Document upload failed earlier. Retry upload.
+      _items[index] = item.copyWith(
+        status: BatchItemStatus.queued,
+        errorMessage: null,
+      );
+      notifyListeners();
+      _drainUploadQueue();
+    }
+  }
+
+  Future<bool> saveItem(String itemId) async {
+    final index = _items.indexWhere((i) => i.id == itemId);
+    if (index == -1) return false;
+
+    final item = _items[index];
+    if (item.isProcessing || item.isCompleted) return false;
+
+    if (item.isFailed) {
+      retry(itemId);
+      return true;
+    }
+
+    if (item.status == BatchItemStatus.queued && item.isValidForUpload) {
+      _activeUploadWorkers++;
+      await _uploadItem(itemId);
+      return true;
+    }
+
+    return false;
   }
 
   void remove(String itemId) {
-    _items.removeWhere((i) => i.id == itemId);
+    final index = _items.indexWhere((i) => i.id == itemId);
+    if (index == -1 || _items[index].isProcessing) return;
+
+    _items[index].file.releaseBytes();
+    _items.removeAt(index);
     notifyListeners();
-    _drainQueue();
+    _checkBatchCompletion();
   }
 
   void updateItemMetadata(
@@ -189,114 +461,46 @@ class BatchUploadQueue extends ChangeNotifier {
     DateTime? documentDate,
     String? description,
     String? reflection,
+    bool isManual = true,
   }) {
     final index = _items.indexWhere((i) => i.id == itemId);
     if (index == -1) return;
 
     final current = _items[index];
+    if (current.isProcessing) return;
+
+    final updatedCat = categoryKey ?? current.categoryKey;
+    final updatedFolder = folderKey ?? current.folderKey;
+    final updatedTitle = title ?? current.title;
+    final updatedDate = documentDate ?? current.documentDate;
+    final updatedDesc = description ?? current.description;
+    final updatedRefl = reflection ?? current.reflection;
+
     _items[index] = current.copyWith(
-      categoryKey: categoryKey ?? current.categoryKey,
-      folderKey: folderKey ?? current.folderKey,
-      title: title ?? current.title,
-      documentDate: documentDate ?? current.documentDate,
-      description: description ?? current.description,
-      reflection: reflection ?? current.reflection,
-    );
-    notifyListeners();
-  }
-
-  Future<bool> saveItem(String itemId) async {
-    final index = _items.indexWhere((i) => i.id == itemId);
-    if (index == -1) return false;
-
-    final item = _items[index];
-    if (!item.isValidForSave || item.isProcessing || item.isSaved) {
-      return false;
-    }
-
-    _items[index] = item.copyWith(
-      status: BatchItemStatus.uploading,
-      errorMessage: null,
+      categoryKey: updatedCat,
+      folderKey: updatedFolder,
+      title: updatedTitle,
+      documentDate: updatedDate,
+      description: updatedDesc,
+      reflection: updatedRefl,
+      isManualCategory: isManual ? true : current.isManualCategory,
+      isAutoCategorized: isManual ? false : current.isAutoCategorized,
     );
     notifyListeners();
 
-    try {
-      await _documentService.upload(
-        file: item.file,
-        categoryKey: item.categoryKey!,
-        folderKey: item.folderKey!,
-        title: item.title!.trim(),
-        documentDate: item.documentDate!,
-        description: item.description?.trim(),
-        reflection: item.reflection?.trim(),
-      );
-
-      final curIdx = _items.indexWhere((i) => i.id == itemId);
-      if (curIdx != -1) {
-        _items[curIdx] = _items[curIdx].copyWith(
-          status: BatchItemStatus.saved,
-          errorMessage: null,
-        );
-        notifyListeners();
-      }
-      return true;
-    } on ApiException catch (e) {
-      final curIdx = _items.indexWhere((i) => i.id == itemId);
-      if (curIdx != -1) {
-        _items[curIdx] = _items[curIdx].copyWith(
-          status: BatchItemStatus.failed,
-          errorMessage: e.message,
-        );
-        notifyListeners();
-      }
-      return false;
-    } catch (_) {
-      final curIdx = _items.indexWhere((i) => i.id == itemId);
-      if (curIdx != -1) {
-        _items[curIdx] = _items[curIdx].copyWith(
-          status: BatchItemStatus.failed,
-          errorMessage: 'Upload failed. Please retry.',
-        );
-        notifyListeners();
-      }
-      return false;
+    if (current.documentId != null) {
+      _documentService
+          .updateDocumentMetadata(
+            current.documentId!,
+            categoryKey: updatedCat,
+            folderKey: updatedFolder,
+            title: updatedTitle,
+            documentDate: updatedDate,
+            description: updatedDesc,
+            reflection: updatedRefl,
+          )
+          .then((_) {}, onError: (_) {});
     }
-  }
-
-  Future<int> saveAllValid() async {
-    if (_isSavingAll) return 0;
-    _isSavingAll = true;
-    notifyListeners();
-
-    int successCount = 0;
-    try {
-      final candidateIds = _items
-          .where((i) => i.isValidForSave && (i.isReadyForReview || i.isFailed))
-          .map((i) => i.id)
-          .toList();
-
-      final pool = <Future<void>>{};
-      for (final id in candidateIds) {
-        if (_isDisposed) break;
-        late final Future<void> task;
-        task = saveItem(id).then((success) {
-          if (success) successCount++;
-          pool.remove(task);
-        });
-        pool.add(task);
-
-        if (pool.length >= maxConcurrent) {
-          await Future.any(pool);
-        }
-      }
-      if (pool.isNotEmpty) {
-        await Future.wait(pool);
-      }
-    } finally {
-      _isSavingAll = false;
-      notifyListeners();
-    }
-    return successCount;
   }
 
   static String _cleanFilename(String fileName) {
@@ -316,6 +520,9 @@ class BatchUploadQueue extends ChangeNotifier {
   @override
   void dispose() {
     _isDisposed = true;
+    for (final item in _items) {
+      item.file.releaseBytes();
+    }
     super.dispose();
   }
 }

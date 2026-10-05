@@ -295,6 +295,190 @@ void main() {
       auth.dispose();
     },
   );
+
+  group('Parallel dashboard loading with partial-failure safety', () {
+    test(
+      'categories and documents are dispatched concurrently in parallel',
+      () async {
+        final auth = _DocumentAuthService();
+        auth.pendingCategories = Completer<Map<String, dynamic>>();
+        auth.pendingDocuments = Completer<Map<String, dynamic>>();
+        final service = DocumentService(authService: auth);
+
+        final pendingLoad = service.load();
+
+        // Wait until both requests are actively in-flight
+        while (!auth.getPaths.contains('/api/v1/documents/categories') ||
+            !auth.getPaths.contains('/api/v1/documents')) {
+          await Future<void>.delayed(Duration.zero);
+        }
+
+        expect(
+          auth.getPaths,
+          containsAll([
+            '/api/v1/documents/categories',
+            '/api/v1/documents',
+          ]),
+        );
+        expect(service.isLoading, isTrue);
+
+        // Complete both in-flight requests
+        auth.pendingCategories!.complete(
+          _envelope({
+            'categories': [
+              {
+                'key': 'certificates',
+                'name': 'Certificates',
+                'folders': [
+                  {'key': 'seminars', 'name': 'Seminars'},
+                ],
+              },
+            ],
+          }),
+        );
+        auth.pendingDocuments!.complete(
+          _envelope({
+            'documents': [_documentJson()],
+            'summary': {
+              'totalCount': 1,
+              'categoryCounts': {'certificates': 1},
+              'folderCounts': {'certificates/seminars': 1},
+            },
+          }),
+        );
+
+        await pendingLoad;
+
+        expect(service.isLoading, isFalse);
+        expect(service.hasLoadedCategories, isTrue);
+        expect(service.hasLoadedDocuments, isTrue);
+        expect(service.categories, isNotEmpty);
+        expect(service.documents, isNotEmpty);
+        expect(service.summary.totalCount, 1);
+        expect(service.errorMessage, isNull);
+
+        service.dispose();
+        auth.dispose();
+      },
+    );
+
+    test(
+      'partial failure preserves successful categories when documents fail',
+      () async {
+        final auth = _DocumentAuthService();
+        auth.documentsFailure = const ApiException(
+          code: 'DOC_UNAVAILABLE',
+          message: 'Documents could not be retrieved.',
+          statusCode: 503,
+        );
+        final service = DocumentService(authService: auth);
+
+        await expectLater(service.load(), throwsA(isA<ApiException>()));
+
+        // Categories succeeded and must be preserved in state
+        expect(service.hasLoadedCategories, isTrue);
+        expect(service.categories, hasLength(1));
+        expect(service.categories.first.key, 'certificates');
+
+        // Documents failed
+        expect(service.hasLoadedDocuments, isFalse);
+        expect(service.documents, isEmpty);
+        expect(service.errorMessage, 'Documents could not be retrieved.');
+        expect(service.isLoading, isFalse);
+
+        service.dispose();
+        auth.dispose();
+      },
+    );
+
+    test(
+      'partial failure preserves successful documents when categories fail',
+      () async {
+        final auth = _DocumentAuthService();
+        auth.categoriesFailure = const ApiException(
+          code: 'CAT_UNAVAILABLE',
+          message: 'Categories could not be retrieved.',
+          statusCode: 503,
+        );
+        final service = DocumentService(authService: auth);
+
+        await expectLater(service.load(), throwsA(isA<ApiException>()));
+
+        // Documents succeeded and must be preserved in state
+        expect(service.hasLoadedDocuments, isTrue);
+        expect(service.documents, hasLength(1));
+        expect(service.summary.totalCount, 1);
+
+        // Categories failed
+        expect(service.hasLoadedCategories, isFalse);
+        expect(service.categories, isEmpty);
+        expect(service.errorMessage, 'Categories could not be retrieved.');
+        expect(service.isLoading, isFalse);
+
+        service.dispose();
+        auth.dispose();
+      },
+    );
+
+    test(
+      'subsequent load after partial failure only requests the missing collection',
+      () async {
+        final auth = _DocumentAuthService();
+        // First run: categories succeed, documents fail
+        auth.documentsFailure = const ApiException(
+          code: 'DOC_ERR',
+          message: 'Doc fail',
+          statusCode: 500,
+        );
+        final service = DocumentService(authService: auth);
+
+        await expectLater(service.load(), throwsA(isA<ApiException>()));
+        expect(service.hasLoadedCategories, isTrue);
+        expect(service.hasLoadedDocuments, isFalse);
+
+        // Clear recorded paths and remove document failure
+        auth.getPaths.clear();
+        auth.documentsFailure = null;
+
+        // Second run without force
+        await service.load();
+
+        // Should ONLY request /api/v1/documents, NOT /categories again!
+        expect(auth.getPaths, ['/api/v1/documents']);
+        expect(service.hasLoadedCategories, isTrue);
+        expect(service.hasLoadedDocuments, isTrue);
+        expect(service.errorMessage, isNull);
+
+        service.dispose();
+        auth.dispose();
+      },
+    );
+
+    test(
+      'total failure leaves both collections unloaded and records error message',
+      () async {
+        final auth = _DocumentAuthService()
+          ..getFailure = const ApiException(
+            code: 'TOTAL_OUTAGE',
+            message: 'All endpoints down.',
+            statusCode: 503,
+          );
+        final service = DocumentService(authService: auth);
+
+        await expectLater(service.load(), throwsA(isA<ApiException>()));
+
+        expect(service.hasLoadedCategories, isFalse);
+        expect(service.hasLoadedDocuments, isFalse);
+        expect(service.categories, isEmpty);
+        expect(service.documents, isEmpty);
+        expect(service.errorMessage, 'All endpoints down.');
+        expect(service.isLoading, isFalse);
+
+        service.dispose();
+        auth.dispose();
+      },
+    );
+  });
 }
 
 class _DocumentAuthService extends AuthService {
@@ -320,6 +504,9 @@ class _DocumentAuthService extends AuthService {
   String? uploadMimeType;
   Uint8List? uploadBytes;
   Completer<Map<String, dynamic>>? pendingDocuments;
+  Completer<Map<String, dynamic>>? pendingCategories;
+  ApiException? categoriesFailure;
+  ApiException? documentsFailure;
   AuthUser _currentUser = _authUser('user-1');
 
   @override
@@ -336,6 +523,9 @@ class _DocumentAuthService extends AuthService {
     final failure = getFailure;
     if (failure != null) throw failure;
     if (path.endsWith('/categories')) {
+      final catFailure = categoriesFailure;
+      if (catFailure != null) throw catFailure;
+      if (pendingCategories != null) return pendingCategories!.future;
       return _envelope({
         'categories': [
           {
@@ -349,6 +539,8 @@ class _DocumentAuthService extends AuthService {
       });
     }
     if (path.endsWith('/ocr')) return ocrResponse;
+    final docFailure = documentsFailure;
+    if (docFailure != null) throw docFailure;
     if (pendingDocuments != null) return pendingDocuments!.future;
     return _envelope({
       'documents': [_documentJson()],

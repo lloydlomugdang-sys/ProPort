@@ -188,6 +188,89 @@ void main() {
     },
   );
 
+  test('saveToDevice writes bytes and returns true on user confirmation', () async {
+    final tempDir = await Directory.systemTemp.createTemp('save_test_');
+    addTearDown(() => tempDir.delete(recursive: true));
+    final file = File('${tempDir.path}/GradPort_Student_Portfolio.pdf');
+    await file.writeAsBytes([1, 2, 3, 4]);
+
+    String? capturedName;
+    Uint8List? capturedBytes;
+    final exporter = DevicePortfolioExporter(
+      fileSaveFunction: ({
+        String? dialogTitle,
+        String? fileName,
+        String? initialDirectory,
+        dynamic type,
+        List<String>? allowedExtensions,
+        Uint8List? bytes,
+        bool lockParentWindow = false,
+      }) async {
+        capturedName = fileName;
+        capturedBytes = bytes;
+        return '/storage/emulated/0/Download/$fileName';
+      },
+    );
+
+    final exportFile = PortfolioExportFile(
+      path: file.path,
+      name: 'GradPort_Student_Portfolio.pdf',
+      format: ExportFormat.pdf,
+      sizeBytes: 4,
+    );
+
+    final result = await exporter.saveToDevice(exportFile);
+    expect(result, isTrue);
+    expect(capturedName, 'GradPort_Student_Portfolio.pdf');
+    expect(capturedBytes, Uint8List.fromList([1, 2, 3, 4]));
+  });
+
+  test('saveToDevice returns false when user cancels save dialog', () async {
+    final tempDir = await Directory.systemTemp.createTemp('save_cancel_test_');
+    addTearDown(() => tempDir.delete(recursive: true));
+    final file = File('${tempDir.path}/GradPort_Student_Portfolio.docx');
+    await file.writeAsBytes([5, 6, 7]);
+
+    final exporter = DevicePortfolioExporter(
+      fileSaveFunction: ({
+        String? dialogTitle,
+        String? fileName,
+        String? initialDirectory,
+        dynamic type,
+        List<String>? allowedExtensions,
+        Uint8List? bytes,
+        bool lockParentWindow = false,
+      }) async {
+        return null; // user cancelled
+      },
+    );
+
+    final exportFile = PortfolioExportFile(
+      path: file.path,
+      name: 'GradPort_Student_Portfolio.docx',
+      format: ExportFormat.docx,
+      sizeBytes: 3,
+    );
+
+    final result = await exporter.saveToDevice(exportFile);
+    expect(result, isFalse);
+  });
+
+  test('saveToDevice throws PortfolioExportException if file missing', () async {
+    final exporter = const DevicePortfolioExporter();
+    const exportFile = PortfolioExportFile(
+      path: '/nonexistent/path/portfolio.pdf',
+      name: 'GradPort_Student_Portfolio.pdf',
+      format: ExportFormat.pdf,
+      sizeBytes: 0,
+    );
+
+    await expectLater(
+      exporter.saveToDevice(exportFile),
+      throwsA(isA<PortfolioExportException>()),
+    );
+  });
+
   // Opt-in synthetic fixtures for external PDF/Word compatibility inspection.
   const fixturePath = String.fromEnvironment('EXPORT_FIXTURE_DIR');
   if (fixturePath.isNotEmpty) {

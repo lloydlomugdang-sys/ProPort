@@ -213,6 +213,9 @@ class _TestMockPicker implements DocumentPicker {
     cameraCalls++;
     return cameraResult;
   }
+
+  @override
+  Future<void> cleanCache() async {}
 }
 
 class _TestPortfolioExporter implements PortfolioExporter {
@@ -238,6 +241,14 @@ class _TestPortfolioExporter implements PortfolioExporter {
   @override
   Future<void> share(PortfolioExportFile file, Rect origin) async {
     shareCalls++;
+  }
+
+  int saveCalls = 0;
+
+  @override
+  Future<bool> saveToDevice(PortfolioExportFile file) async {
+    saveCalls++;
+    return true;
   }
 }
 

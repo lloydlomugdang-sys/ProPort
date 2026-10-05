@@ -1094,6 +1094,9 @@ class _FakePicker implements DocumentPicker {
     calls++;
     return result;
   }
+
+  @override
+  Future<void> cleanCache() async {}
 }
 
 class _ScreenDocumentService extends DocumentService {

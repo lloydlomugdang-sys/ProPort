@@ -1,12 +1,12 @@
 import 'package:proport_app/services/document_models.dart';
 
 enum BatchItemStatus {
-  waiting,
-  extractingText,
-  aiCategorizing,
-  readyForReview,
+  queued,
   uploading,
-  saved,
+  uploaded,
+  waitingForOcr,
+  extracting,
+  completed,
   failed,
 }
 
@@ -14,7 +14,8 @@ class BatchUploadItem {
   const BatchUploadItem({
     required this.id,
     required this.file,
-    this.status = BatchItemStatus.waiting,
+    this.status = BatchItemStatus.queued,
+    this.documentId,
     this.rawText,
     this.reviewedText,
     this.categoryKey,
@@ -26,11 +27,14 @@ class BatchUploadItem {
     this.confidence,
     this.errorMessage,
     this.retryCount = 0,
+    this.isAutoCategorized = false,
+    this.isManualCategory = false,
   });
 
   final String id;
   final PickedDocument file;
   final BatchItemStatus status;
+  final String? documentId;
   final String? rawText;
   final String? reviewedText;
   final String? categoryKey;
@@ -42,22 +46,32 @@ class BatchUploadItem {
   final String? confidence;
   final String? errorMessage;
   final int retryCount;
+  final bool isAutoCategorized;
+  final bool isManualCategory;
 
   String get fileName => file.name;
   int get fileSize => file.sizeBytes;
 
   bool get isProcessing =>
-      status == BatchItemStatus.waiting ||
-      status == BatchItemStatus.extractingText ||
-      status == BatchItemStatus.aiCategorizing ||
-      status == BatchItemStatus.uploading;
+      status == BatchItemStatus.uploading ||
+      status == BatchItemStatus.uploaded ||
+      status == BatchItemStatus.waitingForOcr ||
+      status == BatchItemStatus.extracting;
 
-  bool get isReadyForReview => status == BatchItemStatus.readyForReview;
-  bool get isSaved => status == BatchItemStatus.saved;
+  bool get isUploading => status == BatchItemStatus.uploading;
+  bool get isWaitingForOcr => status == BatchItemStatus.waitingForOcr;
+  bool get isExtracting => status == BatchItemStatus.extracting;
+  bool get isUploaded => documentId != null;
+  bool get isCompleted => status == BatchItemStatus.completed;
   bool get isFailed => status == BatchItemStatus.failed;
+  bool get canRetry => isFailed;
   bool get isLowConfidence => confidence == 'low';
 
-  bool get isValidForSave =>
+  bool get isOcrEligible =>
+      file.hasSupportedUploadType &&
+      (file.mimeType == 'application/pdf' || file.mimeType.startsWith('image/'));
+
+  bool get isValidForUpload =>
       categoryKey != null &&
       categoryKey!.trim().isNotEmpty &&
       folderKey != null &&
@@ -66,10 +80,17 @@ class BatchUploadItem {
       title!.trim().isNotEmpty &&
       documentDate != null;
 
+  // Backward-compatibility getters
+  bool get isReadyForReview =>
+      status == BatchItemStatus.queued || status == BatchItemStatus.completed;
+  bool get isSaved => isCompleted;
+  bool get isValidForSave => isValidForUpload;
+
   BatchUploadItem copyWith({
     String? id,
     PickedDocument? file,
     BatchItemStatus? status,
+    String? documentId,
     String? rawText,
     String? reviewedText,
     String? categoryKey,
@@ -81,6 +102,8 @@ class BatchUploadItem {
     String? confidence,
     String? errorMessage,
     int? retryCount,
+    bool? isAutoCategorized,
+    bool? isManualCategory,
     bool clearCategory = false,
     bool clearFolder = false,
   }) {
@@ -88,6 +111,7 @@ class BatchUploadItem {
       id: id ?? this.id,
       file: file ?? this.file,
       status: status ?? this.status,
+      documentId: documentId ?? this.documentId,
       rawText: rawText ?? this.rawText,
       reviewedText: reviewedText ?? this.reviewedText,
       categoryKey: clearCategory ? null : (categoryKey ?? this.categoryKey),
@@ -99,7 +123,8 @@ class BatchUploadItem {
       confidence: confidence ?? this.confidence,
       errorMessage: errorMessage ?? this.errorMessage,
       retryCount: retryCount ?? this.retryCount,
+      isAutoCategorized: isAutoCategorized ?? this.isAutoCategorized,
+      isManualCategory: isManualCategory ?? this.isManualCategory,
     );
   }
 }
-

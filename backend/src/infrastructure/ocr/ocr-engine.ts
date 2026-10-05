@@ -7,9 +7,16 @@ export interface OcrInput {
   readonly documentId?: string;
 }
 
+export interface OcrPageText {
+  readonly pageNumber: number;
+  readonly text: string;
+}
+
 export interface OcrExtraction {
   readonly rawText: string;
   readonly engine: OcrEngineName;
+  readonly pages?: readonly OcrPageText[];
+  readonly totalPages?: number;
 }
 
 export type OcrEngineFailureReason =

@@ -6,12 +6,18 @@ import type { AppConfig } from '../../config/env.types.js';
 import type { AppServices } from '../../infrastructure/create-services.js';
 import { CurrentUserService, type CurrentUserIdentity } from '../users/user.service.js';
 import {
+  compiledAnalyzeResponseSchema,
+  compiledCancelResponseSchema,
+  compiledCancelSchema,
+  compiledSplitResponseSchema,
+  compiledSplitSchema,
   documentAttachmentPathParamsSchema,
   documentCategoryListResponseSchema,
   documentDeleteResponseSchema,
   documentListResponseSchema,
   documentOcrPatchSchema,
   documentOcrResponseSchema,
+  documentPatchSchema,
   documentPathParamsSchema,
   documentQuerySchema,
   documentResponseSchema,
@@ -23,6 +29,10 @@ import {
   type DocumentFileInput,
   type DocumentUploadInput,
 } from './document.service.js';
+import {
+  CompiledDocumentService,
+  type CompiledSplitInput,
+} from './compiled-document.service.js';
 
 interface AccessTokenClaims {
   readonly sub: string;
@@ -40,6 +50,15 @@ interface DocumentAttachmentParams {
 
 interface DocumentOcrPatchBody {
   readonly reviewedText: string;
+}
+
+interface DocumentPatchBody {
+  readonly categoryKey?: string;
+  readonly folderKey?: string;
+  readonly title?: string;
+  readonly documentDate?: string;
+  readonly description?: string;
+  readonly reflection?: string;
 }
 
 const UPLOAD_FIELDS = new Set([
@@ -185,6 +204,7 @@ export async function registerDocumentRoutes(
   const { services } = options;
   const currentUsers = new CurrentUserService(services.database);
   const documents = new DocumentService(services.database, services.storage, services.ocr, services.metadata);
+  const compiledDocuments = new CompiledDocumentService(services.database, services.storage, services.ocr, services.metadata);
   const identities = new WeakMap<FastifyRequest, CurrentUserIdentity>();
 
   async function requireCurrentUser(request: FastifyRequest): Promise<void> {
@@ -419,6 +439,80 @@ export async function registerDocumentRoutes(
         { status: 'deleted' as const, documentId: request.params.documentId },
         request.id,
       );
+    },
+  );
+
+  app.patch<{ Params: DocumentParams; Body: DocumentPatchBody }>(
+    '/api/v1/documents/:documentId',
+    {
+      onRequest: requireCurrentUser,
+      schema: {
+        params: documentPathParamsSchema,
+        querystring: documentQuerySchema,
+        body: documentPatchSchema,
+        response: { 200: documentResponseSchema },
+      },
+    },
+    async (request) =>
+      successResponse(
+        {
+          document: await documents.updateMetadata(
+            ownerIdFor(request),
+            request.params.documentId,
+            request.body,
+          ),
+        },
+        request.id,
+      ),
+  );
+
+  app.post(
+    '/api/v1/documents/compiled/analyze',
+    {
+      onRequest: requireCurrentUser,
+      schema: {
+        querystring: documentQuerySchema,
+        response: { 200: compiledAnalyzeResponseSchema },
+      },
+    },
+    async (request) => {
+      const { files } = await parseFileParts(request, new Set<string>());
+      const file = files[0];
+      if (!file) throw uploadValidation('file', 'is required');
+      const result = await compiledDocuments.analyze(ownerIdFor(request), file, request.id);
+      return successResponse(result, request.id);
+    },
+  );
+
+  app.post<{ Body: CompiledSplitInput }>(
+    '/api/v1/documents/compiled/split',
+    {
+      onRequest: requireCurrentUser,
+      schema: {
+        querystring: documentQuerySchema,
+        body: compiledSplitSchema,
+        response: { 200: compiledSplitResponseSchema },
+      },
+    },
+    async (request) => {
+      const result = await compiledDocuments.split(ownerIdFor(request), request.body);
+      return successResponse(result, request.id);
+    },
+  );
+
+  app.post<{ Body: { readonly sessionId: string } }>(
+    '/api/v1/documents/compiled/cancel',
+    {
+      onRequest: requireCurrentUser,
+      schema: {
+        querystring: documentQuerySchema,
+        body: compiledCancelSchema,
+        response: { 200: compiledCancelResponseSchema },
+      },
+    },
+    async (request) => {
+      const result = await compiledDocuments.cancel(ownerIdFor(request), request.body.sessionId);
+      return successResponse(result, request.id);
     },
   );
 }

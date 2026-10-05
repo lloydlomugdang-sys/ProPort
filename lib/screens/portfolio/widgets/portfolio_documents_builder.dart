@@ -4,6 +4,7 @@ import '../../../constants/app_text_styles.dart';
 import '../../../services/api_client.dart';
 import '../../../services/document_scope.dart';
 import '../../../services/document_service.dart';
+import '../../../widgets/app_skeleton.dart';
 
 /// Reuses authenticated document state; a failed load is never a zero count.
 class PortfolioDocumentsBuilder extends StatefulWidget {
@@ -60,7 +61,7 @@ class _PortfolioDocumentsBuilderState extends State<PortfolioDocumentsBuilder> {
       return const Padding(
         key: Key('portfolio-documents-loading'),
         padding: EdgeInsets.all(24),
-        child: Center(child: CircularProgressIndicator()),
+        child: PortfolioPreviewSkeleton(),
       );
     }
     final error = _error ?? service.errorMessage;

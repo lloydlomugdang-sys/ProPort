@@ -5,6 +5,7 @@ import 'package:archive/archive.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:path_provider/path_provider.dart';
+import 'package:file_picker/file_picker.dart';
 import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
 import 'package:share_plus/share_plus.dart';
@@ -14,6 +15,16 @@ import '../screens/portfolio/models/portfolio_models.dart';
 import 'api_client.dart';
 import 'auth_service.dart';
 import 'document_service.dart';
+
+typedef FileSaveFunction = Future<String?> Function({
+  String? dialogTitle,
+  String? fileName,
+  String? initialDirectory,
+  FileType type,
+  List<String>? allowedExtensions,
+  Uint8List? bytes,
+  bool lockParentWindow,
+});
 
 /// An explicit public-data projection: no tokens, storage keys or internal IDs.
 class PortfolioExportContent {
@@ -131,13 +142,19 @@ abstract interface class PortfolioExporter {
     ExportFormat format,
   );
   Future<void> share(PortfolioExportFile file, Rect origin);
+  Future<bool> saveToDevice(PortfolioExportFile file);
 }
 
 class DevicePortfolioExporter implements PortfolioExporter {
-  const DevicePortfolioExporter({this.store, this.authService});
+  const DevicePortfolioExporter({
+    this.store,
+    this.authService,
+    this.fileSaveFunction,
+  });
 
   final PortfolioExportStore? store;
   final AuthService? authService;
+  final FileSaveFunction? fileSaveFunction;
 
   @override
   Future<PortfolioExportFile> generate(
@@ -207,6 +224,26 @@ class DevicePortfolioExporter implements PortfolioExporter {
       ),
     );
     // A dismissed share sheet is not a failed generation or a claimed save.
+  }
+
+  @override
+  Future<bool> saveToDevice(PortfolioExportFile file) async {
+    final localFile = File(file.path);
+    if (!await localFile.exists()) {
+      throw const PortfolioExportException(
+        'The temporary file is no longer available. Please export again.',
+      );
+    }
+    final bytes = await localFile.readAsBytes();
+    final save = fileSaveFunction ?? FilePicker.saveFile;
+    final result = await save(
+      dialogTitle: 'Save Portfolio',
+      fileName: file.name,
+      bytes: bytes,
+      type: FileType.custom,
+      allowedExtensions: [file.format.name],
+    );
+    return result != null;
   }
 }
 

@@ -3,6 +3,9 @@ import 'package:google_fonts/google_fonts.dart';
 import '../constants/app_colors.dart';
 
 /// Tappable folder row used in the Files screen.
+///
+/// When [isGrouped] is true, renders seamlessly inside a parent category section
+/// card without redundant nested cards, borders, shadows, or bottom margins.
 class FolderRowItem extends StatelessWidget {
   const FolderRowItem({
     super.key,
@@ -10,15 +13,93 @@ class FolderRowItem extends StatelessWidget {
     required this.count,
     required this.onTap,
     this.onDelete,
+    this.isGrouped = false,
   });
 
   final String name;
   final int count;
   final VoidCallback onTap;
   final VoidCallback? onDelete;
+  final bool isGrouped;
 
   @override
   Widget build(BuildContext context) {
+    final rowContent = Padding(
+      padding: EdgeInsets.symmetric(
+        vertical: 12,
+        horizontal: isGrouped ? 16 : 14,
+      ),
+      child: Row(
+        children: [
+          Container(
+            width: 42,
+            height: 42,
+            decoration: BoxDecoration(
+              color: AppColors.primary.withValues(alpha: 0.10),
+              borderRadius: BorderRadius.circular(10),
+            ),
+            child: const Icon(
+              Icons.folder_rounded,
+              color: AppColors.primary,
+              size: 24,
+            ),
+          ),
+          const SizedBox(width: 14),
+          Expanded(
+            child: Text(
+              name,
+              style: GoogleFonts.poppins(
+                fontSize: 14,
+                fontWeight: FontWeight.w600,
+                color: AppColors.textPrimary,
+              ),
+            ),
+          ),
+          Container(
+            padding: const EdgeInsets.symmetric(
+              horizontal: 10,
+              vertical: 3,
+            ),
+            decoration: BoxDecoration(
+              color: AppColors.primary.withValues(alpha: 0.08),
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: Text(
+              count.toString(),
+              style: GoogleFonts.poppins(
+                fontSize: 12,
+                fontWeight: FontWeight.w600,
+                color: AppColors.primary,
+              ),
+            ),
+          ),
+          const SizedBox(width: 8),
+          if (onDelete != null)
+            IconButton(
+              tooltip: 'Delete folder',
+              icon: const Icon(Icons.close, size: 18, color: AppColors.textMuted),
+              onPressed: onDelete,
+            )
+          else
+            const Icon(
+              Icons.chevron_right_rounded,
+              size: 20,
+              color: AppColors.textMuted,
+            ),
+        ],
+      ),
+    );
+
+    if (isGrouped) {
+      return Material(
+        color: Colors.transparent,
+        child: InkWell(
+          onTap: onTap,
+          child: rowContent,
+        ),
+      );
+    }
+
     return Container(
       margin: const EdgeInsets.only(bottom: 10),
       decoration: BoxDecoration(
@@ -33,70 +114,13 @@ class FolderRowItem extends StatelessWidget {
           ),
         ],
       ),
-      child: InkWell(
-        onTap: onTap,
+      child: Material(
+        color: Colors.transparent,
         borderRadius: BorderRadius.circular(14),
-        child: Padding(
-          padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 14),
-          child: Row(
-            children: [
-              Container(
-                width: 42,
-                height: 42,
-                decoration: BoxDecoration(
-                  color: AppColors.primary.withValues(alpha: 0.10),
-                  borderRadius: BorderRadius.circular(10),
-                ),
-                child: const Icon(
-                  Icons.folder_rounded,
-                  color: AppColors.primary,
-                  size: 24,
-                ),
-              ),
-              const SizedBox(width: 14),
-              Expanded(
-                child: Text(
-                  name,
-                  style: GoogleFonts.poppins(
-                    fontSize: 14,
-                    fontWeight: FontWeight.w600,
-                    color: AppColors.textPrimary,
-                  ),
-                ),
-              ),
-              Container(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 10,
-                  vertical: 3,
-                ),
-                decoration: BoxDecoration(
-                  color: AppColors.primary.withValues(alpha: 0.08),
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                child: Text(
-                  count.toString(),
-                  style: GoogleFonts.poppins(
-                    fontSize: 12,
-                    fontWeight: FontWeight.w600,
-                    color: AppColors.primary,
-                  ),
-                ),
-              ),
-              const SizedBox(width: 8),
-              if (onDelete != null)
-                IconButton(
-                  tooltip: 'Delete folder',
-                  icon: const Icon(Icons.close, size: 18, color: AppColors.textMuted),
-                  onPressed: onDelete,
-                )
-              else
-                const Icon(
-                  Icons.chevron_right_rounded,
-                  size: 20,
-                  color: AppColors.textMuted,
-                ),
-            ],
-          ),
+        child: InkWell(
+          onTap: onTap,
+          borderRadius: BorderRadius.circular(14),
+          child: rowContent,
         ),
       ),
     );

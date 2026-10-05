@@ -12,8 +12,14 @@ class MemoryPortfolioExporter implements PortfolioExporter {
   ExportFormat? format;
   PortfolioExportContent? content;
   Completer<void>? pending;
+  Completer<void>? pendingSave;
   bool fail = false;
   bool failShare = false;
+  bool failSave = false;
+  bool cancelSave = false;
+  int saveCount = 0;
+  PortfolioExportFile? lastSavedFile;
+  PortfolioExportFile? lastSharedFile;
 
   @override
   Future<PortfolioExportFile> generate(
@@ -46,6 +52,17 @@ class MemoryPortfolioExporter implements PortfolioExporter {
   @override
   Future<void> share(PortfolioExportFile file, Rect origin) async {
     shareCount++;
+    lastSharedFile = file;
     if (failShare) throw StateError('private platform detail');
+  }
+
+  @override
+  Future<bool> saveToDevice(PortfolioExportFile file) async {
+    saveCount++;
+    lastSavedFile = file;
+    if (pendingSave != null) await pendingSave!.future;
+    if (failSave) throw StateError('private platform detail');
+    if (cancelSave) return false;
+    return true;
   }
 }

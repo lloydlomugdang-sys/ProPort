@@ -12,12 +12,14 @@ class DatePickerField extends StatelessWidget {
     required this.selectedDate,
     required this.onDateSelected,
     this.required = false,
+    this.enabled = true,
   });
 
   final String label;
   final DateTime? selectedDate;
   final ValueChanged<DateTime> onDateSelected;
   final bool required;
+  final bool enabled;
 
   String get _displayText {
     if (selectedDate == null) return 'MM/DD/YYYY';
@@ -84,21 +86,23 @@ class DatePickerField extends StatelessWidget {
 
         // Field
         GestureDetector(
-          onTap: () => _pickDate(context),
+          onTap: enabled ? () => _pickDate(context) : null,
           child: Container(
             height: 50,
             padding: const EdgeInsets.symmetric(horizontal: 14),
             decoration: BoxDecoration(
-              color: Colors.white,
+              color: enabled ? Colors.white : AppColors.cardBorder.withValues(alpha: 0.25),
               borderRadius: BorderRadius.circular(12),
               border: Border.all(color: AppColors.cardBorder),
-              boxShadow: [
-                BoxShadow(
-                  color: Colors.black.withValues(alpha: 0.03),
-                  blurRadius: 6,
-                  offset: const Offset(0, 2),
-                ),
-              ],
+              boxShadow: enabled
+                  ? [
+                      BoxShadow(
+                        color: Colors.black.withValues(alpha: 0.03),
+                        blurRadius: 6,
+                        offset: const Offset(0, 2),
+                      ),
+                    ]
+                  : null,
             ),
             child: Row(
               children: [
@@ -107,16 +111,18 @@ class DatePickerField extends StatelessWidget {
                     _displayText,
                     style: GoogleFonts.poppins(
                       fontSize: 14,
-                      color: selectedDate != null
-                          ? AppColors.textPrimary
-                          : AppColors.textMuted,
+                      color: !enabled
+                          ? AppColors.textMuted
+                          : (selectedDate != null
+                              ? AppColors.textPrimary
+                              : AppColors.textMuted),
                     ),
                   ),
                 ),
-                const Icon(
+                Icon(
                   Icons.calendar_today_rounded,
                   size: 18,
-                  color: AppColors.primary,
+                  color: enabled ? AppColors.primary : AppColors.textMuted,
                 ),
               ],
             ),
