@@ -60,7 +60,7 @@ describe('Compiled document analysis service', () => {
   });
 
   afterAll(async () => {
-    await disposable.stop();
+    await disposable?.stop();
   });
 
   async function createMultiDocPdf(): Promise<Buffer> {
@@ -88,7 +88,7 @@ describe('Compiled document analysis service', () => {
     return Buffer.from(await doc.save());
   }
 
-  it('rejects PDFs with insufficient digital text with COMPILED_INSUFFICIENT_TEXT', async () => {
+  it('retains blank pages and requests manual category review', async () => {
     const doc = await PDFDocument.create();
     doc.addPage([600, 400]); // Blank page
     const emptyPdf = Buffer.from(await doc.save());
@@ -105,9 +105,9 @@ describe('Compiled document analysis service', () => {
         mimeType: 'application/pdf',
         originalFileName: 'scanned_portfolio.pdf',
       }),
-    ).rejects.toMatchObject({
-      code: 'COMPILED_INSUFFICIENT_TEXT',
-      statusCode: 422,
+    ).resolves.toMatchObject({
+      detection: 'needs_review',
+      pages: [{ pageNumber: 1, source: 'blank', status: 'ready' }],
     });
   });
 
@@ -152,6 +152,31 @@ describe('Compiled document analysis service', () => {
     expect(await storage.exists(tempKey)).toBe(true);
   });
 
+  it('reuses normal metadata for a single page without a second Gemini or OCR request', async () => {
+    const source = await PDFDocument.load(await createMultiDocPdf());
+    const single = await PDFDocument.create();
+    single.addPage((await single.copyPages(source, [0]))[0]!);
+    let metadataCalls = 0;
+    let separationCalls = 0;
+    const metadata = new AiMetadataService({
+      async recommend() {
+        metadataCalls++;
+        return { content: 'curriculum-vitae', folder: 'curriculum-vitae', title: 'CURRICULUM VITAE',
+          date: null, classificationEvidence: 'CURRICULUM VITAE',
+          descriptionQuotes: ['Experienced in Flutter, Dart, TypeScript, Node.js and MongoDB.'] };
+      },
+      async separateCompiled() { separationCalls++; throw new Error('No page boundary needed'); },
+    });
+    const service = new CompiledDocumentService(disposable.database, storage, ocrEngine, metadata);
+    const result = await service.analyze(ownerId, { contents: Buffer.from(await single.save()), mimeType: 'application/pdf', originalFileName: 'cv.pdf' });
+    expect(metadataCalls).toBe(1);
+    expect(separationCalls).toBe(0);
+    expect(result.detection).toBe('single');
+    expect(result.metadataAnalysis).toEqual({ source: 'gemini', aiStatus: 'success' });
+    expect(result.metadataSuggestions).toMatchObject({ categoryKey: 'curriculum-vitae', folderKey: 'curriculum-vitae', title: 'CURRICULUM VITAE', description: 'Experienced in Flutter, Dart, TypeScript, Node.js and MongoDB.' });
+    expect(result.pages[0]?.text).toContain('John Lloyd - Software Engineer and Researcher');
+  });
+
   it('validates and accepts valid AI separation proposals', async () => {
     const pdfBytes = await createMultiDocPdf();
 
@@ -164,7 +189,7 @@ describe('Compiled document analysis service', () => {
             startPage: 1,
             endPage: 2,
             categoryKey: 'curriculum-vitae',
-            folderKey: 'resume',
+            folderKey: 'curriculum-vitae',
             title: 'Curriculum Vitae',
             documentDate: '2024-01-01',
             confidence: 0.95,

@@ -21,7 +21,7 @@ describe('local OCR engine', () => {
 
   it('extracts embedded text from a local PDF without rasterization', async () => {
     const result = await engine.extract({
-      contents: pdfFixture('GradPort embedded PDF text'),
+      contents: pdfFixture('GradPort embedded PDF text with sufficient usable academic document information'),
       mimeType: 'application/pdf',
       fileKind: 'pdf',
     });
@@ -30,14 +30,14 @@ describe('local OCR engine', () => {
     expect(result.rawText).toContain('GradPort embedded PDF text');
   });
 
-  it('reports an empty image-only PDF through the explicit scanned-PDF limitation', async () => {
+  it('retains a genuinely blank PDF page with explicit provenance', async () => {
     await expect(
       engine.extract({
         contents: pdfFixture(),
         mimeType: 'application/pdf',
         fileKind: 'pdf',
       }),
-    ).rejects.toMatchObject({ reason: 'scanned-pdf-not-supported' });
+    ).resolves.toMatchObject({ pages: [{ pageNumber: 1, source: 'blank', status: 'ready', text: '' }] });
   });
 
   it('rejects malformed PDFs and images with bounded safe errors', async () => {
@@ -79,7 +79,7 @@ describe('local OCR engine', () => {
     expect(singleWorkerEngine.isBusy()).toBe(false);
 
     const slowJobPromise = singleWorkerEngine.extract({
-      contents: pdfFixture('GradPort embedded PDF text 1'),
+      contents: pdfFixture('GradPort embedded PDF text with sufficient academic information for concurrency test one'),
       mimeType: 'application/pdf',
       fileKind: 'pdf',
     });
@@ -100,7 +100,7 @@ describe('local OCR engine', () => {
     const multiWorkerEngine = new LocalOcrEngine(10_000, 2);
     const docId = 'doc-test-concurrent-123';
     const firstJob = multiWorkerEngine.extract({
-      contents: pdfFixture('GradPort embedded PDF text 1'),
+      contents: pdfFixture('GradPort embedded PDF text with sufficient academic information for concurrency test one'),
       mimeType: 'application/pdf',
       fileKind: 'pdf',
       documentId: docId,

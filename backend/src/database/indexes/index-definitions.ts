@@ -115,11 +115,19 @@ export const PORTFOLIO_INDEXES: readonly ApplicationIndexDefinition[] = [
   },
 ] as const;
 
-export const APPLICATION_INDEXES: readonly ApplicationIndexDefinition[] = [
+export const LEGACY_APPLICATION_INDEXES: readonly ApplicationIndexDefinition[] = [
   ...INITIAL_APPLICATION_INDEXES.slice(0, 7),
   ...PORTFOLIO_INDEXES,
   ...INITIAL_APPLICATION_INDEXES.slice(7),
 ] as const;
+
+// No TTL here: expiring a database row must not orphan its private storage object.
+export const COMPILED_SESSION_INDEXES: readonly ApplicationIndexDefinition[] = [
+  { collection: COLLECTION_NAMES.compiledDocumentSessions, name: 'uniq_compiled_session_id', key: { sessionId: 1 }, unique: true },
+  { collection: COLLECTION_NAMES.compiledDocumentSessions, name: 'idx_compiled_owner_expiry', key: { ownerId: 1, expiresAt: 1 } },
+];
+
+export const APPLICATION_INDEXES = [...LEGACY_APPLICATION_INDEXES, ...COMPILED_SESSION_INDEXES] as const;
 
 // Version 1 is already deployed, so its checksum must remain based on the
 // original index set. New index groups receive their own migration checksum.

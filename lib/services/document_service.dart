@@ -10,9 +10,9 @@ class DocumentService extends ChangeNotifier {
   DocumentService({
     required AuthService authService,
     AppOcrCoordinator? ocrCoordinator,
-  })  : _authService = authService,
-        _ocrCoordinator = ocrCoordinator ?? AppOcrCoordinator(maxConcurrent: 1),
-        _authenticatedUserId = authService.user?.id {
+  }) : _authService = authService,
+       _ocrCoordinator = ocrCoordinator ?? AppOcrCoordinator(maxConcurrent: 1),
+       _authenticatedUserId = authService.user?.id {
     _authService.addListener(_handleAuthChanged);
   }
 
@@ -38,10 +38,12 @@ class DocumentService extends ChangeNotifier {
   String? _errorMessage;
   final Map<String, DocumentOcrResult> _ocrResults = {};
   final Set<String> _extractingDocumentIds = {};
+
   /// Maximum cached raw content entries (30 entries / 30 MiB ceiling).
   static const int maxCachedEntries = 30;
   static const int maxCachedDocuments = maxCachedEntries;
-  static const int maxCachedBytes = 30 * 1024 * 1024; // 30 MiB mobile-safe ceiling
+  static const int maxCachedBytes =
+      30 * 1024 * 1024; // 30 MiB mobile-safe ceiling
   final Map<String, Uint8List> _contentCache = {};
   int _currentCachedBytes = 0;
   final Map<String, Future<Uint8List>> _inFlightContentRequests = {};
@@ -68,6 +70,7 @@ class DocumentService extends ChangeNotifier {
   set pdfThumbnailRenderer(PdfThumbnailRenderer renderer) {
     _pdfThumbnailRenderer = renderer;
   }
+
   bool get hasLoadedDocuments => _hasLoadedDocuments;
   bool get hasLoadedCategories => _hasLoadedCategories;
   bool get isLoading => _isLoading;
@@ -409,17 +412,22 @@ class DocumentService extends ChangeNotifier {
   Future<CompiledAnalysisResult> analyzeCompiledDocument(
     PickedDocument file,
   ) async {
-    final fileBytes = await file.readBytes();
-    final response = await _authService.authenticatedPostMultipart(
-      '$_documentsPath/compiled/analyze',
-      fields: const {},
-      fileName: file.name,
-      mimeType: file.mimeType,
-      fileBytes: fileBytes,
-      requestTimeout: ocrPreviewTimeout,
-    );
-    file.releaseBytes();
-    return CompiledAnalysisResult.fromJson(_dataOf(response));
+    return _ocrCoordinator.runGuarded(() async {
+      final fileBytes = await file.readBytes();
+      try {
+        final response = await _authService.authenticatedPostMultipart(
+          '$_documentsPath/compiled/analyze',
+          fields: const {},
+          fileName: file.name,
+          mimeType: file.mimeType,
+          fileBytes: fileBytes,
+          requestTimeout: ocrPreviewTimeout,
+        );
+        return CompiledAnalysisResult.fromJson(_dataOf(response));
+      } finally {
+        file.releaseBytes();
+      }
+    });
   }
 
   Future<List<DocumentRecord>> splitCompiledDocument({

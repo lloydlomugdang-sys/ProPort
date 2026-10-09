@@ -374,9 +374,9 @@ describe.sequential('Compiled document API and Document PATCH routes', () => {
         ],
       },
     });
-    expect(repeatRes.statusCode).toBe(200);
-    const repeatData = repeatRes.json<{ data: { documents: Array<{ id: string }> } }>().data;
-    expect(repeatData.documents[0]?.id).toBe(splitData.documents[0]?.id);
+    // A key cannot be reused with a different reviewed payload.
+    expect(repeatRes.statusCode).toBe(409);
+    expect(repeatRes.json().error.code).toBe('SPLIT_REQUEST_CHANGED');
   });
 
   it('POST /api/v1/documents/compiled/cancel cleans up session', async () => {

@@ -19,6 +19,7 @@ import 'package:proport_app/services/portfolio_export_service.dart';
 import 'package:proport_app/services/portfolio_scope.dart';
 import 'package:proport_app/services/portfolio_service.dart';
 import 'package:proport_app/services/secure_token_store.dart';
+import 'helpers/compiled_analysis_fixture.dart';
 
 class _NoopTokenStore implements SecureTokenStore {
   @override
@@ -40,22 +41,23 @@ class _TestAuthService extends AuthService {
 
   @override
   AuthUser? get user => AuthUser(
-        id: 'u1',
-        email: 'student@example.edu',
-        firstName: 'Alex',
-        lastName: 'Santos',
-        school: 'University of Engineering',
-        program: 'Computer Science',
-        yearLevel: '4th Year',
-        status: 'active',
-        emailVerifiedAt: DateTime(2026, 1, 1),
-      );
+    id: 'u1',
+    email: 'student@example.edu',
+    firstName: 'Alex',
+    lastName: 'Santos',
+    school: 'University of Engineering',
+    program: 'Computer Science',
+    yearLevel: '4th Year',
+    status: 'active',
+    emailVerifiedAt: DateTime(2026, 1, 1),
+  );
 }
 
 class _TestDocumentService extends DocumentService {
   _TestDocumentService() : super(authService: _TestAuthService());
 
   int previewCalls = 0;
+  int analysisCalls = 0;
   int uploadCalls = 0;
   PickedDocument? lastUploadedFile;
   List<PickedDocument>? lastUploadedFiles;
@@ -98,32 +100,47 @@ class _TestDocumentService extends DocumentService {
 
   @override
   DocumentSummary get summary => const DocumentSummary(
-        totalCount: 1,
-        categoryCounts: {'certificates': 1},
-        folderCounts: {'certificates/trainings': 1},
-      );
+    totalCount: 1,
+    categoryCounts: {'certificates': 1},
+    folderCounts: {'certificates/trainings': 1},
+  );
 
   @override
   List<DocumentRecord> get documents => [
-        DocumentRecord(
-          id: 'd1',
-          categoryKey: 'certificates',
-          folderKey: 'trainings',
-          title: 'Certificate One',
-          documentDate: DateTime(2026, 1, 1),
-          originalFileName: 'cert1.pdf',
-          mimeType: 'application/pdf',
-          fileKind: 'pdf',
-          extension: 'pdf',
-          sizeBytes: 1024,
-          createdAt: DateTime(2026, 1, 1),
-          updatedAt: DateTime(2026, 1, 1),
-        ),
-      ];
+    DocumentRecord(
+      id: 'd1',
+      categoryKey: 'certificates',
+      folderKey: 'trainings',
+      title: 'Certificate One',
+      documentDate: DateTime(2026, 1, 1),
+      originalFileName: 'cert1.pdf',
+      mimeType: 'application/pdf',
+      fileKind: 'pdf',
+      extension: 'pdf',
+      sizeBytes: 1024,
+      createdAt: DateTime(2026, 1, 1),
+      updatedAt: DateTime(2026, 1, 1),
+    ),
+  ];
 
   @override
   Future<DocumentOcrResult> previewOcr(dynamic fileOrFiles) async {
     previewCalls++;
+    return _metadata();
+  }
+
+  @override
+  Future<CompiledAnalysisResult> analyzeCompiledDocument(
+    PickedDocument file,
+  ) async {
+    analysisCalls++;
+    return singlePdfAnalysis(file, _metadata());
+  }
+
+  @override
+  Future<bool> cancelCompiledSession(String sessionId) async => true;
+
+  DocumentOcrResult _metadata() {
     return DocumentOcrResult(
       status: DocumentOcrStatus.ready,
       rawText: 'Certificate of Attendance Test',
@@ -169,20 +186,20 @@ class _TestDocumentService extends DocumentService {
       updatedAt: DateTime.now(),
       attachments: files != null && files.length > 1
           ? files
-              .asMap()
-              .entries
-              .map(
-                (e) => DocumentAttachmentRecord(
-                  id: 'att_${e.key}',
-                  originalFileName: e.value.name,
-                  mimeType: e.value.mimeType,
-                  fileKind: 'image',
-                  extension: 'jpg',
-                  sizeBytes: e.value.sizeBytes,
-                  order: e.key,
-                ),
-              )
-              .toList()
+                .asMap()
+                .entries
+                .map(
+                  (e) => DocumentAttachmentRecord(
+                    id: 'att_${e.key}',
+                    originalFileName: e.value.name,
+                    mimeType: e.value.mimeType,
+                    fileKind: 'image',
+                    extension: 'jpg',
+                    sizeBytes: e.value.sizeBytes,
+                    order: e.key,
+                  ),
+                )
+                .toList()
           : null,
     );
   }
@@ -203,7 +220,9 @@ class _TestMockPicker implements DocumentPicker {
   }
 
   @override
-  Future<List<PickedDocument>?> pickDocuments({bool allowMultiple = true}) async {
+  Future<List<PickedDocument>?> pickDocuments({
+    bool allowMultiple = true,
+  }) async {
     documentsCalls++;
     return documentsResult;
   }
@@ -262,18 +281,18 @@ Widget _wrapMain({
     child: DocumentScope(
       documentService: documentService,
       child: PortfolioScope(
-        portfolioService: PortfolioService(
-          authService: authService,
-        ),
-        child: MaterialApp(
-          home: MainScreen(filePicker: filePicker),
-        ),
+        portfolioService: PortfolioService(authService: authService),
+        child: MaterialApp(home: MainScreen(filePicker: filePicker)),
       ),
     ),
   );
 }
 
-PickedDocument _makeDoc(String name, {String mime = 'application/pdf', int size = 1024}) {
+PickedDocument _makeDoc(
+  String name, {
+  String mime = 'application/pdf',
+  int size = 1024,
+}) {
   return PickedDocument(
     name: name,
     mimeType: mime,
@@ -285,37 +304,42 @@ void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
   group('Center (+) Quick-Action Menu UX', () {
-    testWidgets('tap (+) opens Camera and File Upload; second tap closes them', (
-      tester,
-    ) async {
-      final auth = _TestAuthService();
-      final docs = _TestDocumentService();
-      final picker = _TestMockPicker();
+    testWidgets(
+      'tap (+) opens Camera and File Upload; second tap closes them',
+      (tester) async {
+        final auth = _TestAuthService();
+        final docs = _TestDocumentService();
+        final picker = _TestMockPicker();
 
-      await tester.pumpWidget(
-        _wrapMain(documentService: docs, authService: auth, filePicker: picker),
-      );
-      await tester.pumpAndSettle();
+        await tester.pumpWidget(
+          _wrapMain(
+            documentService: docs,
+            authService: auth,
+            filePicker: picker,
+          ),
+        );
+        await tester.pumpAndSettle();
 
-      // Initially, quick-action buttons are not visible
-      expect(find.text('Camera'), findsNothing);
-      expect(find.text('File Upload'), findsNothing);
+        // Initially, quick-action buttons are not visible
+        expect(find.text('Camera'), findsNothing);
+        expect(find.text('File Upload'), findsNothing);
 
-      // Tap center (+) button
-      await tester.tap(find.byIcon(Icons.add_rounded));
-      await tester.pumpAndSettle();
+        // Tap center (+) button
+        await tester.tap(find.byIcon(Icons.add_rounded));
+        await tester.pumpAndSettle();
 
-      // Now quick actions are visible
-      expect(find.text('Camera'), findsOneWidget);
-      expect(find.text('File Upload'), findsOneWidget);
+        // Now quick actions are visible
+        expect(find.text('Camera'), findsOneWidget);
+        expect(find.text('File Upload'), findsOneWidget);
 
-      // Tap center (+) button again to close
-      await tester.tap(find.byIcon(Icons.add_rounded));
-      await tester.pumpAndSettle();
+        // Tap center (+) button again to close
+        await tester.tap(find.byIcon(Icons.add_rounded));
+        await tester.pumpAndSettle();
 
-      expect(find.text('Camera'), findsNothing);
-      expect(find.text('File Upload'), findsNothing);
-    });
+        expect(find.text('Camera'), findsNothing);
+        expect(find.text('File Upload'), findsNothing);
+      },
+    );
 
     testWidgets('tapping scrim closes quick-action menu', (tester) async {
       final auth = _TestAuthService();
@@ -340,189 +364,224 @@ void main() {
       expect(find.text('File Upload'), findsNothing);
     });
 
-    testWidgets('tapping another bottom nav tab closes quick-action menu and changes tab', (
-      tester,
-    ) async {
-      final auth = _TestAuthService();
-      final docs = _TestDocumentService();
-      final picker = _TestMockPicker();
+    testWidgets(
+      'tapping another bottom nav tab closes quick-action menu and changes tab',
+      (tester) async {
+        final auth = _TestAuthService();
+        final docs = _TestDocumentService();
+        final picker = _TestMockPicker();
 
-      await tester.pumpWidget(
-        _wrapMain(documentService: docs, authService: auth, filePicker: picker),
-      );
-      await tester.pumpAndSettle();
+        await tester.pumpWidget(
+          _wrapMain(
+            documentService: docs,
+            authService: auth,
+            filePicker: picker,
+          ),
+        );
+        await tester.pumpAndSettle();
 
-      // Open menu
-      await tester.tap(find.byIcon(Icons.add_rounded));
-      await tester.pumpAndSettle();
-      expect(find.text('Camera'), findsOneWidget);
+        // Open menu
+        await tester.tap(find.byIcon(Icons.add_rounded));
+        await tester.pumpAndSettle();
+        expect(find.text('Camera'), findsOneWidget);
 
-      // Tap 'Files' tab
-      await tester.tap(find.text('Files'));
-      await tester.pumpAndSettle();
+        // Tap 'Files' tab
+        await tester.tap(find.text('Files'));
+        await tester.pumpAndSettle();
 
-      // Menu closed, Files page visible
-      expect(find.text('Camera'), findsNothing);
-      expect(find.text('File Upload'), findsNothing);
-    });
+        // Menu closed, Files page visible
+        expect(find.text('Camera'), findsNothing);
+        expect(find.text('File Upload'), findsNothing);
+      },
+    );
 
-    testWidgets('Android back closes quick-action menu first rather than leaving screen', (
-      tester,
-    ) async {
-      final auth = _TestAuthService();
-      final docs = _TestDocumentService();
-      final picker = _TestMockPicker();
+    testWidgets(
+      'Android back closes quick-action menu first rather than leaving screen',
+      (tester) async {
+        final auth = _TestAuthService();
+        final docs = _TestDocumentService();
+        final picker = _TestMockPicker();
 
-      await tester.pumpWidget(
-        _wrapMain(documentService: docs, authService: auth, filePicker: picker),
-      );
-      await tester.pumpAndSettle();
+        await tester.pumpWidget(
+          _wrapMain(
+            documentService: docs,
+            authService: auth,
+            filePicker: picker,
+          ),
+        );
+        await tester.pumpAndSettle();
 
-      // Open menu
-      await tester.tap(find.byIcon(Icons.add_rounded));
-      await tester.pumpAndSettle();
-      expect(find.text('Camera'), findsOneWidget);
+        // Open menu
+        await tester.tap(find.byIcon(Icons.add_rounded));
+        await tester.pumpAndSettle();
+        expect(find.text('Camera'), findsOneWidget);
 
-      // Simulate Android back gesture/press
-      final dynamic widgetsAppState = tester.state(find.byType(WidgetsApp));
-      await widgetsAppState.didPopRoute();
-      await tester.pumpAndSettle();
+        // Simulate Android back gesture/press
+        final dynamic widgetsAppState = tester.state(find.byType(WidgetsApp));
+        await widgetsAppState.didPopRoute();
+        await tester.pumpAndSettle();
 
-      // Menu closed, MainScreen still present
-      expect(find.text('Camera'), findsNothing);
-      expect(find.byType(MainScreen), findsOneWidget);
-    });
+        // Menu closed, MainScreen still present
+        expect(find.text('Camera'), findsNothing);
+        expect(find.byType(MainScreen), findsOneWidget);
+      },
+    );
   });
 
   group('Camera and File Upload Actions from Quick-Action Menu', () {
-    testWidgets('Camera action invokes picker and routes to AddFileScreen with photo', (
-      tester,
-    ) async {
-      final photo = _makeDoc('scan_doc.jpg', mime: 'image/jpeg');
-      final picker = _TestMockPicker(cameraResult: photo);
-      final auth = _TestAuthService();
-      final docs = _TestDocumentService();
+    testWidgets(
+      'Camera action invokes picker and routes to AddFileScreen with photo',
+      (tester) async {
+        final photo = _makeDoc('scan_doc.jpg', mime: 'image/jpeg');
+        final picker = _TestMockPicker(cameraResult: photo);
+        final auth = _TestAuthService();
+        final docs = _TestDocumentService();
 
-      await tester.pumpWidget(
-        _wrapMain(documentService: docs, authService: auth, filePicker: picker),
-      );
-      await tester.pumpAndSettle();
+        await tester.pumpWidget(
+          _wrapMain(
+            documentService: docs,
+            authService: auth,
+            filePicker: picker,
+          ),
+        );
+        await tester.pumpAndSettle();
 
-      // Open menu and tap Camera
-      await tester.tap(find.byIcon(Icons.add_rounded));
-      await tester.pumpAndSettle();
-      await tester.tap(find.text('Camera'));
-      await tester.pumpAndSettle();
+        // Open menu and tap Camera
+        await tester.tap(find.byIcon(Icons.add_rounded));
+        await tester.pumpAndSettle();
+        await tester.tap(find.text('Camera'));
+        await tester.pumpAndSettle();
 
-      expect(picker.cameraCalls, 1);
-      expect(find.byType(AddFileScreen), findsOneWidget);
-      expect(find.text('scan_doc.jpg'), findsOneWidget);
-      expect(docs.previewCalls, 1);
-    });
+        expect(picker.cameraCalls, 1);
+        expect(find.byType(AddFileScreen), findsOneWidget);
+        expect(find.text('scan_doc.jpg'), findsOneWidget);
+        expect(docs.previewCalls, 1);
+      },
+    );
 
-    testWidgets('Camera cancellation returns cleanly without creating document or leaving menu open', (
-      tester,
-    ) async {
-      final picker = _TestMockPicker(cameraResult: null);
-      final auth = _TestAuthService();
-      final docs = _TestDocumentService();
+    testWidgets(
+      'Camera cancellation returns cleanly without creating document or leaving menu open',
+      (tester) async {
+        final picker = _TestMockPicker(cameraResult: null);
+        final auth = _TestAuthService();
+        final docs = _TestDocumentService();
 
-      await tester.pumpWidget(
-        _wrapMain(documentService: docs, authService: auth, filePicker: picker),
-      );
-      await tester.pumpAndSettle();
+        await tester.pumpWidget(
+          _wrapMain(
+            documentService: docs,
+            authService: auth,
+            filePicker: picker,
+          ),
+        );
+        await tester.pumpAndSettle();
 
-      await tester.tap(find.byIcon(Icons.add_rounded));
-      await tester.pumpAndSettle();
-      await tester.tap(find.text('Camera'));
-      await tester.pumpAndSettle();
+        await tester.tap(find.byIcon(Icons.add_rounded));
+        await tester.pumpAndSettle();
+        await tester.tap(find.text('Camera'));
+        await tester.pumpAndSettle();
 
-      expect(picker.cameraCalls, 1);
-      expect(find.byType(AddFileScreen), findsNothing);
-      expect(find.text('Camera'), findsNothing);
-      expect(find.text('File Upload'), findsNothing);
-    });
+        expect(picker.cameraCalls, 1);
+        expect(find.byType(AddFileScreen), findsNothing);
+        expect(find.text('Camera'), findsNothing);
+        expect(find.text('File Upload'), findsNothing);
+      },
+    );
 
-    testWidgets('File Upload with 1 file routes to single-document flow in AddFileScreen', (
-      tester,
-    ) async {
-      final singleDoc = _makeDoc('diploma.pdf');
-      final picker = _TestMockPicker(documentsResult: [singleDoc]);
-      final auth = _TestAuthService();
-      final docs = _TestDocumentService();
+    testWidgets(
+      'File Upload with 1 file routes to single-document flow in AddFileScreen',
+      (tester) async {
+        final singleDoc = _makeDoc('diploma.pdf');
+        final picker = _TestMockPicker(documentsResult: [singleDoc]);
+        final auth = _TestAuthService();
+        final docs = _TestDocumentService();
 
-      await tester.pumpWidget(
-        _wrapMain(documentService: docs, authService: auth, filePicker: picker),
-      );
-      await tester.pumpAndSettle();
+        await tester.pumpWidget(
+          _wrapMain(
+            documentService: docs,
+            authService: auth,
+            filePicker: picker,
+          ),
+        );
+        await tester.pumpAndSettle();
 
-      await tester.tap(find.byIcon(Icons.add_rounded));
-      await tester.pumpAndSettle();
-      await tester.tap(find.text('File Upload'));
-      await tester.pumpAndSettle();
+        await tester.tap(find.byIcon(Icons.add_rounded));
+        await tester.pumpAndSettle();
+        await tester.tap(find.text('File Upload'));
+        await tester.pumpAndSettle();
 
-      expect(picker.documentsCalls, 1);
-      expect(find.byType(AddFileScreen), findsOneWidget);
-      expect(find.text('diploma.pdf'), findsOneWidget);
-      expect(docs.previewCalls, 1);
-    });
+        expect(picker.documentsCalls, 1);
+        expect(find.byType(AddFileScreen), findsOneWidget);
+        expect(find.text('diploma.pdf'), findsOneWidget);
+        expect(docs.analysisCalls, 1);
+        expect(docs.previewCalls, 0);
+      },
+    );
 
-    testWidgets('File Upload with 2-20 independent files routes to BatchReviewScreen', (
-      tester,
-    ) async {
-      final docsList = [
-        _makeDoc('cert1.pdf'),
-        _makeDoc('resume.pdf'),
-        _makeDoc('award.jpg', mime: 'image/jpeg'),
-      ];
-      final picker = _TestMockPicker(documentsResult: docsList);
-      final auth = _TestAuthService();
-      final docs = _TestDocumentService();
+    testWidgets(
+      'File Upload with 2-20 independent files routes to BatchReviewScreen',
+      (tester) async {
+        final docsList = [
+          _makeDoc('cert1.pdf'),
+          _makeDoc('resume.pdf'),
+          _makeDoc('award.jpg', mime: 'image/jpeg'),
+        ];
+        final picker = _TestMockPicker(documentsResult: docsList);
+        final auth = _TestAuthService();
+        final docs = _TestDocumentService();
 
-      await tester.pumpWidget(
-        _wrapMain(documentService: docs, authService: auth, filePicker: picker),
-      );
-      await tester.pumpAndSettle();
+        await tester.pumpWidget(
+          _wrapMain(
+            documentService: docs,
+            authService: auth,
+            filePicker: picker,
+          ),
+        );
+        await tester.pumpAndSettle();
 
-      await tester.tap(find.byIcon(Icons.add_rounded));
-      await tester.pumpAndSettle();
-      await tester.tap(find.text('File Upload'));
-      await tester.pumpAndSettle();
+        await tester.tap(find.byIcon(Icons.add_rounded));
+        await tester.pumpAndSettle();
+        await tester.tap(find.text('File Upload'));
+        await tester.pumpAndSettle();
 
-      expect(picker.documentsCalls, 1);
-      expect(find.byType(BatchReviewScreen), findsOneWidget);
-      expect(find.textContaining('Processing: 3 Documents'), findsOneWidget);
-    });
+        expect(picker.documentsCalls, 1);
+        expect(find.byType(BatchReviewScreen), findsOneWidget);
+        expect(find.textContaining('Processing: 3 Documents'), findsOneWidget);
+      },
+    );
 
-    testWidgets('File Upload with > 20 files is rejected gracefully with clear message', (
-      tester,
-    ) async {
-      final twentyOneDocs = List.generate(
-        21,
-        (i) => _makeDoc('doc_$i.pdf'),
-      );
-      final picker = _TestMockPicker(documentsResult: twentyOneDocs);
-      final auth = _TestAuthService();
-      final docs = _TestDocumentService();
+    testWidgets(
+      'File Upload with > 20 files is rejected gracefully with clear message',
+      (tester) async {
+        final twentyOneDocs = List.generate(21, (i) => _makeDoc('doc_$i.pdf'));
+        final picker = _TestMockPicker(documentsResult: twentyOneDocs);
+        final auth = _TestAuthService();
+        final docs = _TestDocumentService();
 
-      await tester.pumpWidget(
-        _wrapMain(documentService: docs, authService: auth, filePicker: picker),
-      );
-      await tester.pumpAndSettle();
+        await tester.pumpWidget(
+          _wrapMain(
+            documentService: docs,
+            authService: auth,
+            filePicker: picker,
+          ),
+        );
+        await tester.pumpAndSettle();
 
-      await tester.tap(find.byIcon(Icons.add_rounded));
-      await tester.pumpAndSettle();
-      await tester.tap(find.text('File Upload'));
-      await tester.pumpAndSettle();
+        await tester.tap(find.byIcon(Icons.add_rounded));
+        await tester.pumpAndSettle();
+        await tester.tap(find.text('File Upload'));
+        await tester.pumpAndSettle();
 
-      expect(picker.documentsCalls, 1);
-      expect(find.byType(BatchReviewScreen), findsNothing);
-      expect(find.byType(AddFileScreen), findsNothing);
-      expect(
-        find.textContaining('You can select up to 20 documents. Selected: 21.'),
-        findsOneWidget,
-      );
-    });
+        expect(picker.documentsCalls, 1);
+        expect(find.byType(BatchReviewScreen), findsNothing);
+        expect(find.byType(AddFileScreen), findsNothing);
+        expect(
+          find.textContaining(
+            'You can select up to 20 documents. Selected: 21.',
+          ),
+          findsOneWidget,
+        );
+      },
+    );
   });
 
   group('AddFileScreen UX & Multi-Page Document Preservation', () {
@@ -547,140 +606,135 @@ void main() {
       expect(find.textContaining('Tip: Batch Upload'), findsNothing);
     });
 
-    testWidgets('multi-page document: adding a page via Add Page preserves single logical doc', (
-      tester,
-    ) async {
-      final page1 = _makeDoc('page1.jpg', mime: 'image/jpeg');
-      final page2 = _makeDoc('page2.jpg', mime: 'image/jpeg');
-      final picker = _TestMockPicker(documentsResult: [page2]);
-      final docs = _TestDocumentService();
+    testWidgets(
+      'multi-page document: adding a page via Add Page preserves single logical doc',
+      (tester) async {
+        final page1 = _makeDoc('page1.jpg', mime: 'image/jpeg');
+        final page2 = _makeDoc('page2.jpg', mime: 'image/jpeg');
+        final picker = _TestMockPicker(documentsResult: [page2]);
+        final docs = _TestDocumentService();
 
-      await tester.pumpWidget(
-        MaterialApp(
-          home: DocumentScope(
-            documentService: docs,
-            child: AddFileScreen(
-              filePicker: picker,
-              initialFiles: [page1],
+        await tester.pumpWidget(
+          MaterialApp(
+            home: DocumentScope(
+              documentService: docs,
+              child: AddFileScreen(filePicker: picker, initialFiles: [page1]),
             ),
           ),
-        ),
-      );
-      await tester.pumpAndSettle();
+        );
+        await tester.pumpAndSettle();
 
-      // Page 1 is present, Add Page button is shown
-      expect(find.text('Document Pages (1)'), findsOneWidget);
-      expect(find.text('Add Page (1/10)'), findsOneWidget);
+        // Page 1 is present, Add Page button is shown
+        expect(find.text('Document Pages (1)'), findsOneWidget);
+        expect(find.text('Add Page (1/10)'), findsOneWidget);
 
-      // Tap Add Page
-      await tester.tap(find.text('Add Page (1/10)'));
-      await tester.pumpAndSettle();
+        // Tap Add Page
+        await tester.tap(find.text('Add Page (1/10)'));
+        await tester.pumpAndSettle();
 
-      // Now 2 pages in one document
-      expect(find.text('Document Pages (2)'), findsOneWidget);
-      expect(find.text('Page 1'), findsOneWidget);
-      expect(find.text('Page 2'), findsOneWidget);
+        // Now 2 pages in one document
+        expect(find.text('Document Pages (2)'), findsOneWidget);
+        expect(find.text('Page 1'), findsOneWidget);
+        expect(find.text('Page 2'), findsOneWidget);
 
-      // Suggested fields from previewOcr are already present, tap Add File
-      await tester.ensureVisible(find.text('Add File'));
-      await tester.tap(find.text('Add File'));
-      await tester.pumpAndSettle();
+        // Suggested fields from previewOcr are already present, tap Add File
+        await tester.ensureVisible(find.text('Add File'));
+        await tester.tap(find.text('Add File'));
+        await tester.pumpAndSettle();
 
-      // Upload called with both files belonging to one document
-      expect(docs.uploadCalls, 1);
-      expect(docs.lastUploadedFiles?.length, 2);
-      expect(docs.lastUploadedFiles?[0].name, 'page1.jpg');
-      expect(docs.lastUploadedFiles?[1].name, 'page2.jpg');
-    });
+        // Upload called with both files belonging to one document
+        expect(docs.uploadCalls, 1);
+        expect(docs.lastUploadedFiles?.length, 2);
+        expect(docs.lastUploadedFiles?[0].name, 'page1.jpg');
+        expect(docs.lastUploadedFiles?[1].name, 'page2.jpg');
+      },
+    );
   });
 
   group('PortfolioExportScreen Navigation to Dashboard', () {
-    testWidgets('Back to Dashboard returns to existing MainScreen without duplicating', (
-      tester,
-    ) async {
-      final auth = _TestAuthService();
-      final docs = _TestDocumentService();
-      final picker = _TestMockPicker();
-      final exporter = _TestPortfolioExporter();
+    testWidgets(
+      'Back to Dashboard returns to existing MainScreen without duplicating',
+      (tester) async {
+        final auth = _TestAuthService();
+        final docs = _TestDocumentService();
+        final picker = _TestMockPicker();
+        final exporter = _TestPortfolioExporter();
 
-      final portfolioInfo = const PortfolioInfo(
-        fullName: 'Alex Santos',
-        yearAndSection: '4BSIT-1',
-        schedule: 'Monday 8:00 AM - 10:00 AM',
-        instructorName: 'Professor Example',
-        course: 'BSIT',
-        courseCode: 'IT101',
-        semesterAndYear: '2nd Semester, A.Y. 2025-2026',
-      );
+        final portfolioInfo = const PortfolioInfo(
+          fullName: 'Alex Santos',
+          yearAndSection: '4BSIT-1',
+          schedule: 'Monday 8:00 AM - 10:00 AM',
+          instructorName: 'Professor Example',
+          course: 'BSIT',
+          courseCode: 'IT101',
+          semesterAndYear: '2nd Semester, A.Y. 2025-2026',
+        );
 
-      // Pump app with MainScreen at root
-      await tester.pumpWidget(
-        MaterialApp(
-          routes: {
-            MainScreen.routeName: (_) => MainScreen(filePicker: picker),
-          },
-          home: AuthScope(
-            authService: auth,
-            child: DocumentScope(
-              documentService: docs,
-              child: PortfolioScope(
-                portfolioService: PortfolioService(
-                  authService: auth,
-                ),
-                exporter: exporter,
-                child: MainScreen(filePicker: picker),
-              ),
-            ),
-          ),
-        ),
-      );
-      await tester.pumpAndSettle();
-
-      // Push PortfolioExportScreen on top of MainScreen
-      final BuildContext mainContext = tester.element(find.byType(MainScreen));
-      Navigator.push(
-        mainContext,
-        MaterialPageRoute(
-          builder: (_) => AuthScope(
-            authService: auth,
-            child: DocumentScope(
-              documentService: docs,
-              child: PortfolioScope(
-                portfolioService: PortfolioService(
-                  authService: auth,
-                ),
-                exporter: exporter,
-                child: PortfolioExportScreen(
-                  portfolioInfo: portfolioInfo,
+        // Pump app with MainScreen at root
+        await tester.pumpWidget(
+          MaterialApp(
+            routes: {
+              MainScreen.routeName: (_) => MainScreen(filePicker: picker),
+            },
+            home: AuthScope(
+              authService: auth,
+              child: DocumentScope(
+                documentService: docs,
+                child: PortfolioScope(
+                  portfolioService: PortfolioService(authService: auth),
+                  exporter: exporter,
+                  child: MainScreen(filePicker: picker),
                 ),
               ),
             ),
           ),
-        ),
-      );
-      await tester.pumpAndSettle();
+        );
+        await tester.pumpAndSettle();
 
-      expect(find.byType(PortfolioExportScreen), findsOneWidget);
+        // Push PortfolioExportScreen on top of MainScreen
+        final BuildContext mainContext = tester.element(
+          find.byType(MainScreen),
+        );
+        Navigator.push(
+          mainContext,
+          MaterialPageRoute(
+            builder: (_) => AuthScope(
+              authService: auth,
+              child: DocumentScope(
+                documentService: docs,
+                child: PortfolioScope(
+                  portfolioService: PortfolioService(authService: auth),
+                  exporter: exporter,
+                  child: PortfolioExportScreen(portfolioInfo: portfolioInfo),
+                ),
+              ),
+            ),
+          ),
+        );
+        await tester.pumpAndSettle();
 
-      // Tap Export Portfolio
-      await tester.ensureVisible(find.text('Export Portfolio').last);
-      await tester.tap(find.text('Export Portfolio').last);
-      await tester.pumpAndSettle();
+        expect(find.byType(PortfolioExportScreen), findsOneWidget);
 
-      expect(find.text('Portfolio file created'), findsOneWidget);
-      expect(find.text('Share'), findsOneWidget);
-      expect(find.text('Preview Portfolio'), findsOneWidget);
-      expect(find.text('Back to Dashboard'), findsOneWidget);
+        // Tap Export Portfolio
+        await tester.ensureVisible(find.text('Export Portfolio').last);
+        await tester.tap(find.text('Export Portfolio').last);
+        await tester.pumpAndSettle();
 
-      // Tap Back to Dashboard
-      await tester.ensureVisible(find.text('Back to Dashboard'));
-      await tester.tap(find.text('Back to Dashboard'));
-      await tester.pumpAndSettle();
+        expect(find.text('Portfolio file created'), findsOneWidget);
+        expect(find.text('Share'), findsOneWidget);
+        expect(find.text('Preview Portfolio'), findsOneWidget);
+        expect(find.text('Back to Dashboard'), findsOneWidget);
 
-      // PortfolioExportScreen is gone, MainScreen is the active screen
-      expect(find.byType(PortfolioExportScreen), findsNothing);
-      expect(find.byType(MainScreen), findsOneWidget);
-    });
+        // Tap Back to Dashboard
+        await tester.ensureVisible(find.text('Back to Dashboard'));
+        await tester.tap(find.text('Back to Dashboard'));
+        await tester.pumpAndSettle();
+
+        // PortfolioExportScreen is gone, MainScreen is the active screen
+        expect(find.byType(PortfolioExportScreen), findsNothing);
+        expect(find.byType(MainScreen), findsOneWidget);
+      },
+    );
 
     testWidgets('Share and Preview actions remain available and functional', (
       tester,
@@ -705,14 +759,10 @@ void main() {
           child: DocumentScope(
             documentService: docs,
             child: PortfolioScope(
-              portfolioService: PortfolioService(
-                authService: auth,
-              ),
+              portfolioService: PortfolioService(authService: auth),
               exporter: exporter,
               child: MaterialApp(
-                home: PortfolioExportScreen(
-                  portfolioInfo: portfolioInfo,
-                ),
+                home: PortfolioExportScreen(portfolioInfo: portfolioInfo),
               ),
             ),
           ),

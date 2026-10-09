@@ -469,7 +469,8 @@ export async function registerDocumentRoutes(
   app.post(
     '/api/v1/documents/compiled/analyze',
     {
-      onRequest: requireCurrentUser,
+      onRequest: [requireCurrentUser, limitOcr],
+      config: { rateLimit: false },
       schema: {
         querystring: documentQuerySchema,
         response: { 200: compiledAnalyzeResponseSchema },
@@ -477,6 +478,7 @@ export async function registerDocumentRoutes(
     },
     async (request) => {
       const { files } = await parseFileParts(request, new Set<string>());
+      if (files.length !== 1) throw uploadValidation('file', 'requires exactly one PDF');
       const file = files[0];
       if (!file) throw uploadValidation('file', 'is required');
       const result = await compiledDocuments.analyze(ownerIdFor(request), file, request.id);
@@ -487,7 +489,8 @@ export async function registerDocumentRoutes(
   app.post<{ Body: CompiledSplitInput }>(
     '/api/v1/documents/compiled/split',
     {
-      onRequest: requireCurrentUser,
+      onRequest: [requireCurrentUser, limitOcr],
+      config: { rateLimit: false },
       schema: {
         querystring: documentQuerySchema,
         body: compiledSplitSchema,

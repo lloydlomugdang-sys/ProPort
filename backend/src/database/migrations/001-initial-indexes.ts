@@ -1,7 +1,7 @@
 import type { Db, IndexDescription } from 'mongodb';
 import {
   APPLICATION_INDEX_CHECKSUM,
-  APPLICATION_INDEXES,
+  LEGACY_APPLICATION_INDEXES as APPLICATION_INDEXES,
 } from '../indexes/index-definitions.js';
 import type { DatabaseMigration } from './migration.types.js';
 

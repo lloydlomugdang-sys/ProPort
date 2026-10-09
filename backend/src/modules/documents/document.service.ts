@@ -208,6 +208,8 @@ function mappedOcrError(error: unknown): AppError {
         'OCR_PDF_TOO_LARGE',
         'The PDF contains too many pages for text extraction.',
       );
+    case 'pdf-too-many-ocr-pages':
+      return new AppError(422, 'OCR_PDF_TOO_LARGE', 'This PDF needs OCR on too many pages. Please use a smaller PDF.');
     case 'protected-pdf':
       return new AppError(
         422,
@@ -816,6 +818,9 @@ export class DocumentService {
 
   private async extractContents(input: Parameters<OcrEngine['extract']>[0]) {
     const extracted = await this.ocrEngine.extract(input);
+    if (extracted.pages?.some((page) => page.status === 'unresolved')) {
+      throw new AppError(422, 'COMPILED_UNRESOLVED_PAGES', 'Some PDF pages could not be read. Retry or review this PDF before saving extracted text.');
+    }
     if (extracted.rawText.length === 0) {
       throw new AppError(422, 'OCR_NO_TEXT_FOUND', 'No readable text was found.');
     }

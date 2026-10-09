@@ -24,9 +24,9 @@ class _EditableSegment {
     String? description,
     String? reflection,
     this.confidence = 0.8,
-  })  : titleCtrl = TextEditingController(text: title),
-        descCtrl = TextEditingController(text: description ?? ''),
-        reflCtrl = TextEditingController(text: reflection ?? '');
+  }) : titleCtrl = TextEditingController(text: title),
+       descCtrl = TextEditingController(text: description ?? ''),
+       reflCtrl = TextEditingController(text: reflection ?? '');
 
   int startPage;
   int endPage;
@@ -63,10 +63,17 @@ class CompiledReviewScreen extends StatefulWidget {
 class _CompiledReviewScreenState extends State<CompiledReviewScreen> {
   final List<_EditableSegment> _segments = [];
   bool _isSubmitting = false;
+  bool _allowPop = false;
+  bool _cancelOpen = false;
+  late CompiledAnalysisResult _analysis;
+  String _idempotencyKey =
+      'split_${DateTime.now().microsecondsSinceEpoch}_${Random.secure().nextInt(1 << 32)}';
+  List<CompiledSplitSegment>? _submittedSegments;
 
   @override
   void initState() {
     super.initState();
+    _analysis = widget.analysis;
     for (final doc in widget.analysis.documents) {
       _segments.add(
         _EditableSegment(
@@ -75,7 +82,7 @@ class _CompiledReviewScreenState extends State<CompiledReviewScreen> {
           categoryKey: doc.categoryKey,
           folderKey: doc.folderKey,
           title: doc.title,
-          documentDate: doc.documentDate ?? DateTime.now(),
+          documentDate: doc.documentDate,
           confidence: doc.confidence,
         ),
       );
@@ -88,8 +95,10 @@ class _CompiledReviewScreenState extends State<CompiledReviewScreen> {
           endPage: widget.analysis.totalPages,
           categoryKey: null,
           folderKey: null,
-          title: widget.analysis.originalFileName.replaceAll(RegExp(r'\.pdf$', caseSensitive: false), ''),
-          documentDate: DateTime.now(),
+          title: widget.analysis.originalFileName.replaceAll(
+            RegExp(r'\.pdf$', caseSensitive: false),
+            '',
+          ),
         ),
       );
     }
@@ -123,28 +132,26 @@ class _CompiledReviewScreenState extends State<CompiledReviewScreen> {
   }
 
   void _addSegment() {
+    if (_submittedSegments != null || _isSubmitting) return;
     final lastEnd = _segments.isNotEmpty ? _segments.last.endPage : 0;
     final nextStart = min(lastEnd + 1, widget.analysis.totalPages);
     final nextEnd = widget.analysis.totalPages;
-
-    final categories = DocumentScope.of(context).categories;
-    final defaultCat = categories.isNotEmpty ? categories.first : null;
 
     setState(() {
       _segments.add(
         _EditableSegment(
           startPage: nextStart,
           endPage: nextEnd,
-          categoryKey: defaultCat?.key,
-          folderKey: defaultCat?.folders.firstOrNull?.key,
+          categoryKey: null,
+          folderKey: null,
           title: 'Document ${_segments.length + 1}',
-          documentDate: DateTime.now(),
         ),
       );
     });
   }
 
   void _removeSegment(int index) {
+    if (_submittedSegments != null || _isSubmitting) return;
     if (_segments.length <= 1) return;
     setState(() {
       final removed = _segments.removeAt(index);
@@ -153,6 +160,8 @@ class _CompiledReviewScreenState extends State<CompiledReviewScreen> {
   }
 
   Future<void> _handleCancel() async {
+    if (_isSubmitting || _cancelOpen) return;
+    _cancelOpen = true;
     final shouldLeave = await showDialog<bool>(
       context: context,
       builder: (dialogCtx) => AlertDialog(
@@ -161,7 +170,9 @@ class _CompiledReviewScreenState extends State<CompiledReviewScreen> {
           style: GoogleFonts.poppins(fontWeight: FontWeight.w600),
         ),
         content: Text(
-          'Leaving now will cancel document separation. The compiled file will not be saved.',
+          _submittedSegments == null
+              ? 'Leaving now will cancel document separation. The compiled file will not be saved.'
+              : 'The request may already have saved documents. Leaving does not undo a completed split. Check your Files before starting another upload.',
           style: GoogleFonts.poppins(fontSize: 13),
         ),
         actions: [
@@ -183,24 +194,87 @@ class _CompiledReviewScreenState extends State<CompiledReviewScreen> {
 
     if (shouldLeave == true && mounted) {
       final service = DocumentScope.of(context);
-      service.cancelCompiledSession(widget.analysis.sessionId).catchError((_) => false);
-      Navigator.pop(context, false);
+      final cancelled = await service.cancelCompiledSession(
+        _analysis.sessionId,
+      );
+      if (!mounted) return;
+      if (cancelled) {
+        setState(() => _allowPop = true);
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (mounted) Navigator.pop(context, false);
+        });
+      } else {
+        _showSnack('Temporary cleanup could not finish. Please retry Cancel.');
+      }
+    }
+    _cancelOpen = false;
+  }
+
+  Future<void> _retryAnalysis() async {
+    if (_isSubmitting || _submittedSegments != null) return;
+    final service = DocumentScope.of(context);
+    setState(() => _isSubmitting = true);
+    try {
+      final updated = await service.analyzeCompiledDocument(widget.file);
+      if (!mounted) {
+        await service.cancelCompiledSession(updated.sessionId);
+        return;
+      }
+      final previous = _analysis.sessionId;
+      // Update extraction status/session only. Never overwrite reviewed fields or ranges.
+      setState(() {
+        _analysis = updated;
+        _idempotencyKey =
+            'split_${DateTime.now().microsecondsSinceEpoch}_${Random.secure().nextInt(1 << 32)}';
+      });
+      await service.cancelCompiledSession(previous);
+    } catch (_) {
+      if (mounted) {
+        _showSnack(
+          'Analysis could not finish. Your edits were kept. Please retry.',
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _isSubmitting = false);
     }
   }
 
   Future<void> _handleSplitAndSave() async {
+    if (_isSubmitting) return;
+    if (_analysis.hasUnresolvedPages) {
+      _showSnack(
+        'Unreadable pages must be retried before separation. You can cancel and handle the PDF manually.',
+      );
+      return;
+    }
     final totalPages = widget.analysis.totalPages;
     final categories = DocumentScope.of(context).categories;
 
     // Validate segments
+    var nextPage = 1;
     for (var i = 0; i < _segments.length; i++) {
       final seg = _segments[i];
+      if (seg.startPage != nextPage) {
+        _showSnack(
+          'Every page must appear exactly once, in order, without gaps or overlaps.',
+        );
+        return;
+      }
+      nextPage = seg.endPage + 1;
+      if (seg.documentDate == null) {
+        _showSnack('Document ${i + 1}: Please confirm the document date.');
+        return;
+      }
       if (seg.startPage < 1 || seg.startPage > totalPages) {
-        _showSnack('Document ${i + 1}: Start page must be between 1 and $totalPages.');
+        _showSnack(
+          'Document ${i + 1}: Start page must be between 1 and $totalPages.',
+        );
         return;
       }
       if (seg.endPage < seg.startPage || seg.endPage > totalPages) {
-        _showSnack('Document ${i + 1}: End page must be between ${seg.startPage} and $totalPages.');
+        _showSnack(
+          'Document ${i + 1}: End page must be between ${seg.startPage} and $totalPages.',
+        );
         return;
       }
       if (seg.titleCtrl.text.trim().isEmpty) {
@@ -209,7 +283,9 @@ class _CompiledReviewScreenState extends State<CompiledReviewScreen> {
       }
       final cat = _findCategory(categories, seg.categoryKey);
       if (cat == null) {
-        _showSnack('Document ${i + 1}: Please select a valid document category.');
+        _showSnack(
+          'Document ${i + 1}: Please select a valid document category.',
+        );
         return;
       }
       final folder = _findFolder(cat, seg.folderKey);
@@ -218,14 +294,16 @@ class _CompiledReviewScreenState extends State<CompiledReviewScreen> {
         return;
       }
     }
+    if (nextPage != totalPages + 1) {
+      _showSnack('Include every page through page $totalPages before saving.');
+      return;
+    }
 
     setState(() => _isSubmitting = true);
 
     try {
       final service = DocumentScope.of(context);
-      final idempotencyKey = 'split_${DateTime.now().millisecondsSinceEpoch}_${Random().nextInt(999999)}';
-
-      final splitSegments = _segments.map((seg) {
+      final splitSegments = _submittedSegments ??= _segments.map((seg) {
         return CompiledSplitSegment(
           startPage: seg.startPage,
           endPage: seg.endPage,
@@ -233,14 +311,18 @@ class _CompiledReviewScreenState extends State<CompiledReviewScreen> {
           folderKey: seg.folderKey!,
           title: seg.titleCtrl.text.trim(),
           documentDate: seg.documentDate ?? DateTime.now(),
-          description: seg.descCtrl.text.trim().isNotEmpty ? seg.descCtrl.text.trim() : null,
-          reflection: seg.reflCtrl.text.trim().isNotEmpty ? seg.reflCtrl.text.trim() : null,
+          description: seg.descCtrl.text.trim().isNotEmpty
+              ? seg.descCtrl.text.trim()
+              : null,
+          reflection: seg.reflCtrl.text.trim().isNotEmpty
+              ? seg.reflCtrl.text.trim()
+              : null,
         );
       }).toList();
 
       final createdDocs = await service.splitCompiledDocument(
-        sessionId: widget.analysis.sessionId,
-        idempotencyKey: idempotencyKey,
+        sessionId: _analysis.sessionId,
+        idempotencyKey: _idempotencyKey,
         segments: splitSegments,
       );
 
@@ -257,11 +339,19 @@ class _CompiledReviewScreenState extends State<CompiledReviewScreen> {
         ),
       );
 
-      Navigator.pop(context, true);
+      setState(() => _allowPop = true);
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) Navigator.pop(context, true);
+      });
     } on ApiException catch (e) {
       if (!mounted) return;
       setState(() => _isSubmitting = false);
-      _showSnack(e.message.isNotEmpty ? e.message : 'Separation failed. Please try again.');
+      if (e.statusCode == 400 || e.statusCode == 422) _submittedSegments = null;
+      _showSnack(
+        e.message.isNotEmpty
+            ? e.message
+            : 'Separation failed. Please try again.',
+      );
     } catch (_) {
       if (!mounted) return;
       setState(() => _isSubmitting = false);
@@ -288,7 +378,7 @@ class _CompiledReviewScreenState extends State<CompiledReviewScreen> {
     final categories = service.categories;
 
     return PopScope(
-      canPop: !_isSubmitting,
+      canPop: _allowPop,
       onPopInvokedWithResult: (didPop, result) {
         if (didPop) return;
         _handleCancel();
@@ -303,6 +393,33 @@ class _CompiledReviewScreenState extends State<CompiledReviewScreen> {
             Column(
               children: [
                 _buildHeaderCard(),
+                if (_analysis.pages.isNotEmpty)
+                  Padding(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 16,
+                      vertical: 8,
+                    ),
+                    child: Column(
+                      children: [
+                        Text(
+                          '${_analysis.pages.where((page) => page.source == 'digital').length} digital · '
+                          '${_analysis.pages.where((page) => page.source == 'ocr').length} OCR · '
+                          '${_analysis.pages.where((page) => page.source == 'blank').length} blank'
+                          '${_analysis.hasUnresolvedPages ? '\nUnreadable pages: ${_analysis.pages.where((page) => page.isUnresolved).map((page) => page.pageNumber).join(', ')} — retry required' : ''}',
+                          style: GoogleFonts.poppins(fontSize: 11),
+                        ),
+                        if (_analysis.hasUnresolvedPages)
+                          TextButton(
+                            onPressed: _isSubmitting ? null : _retryAnalysis,
+                            child: const Text('Retry PDF analysis'),
+                          ),
+                        if (_submittedSegments != null && !_isSubmitting)
+                          const Text(
+                            'Retry uses the same reviewed values to prevent duplicate documents.',
+                          ),
+                      ],
+                    ),
+                  ),
                 Expanded(
                   child: ListView.builder(
                     physics: const BouncingScrollPhysics(),
@@ -312,7 +429,10 @@ class _CompiledReviewScreenState extends State<CompiledReviewScreen> {
                       if (index == _segments.length) {
                         return _buildAddSegmentButton();
                       }
-                      return _buildSegmentCard(index, categories);
+                      return AbsorbPointer(
+                        absorbing: _submittedSegments != null,
+                        child: _buildSegmentCard(index, categories),
+                      );
                     },
                   ),
                 ),
@@ -370,7 +490,10 @@ class _CompiledReviewScreenState extends State<CompiledReviewScreen> {
                       ),
                     ),
                     Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 8,
+                        vertical: 3,
+                      ),
                       decoration: BoxDecoration(
                         color: AppColors.primary.withValues(alpha: 0.1),
                         borderRadius: BorderRadius.circular(8),
@@ -388,7 +511,7 @@ class _CompiledReviewScreenState extends State<CompiledReviewScreen> {
                 ),
                 const SizedBox(height: 4),
                 Text(
-                  'AI identified ${_segments.length} logical document sections. Review and adjust boundaries before saving.',
+                  'Proposed ${_segments.length} document sections. Review categories, dates, and complete page coverage before saving.',
                   style: GoogleFonts.poppins(
                     fontSize: 11,
                     color: AppColors.textMuted,
@@ -464,7 +587,10 @@ class _CompiledReviewScreenState extends State<CompiledReviewScreen> {
                   ),
                 ),
                 Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 8,
+                    vertical: 3,
+                  ),
                   decoration: BoxDecoration(
                     color: AppColors.statusCompleteBg,
                     borderRadius: BorderRadius.circular(6),
@@ -623,7 +749,9 @@ class _CompiledReviewScreenState extends State<CompiledReviewScreen> {
                   hint: 'Select Folder',
                   required: true,
                   enabled: currentCat != null,
-                  items: currentCat?.folders.map((f) => f.name).toList() ?? const [],
+                  items:
+                      currentCat?.folders.map((f) => f.name).toList() ??
+                      const [],
                   value: currentFolder?.name,
                   onChanged: (selectedName) {
                     final selected = currentCat?.folders
@@ -656,7 +784,10 @@ class _CompiledReviewScreenState extends State<CompiledReviewScreen> {
                       fontSize: 13,
                       color: AppColors.textMuted,
                     ),
-                    contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                    contentPadding: const EdgeInsets.symmetric(
+                      horizontal: 14,
+                      vertical: 12,
+                    ),
                     filled: true,
                     fillColor: Colors.white,
                     border: OutlineInputBorder(
@@ -668,7 +799,10 @@ class _CompiledReviewScreenState extends State<CompiledReviewScreen> {
                       borderSide: const BorderSide(color: AppColors.cardBorder),
                     ),
                   ),
-                  style: GoogleFonts.poppins(fontSize: 13, color: AppColors.textPrimary),
+                  style: GoogleFonts.poppins(
+                    fontSize: 13,
+                    color: AppColors.textPrimary,
+                  ),
                 ),
                 const SizedBox(height: 10),
 
@@ -739,7 +873,9 @@ class _CompiledReviewScreenState extends State<CompiledReviewScreen> {
                       fillColor: Colors.white,
                       border: OutlineInputBorder(
                         borderRadius: BorderRadius.circular(8),
-                        borderSide: const BorderSide(color: AppColors.cardBorder),
+                        borderSide: const BorderSide(
+                          color: AppColors.cardBorder,
+                        ),
                       ),
                     ),
                     style: GoogleFonts.poppins(fontSize: 12),
@@ -766,7 +902,9 @@ class _CompiledReviewScreenState extends State<CompiledReviewScreen> {
                       fillColor: Colors.white,
                       border: OutlineInputBorder(
                         borderRadius: BorderRadius.circular(8),
-                        borderSide: const BorderSide(color: AppColors.cardBorder),
+                        borderSide: const BorderSide(
+                          color: AppColors.cardBorder,
+                        ),
                       ),
                     ),
                     style: GoogleFonts.poppins(fontSize: 12),

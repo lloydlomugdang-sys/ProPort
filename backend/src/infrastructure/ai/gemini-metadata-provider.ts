@@ -32,13 +32,15 @@ For each document found, determine:
 - startPage: 1-indexed start page number
 - endPage: 1-indexed end page number (>= startPage)
 - categoryKey: canonical key from categories (curriculum-vitae, scholastic-record, certificates, accomplishments, other-achievements, college-report)
-- folderKey: canonical folder key belonging to the selected category (seminars, trainings, other-seminars, thesis-capstone, case-studies, projects, assessments, unofficial-tor-with-reflections, college-report, creative-title)
+- folderKey: canonical folder key belonging to the selected category (curriculum-vitae, seminars, trainings, other-seminars, thesis-capstone, case-studies, projects, assessments, unofficial-tor-with-reflections, college-report, creative-title)
 - title: concise title naming the event/course/project/document (never the student/recipient name)
 - documentDate: ISO YYYY-MM-DD date if unambiguous document/event date is found, or null
 - confidence: number between 0.0 and 1.0
 
 Rules:
-- Contiguous page ranges that cover each distinct document.
+- Cover EVERY numbered source page exactly once with contiguous, ascending ranges; no omitted, repeated, or overlapping pages.
+- Repeated CV headings and sparse continuation pages do not create a new CV. Keep a multi-page CV together. Separate independent certificates.
+- Multiple documents on one physical page cannot be split into regions; keep that page whole and set low confidence.
 - startPage must be <= endPage.
 - Do not invent categories or folders; use only the provided keys.
 - Return only the JSON schema, with no extra fields.`;

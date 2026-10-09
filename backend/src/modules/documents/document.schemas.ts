@@ -270,9 +270,22 @@ export const compiledAnalyzeResponseSchema = {
     data: {
       type: 'object',
       additionalProperties: false,
-      required: ['sessionId', 'originalFileName', 'totalPages', 'documents'],
+      required: ['sessionId', 'originalFileName', 'totalPages', 'documents', 'pages', 'detection'],
       properties: {
         sessionId: { type: 'string' },
+        detection: { enum: ['single', 'multiple', 'needs_review'] },
+        metadataSuggestions: documentOcrSchema.properties.metadataSuggestions,
+        metadataAnalysis: documentOcrSchema.properties.metadataAnalysis,
+        pages: {
+          type: 'array', maxItems: 100,
+          items: {
+            type: 'object', additionalProperties: false, required: ['pageNumber', 'text', 'source', 'status'],
+            properties: {
+              pageNumber: { type: 'integer', minimum: 1 }, text: { type: 'string' },
+              source: { enum: ['digital', 'ocr', 'blank', 'failed'] }, status: { enum: ['ready', 'unresolved'] },
+            },
+          },
+        },
         originalFileName: { type: 'string' },
         totalPages: { type: 'integer', minimum: 1 },
         documents: {
@@ -308,6 +321,7 @@ export const compiledSplitSchema = {
     segments: {
       type: 'array',
       minItems: 1,
+      maxItems: 100,
       items: {
         type: 'object',
         additionalProperties: false,

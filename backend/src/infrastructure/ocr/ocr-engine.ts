@@ -10,6 +10,8 @@ export interface OcrInput {
 export interface OcrPageText {
   readonly pageNumber: number;
   readonly text: string;
+  readonly source?: 'digital' | 'ocr' | 'blank' | 'failed';
+  readonly status?: 'ready' | 'unresolved';
 }
 
 export interface OcrExtraction {
@@ -25,6 +27,7 @@ export type OcrEngineFailureReason =
   | 'image-too-large'
   | 'invalid-pdf'
   | 'pdf-too-many-pages'
+  | 'pdf-too-many-ocr-pages'
   | 'protected-pdf'
   | 'scanned-pdf-not-supported'
   | 'text-too-large'

@@ -194,6 +194,11 @@ export class AiMetadataService {
     if (!this.provider || !this.provider.separateCompiled) {
       return null;
     }
-    return this.provider.separateCompiled(pages, categories);
+    // Apply the same credential filtering and structural whitespace rules as
+    // normal metadata. Per-page caps bound the whole 100-page input to 12k chars.
+    const perPageLimit = Math.min(1500, Math.floor(AI_MAX_INPUT_LENGTH / Math.max(1, pages.length)));
+    return this.provider.separateCompiled(pages.map((page) => ({
+      pageNumber: page.pageNumber, text: normalizeAiText(page.text).slice(0, perPageLimit),
+    })), categories);
   }
 }

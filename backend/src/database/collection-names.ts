@@ -5,6 +5,7 @@ export const COLLECTION_NAMES = {
   portfolios: 'portfolios',
   documentCategories: 'document_categories',
   documents: 'documents',
+  compiledDocumentSessions: 'compiled_document_sessions',
   reportTemplates: 'report_templates',
   collegeReports: 'college_reports',
   migrations: '_gradport_migrations',
@@ -18,5 +19,6 @@ export type ApplicationCollectionName =
   | (typeof COLLECTION_NAMES)['portfolios']
   | (typeof COLLECTION_NAMES)['documentCategories']
   | (typeof COLLECTION_NAMES)['documents']
+  | (typeof COLLECTION_NAMES)['compiledDocumentSessions']
   | (typeof COLLECTION_NAMES)['reportTemplates']
   | (typeof COLLECTION_NAMES)['collegeReports'];

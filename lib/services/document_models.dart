@@ -145,8 +145,8 @@ class PickedDocument {
     Uint8List? bytes,
     this.path,
     int? sizeBytes,
-  })  : _bytes = bytes,
-        _sizeBytes = sizeBytes ?? bytes?.length ?? 0 {
+  }) : _bytes = bytes,
+       _sizeBytes = sizeBytes ?? bytes?.length ?? 0 {
     if (bytes == null && (path == null || path!.isEmpty)) {
       throw ArgumentError('Either bytes or path must be provided.');
     }
@@ -506,12 +506,18 @@ class CompiledDocumentProposal {
     }
     final confRaw = json['confidence'];
     final conf = confRaw is num ? confRaw.toDouble() : 0.8;
+    // An unresolved proposal deliberately has no taxonomy selection yet.
+    final category = json['categoryKey'];
+    final folder = json['folderKey'];
+    if (category is! String || folder is! String) {
+      throw const FormatException();
+    }
 
     return CompiledDocumentProposal(
       startPage: start,
       endPage: end,
-      categoryKey: _requiredString(json, 'categoryKey'),
-      folderKey: _requiredString(json, 'folderKey'),
+      categoryKey: category,
+      folderKey: folder,
       title: _requiredString(json, 'title'),
       documentDate: parsedDate,
       confidence: conf,
@@ -539,18 +545,48 @@ class CompiledDocumentProposal {
   }
 }
 
+class CompiledPageResult {
+  const CompiledPageResult({
+    required this.pageNumber,
+    required this.text,
+    required this.source,
+    required this.status,
+  });
+  final int pageNumber;
+  final String text;
+  final String source;
+  final String status;
+  bool get isUnresolved => status == 'unresolved' || source == 'failed';
+  factory CompiledPageResult.fromJson(Map<String, dynamic> json) =>
+      CompiledPageResult(
+        pageNumber: json['pageNumber'] as int,
+        text: json['text'] as String,
+        source: json['source'] as String,
+        status: json['status'] as String,
+      );
+}
+
 class CompiledAnalysisResult {
   const CompiledAnalysisResult({
     required this.sessionId,
     required this.originalFileName,
     required this.totalPages,
     required this.documents,
+    this.pages = const [],
+    this.detection = 'needs_review',
+    this.metadataSuggestions,
+    this.metadataAnalysis,
   });
 
   final String sessionId;
   final String originalFileName;
   final int totalPages;
   final List<CompiledDocumentProposal> documents;
+  final List<CompiledPageResult> pages;
+  final String detection;
+  final DocumentMetadataSuggestions? metadataSuggestions;
+  final DocumentMetadataAnalysis? metadataAnalysis;
+  bool get hasUnresolvedPages => pages.any((page) => page.isUnresolved);
 
   factory CompiledAnalysisResult.fromJson(Map<String, dynamic> json) {
     final total = json['totalPages'];
@@ -562,6 +598,22 @@ class CompiledAnalysisResult {
       sessionId: _requiredString(json, 'sessionId'),
       originalFileName: _requiredString(json, 'originalFileName'),
       totalPages: total,
+      detection: json['detection'] as String? ?? 'needs_review',
+      metadataSuggestions: json['metadataSuggestions'] == null
+          ? null
+          : DocumentMetadataSuggestions.fromJson(
+              json['metadataSuggestions'] as Map<String, dynamic>,
+            ),
+      metadataAnalysis: json['metadataAnalysis'] == null
+          ? null
+          : DocumentMetadataAnalysis.fromJson(
+              json['metadataAnalysis'] as Map<String, dynamic>,
+            ),
+      pages: (json['pages'] as List? ?? const [])
+          .map(
+            (page) => CompiledPageResult.fromJson(page as Map<String, dynamic>),
+          )
+          .toList(),
       documents: docsRaw
           .whereType<Map<String, dynamic>>()
           .map(CompiledDocumentProposal.fromJson)

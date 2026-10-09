@@ -33,6 +33,7 @@ sharp.cache({ memory: 16, files: 0, items: 10 });
 export const OCR_PROCESSING_TIMEOUT_MS = 45_000;
 export const OCR_MAX_IMAGE_PIXELS = 25_000_000;
 export const OCR_MAX_PDF_PAGES = 100;
+export const OCR_MAX_PDF_FALLBACK_PAGES = 10;
 export const OCR_MAX_TEXT_LENGTH = 200_000;
 export const OCR_MAX_WORKING_DIMENSION = 2000;
 export const OCR_MIN_UPSCALE_DIMENSION = 1000;
@@ -570,7 +571,7 @@ export class LocalOcrEngine implements OcrEngine {
     }
   }
 
-  private async extractImage(contents: Buffer): Promise<OcrExtraction> {
+  protected async extractImage(contents: Buffer, timeoutMs = this.timeoutMs): Promise<OcrExtraction> {
     const dimensions = imageDimensions(contents);
     if (dimensions === null) throw new OcrEngineError('invalid-image');
     if (dimensions.width * dimensions.height > OCR_MAX_IMAGE_PIXELS) {
@@ -726,7 +727,7 @@ export class LocalOcrEngine implements OcrEngine {
             timedOut = true;
             void terminate();
             reject(new OcrEngineError('timeout'));
-          }, this.timeoutMs);
+          }, timeoutMs);
         }),
       ]);
     } catch (error) {
@@ -752,6 +753,7 @@ export class LocalOcrEngine implements OcrEngine {
     });
     let timer: NodeJS.Timeout | undefined;
     let timedOut = false;
+    const deadline = Date.now() + this.timeoutMs;
     try {
       const pdf = await Promise.race([
         loadingTask.promise,
@@ -770,27 +772,78 @@ export class LocalOcrEngine implements OcrEngine {
       const pages: string[] = [];
       const pageDetails: OcrPageText[] = [];
       let totalLength = 0;
+      let fallbackPages = 0;
       for (let pageNumber = 1; pageNumber <= pdf.numPages; pageNumber += 1) {
+        if (timedOut || Date.now() >= deadline) throw new OcrEngineError('timeout');
         const page = await pdf.getPage(pageNumber);
-        const content = await page.getTextContent();
-        const pieces: string[] = [];
-        for (const item of content.items) {
-          if (!('str' in item) || typeof item.str !== 'string') continue;
-          pieces.push(item.str);
-          pieces.push(item.hasEOL ? '\n' : ' ');
+        let pageText = '';
+        let result: OcrPageText;
+        try {
+          const content = await page.getTextContent();
+          const pieces: string[] = [];
+          for (const item of content.items) {
+            if (!('str' in item) || typeof item.str !== 'string') continue;
+            pieces.push(item.str);
+            pieces.push(item.hasEOL ? '\n' : ' ');
+          }
+          pageText = normalizeText(pieces.join(' '));
+          if (hasUsableDigitalText(pageText)) {
+            result = { pageNumber, text: pageText, source: 'digital', status: 'ready' };
+          } else {
+            fallbackPages++;
+            if (fallbackPages > OCR_MAX_PDF_FALLBACK_PAGES) {
+              throw new OcrEngineError('pdf-too-many-ocr-pages');
+            }
+            // PDF.js' existing Node canvas factory uses its installed native canvas.
+            // Render one bounded page at a time, never the entire PDF into images.
+            const natural = page.getViewport({ scale: 1 });
+            const scale = Math.min(2, OCR_MAX_WORKING_DIMENSION / Math.max(natural.width, natural.height));
+            const viewport = page.getViewport({ scale });
+            if (!Number.isFinite(viewport.width) || !Number.isFinite(viewport.height) || viewport.width <= 0 || viewport.height <= 0) {
+              throw new OcrEngineError('invalid-pdf');
+            }
+            const factory = pdf.canvasFactory as {
+              create(width: number, height: number): { canvas: HTMLCanvasElement & { toBuffer(type: string): Buffer }; context: CanvasRenderingContext2D };
+              destroy(target: { canvas: HTMLCanvasElement; context: CanvasRenderingContext2D }): void;
+            };
+            const target = factory.create(Math.ceil(viewport.width), Math.ceil(viewport.height));
+            try {
+              await page.render({ canvas: target.canvas, canvasContext: target.context, viewport }).promise;
+              const png = target.canvas.toBuffer('image/png');
+              const stats = await sharp(png).stats();
+              // Only near-uniform white pages are blank; sparse/faint ink still needs OCR.
+              const isBlank = stats.channels.slice(0, 3).every((channel) => channel.min >= 254);
+              if (isBlank) {
+                result = { pageNumber, text: pageText, source: 'blank', status: 'ready' };
+              } else {
+                const remaining = deadline - Date.now();
+                if (remaining <= 0) throw new OcrEngineError('timeout');
+                const extracted = await this.extractImage(png, remaining);
+                result = extracted.rawText.trim().length > 0
+                  ? { pageNumber, text: extracted.rawText, source: 'ocr', status: 'ready' }
+                  : { pageNumber, text: pageText, source: 'failed', status: 'unresolved' };
+              }
+            } finally {
+              factory.destroy(target);
+            }
+          }
+        } catch (error) {
+          if (timedOut || Date.now() >= deadline) throw new OcrEngineError('timeout');
+          if (error instanceof OcrEngineError && ['pdf-too-many-ocr-pages', 'text-too-large'].includes(error.reason)) throw error;
+          result = { pageNumber, text: pageText, source: 'failed', status: 'unresolved' };
+        } finally {
+          page.cleanup();
         }
-        const pageText = normalizeText(pieces.join(' '));
-        pageDetails.push({ pageNumber, text: pageText });
-        if (pageText.length > 0) pages.push(pageText);
-        totalLength += pageText.length;
+        if (timedOut || Date.now() >= deadline) throw new OcrEngineError('timeout');
+        pageDetails.push(result);
+        if (result.text.length > 0) pages.push(result.text);
+        totalLength += result.text.length;
         if (totalLength > OCR_MAX_TEXT_LENGTH) {
           throw new OcrEngineError('text-too-large');
         }
       }
       const rawText = normalizeText(pages.join('\n\n'));
-      if (rawText.length === 0) {
-        throw new OcrEngineError('scanned-pdf-not-supported');
-      }
+      if (rawText.length > OCR_MAX_TEXT_LENGTH) throw new OcrEngineError('text-too-large');
       return { rawText, engine: 'pdfjs', pages: pageDetails, totalPages: pdf.numPages };
     } catch (error) {
       if (error instanceof OcrEngineError) throw error;
@@ -804,6 +857,12 @@ export class LocalOcrEngine implements OcrEngine {
       await loadingTask.destroy().catch(() => undefined);
     }
   }
+}
+
+export function hasUsableDigitalText(text: string): boolean {
+  const characters = text.match(/[\p{L}\p{N}]/gu)?.length ?? 0;
+  const words = text.match(/[\p{L}\p{N}]{2,}/gu)?.length ?? 0;
+  return characters >= 40 && words >= 6;
 }
 
 function checkedText(

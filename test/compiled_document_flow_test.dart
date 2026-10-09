@@ -24,10 +24,10 @@ class _NoopTokenStore implements SecureTokenStore {
 
 class _NoopAuthService extends AuthService {
   _NoopAuthService()
-      : super(
-          apiClient: ApiClient(baseUrl: 'http://example.test:3000'),
-          tokenStore: _NoopTokenStore(),
-        );
+    : super(
+        apiClient: ApiClient(baseUrl: 'http://example.test:3000'),
+        tokenStore: _NoopTokenStore(),
+      );
 }
 
 class _MockCompiledDocService extends DocumentService {
@@ -257,81 +257,89 @@ void main() {
   });
 
   group('Batch Upload Auto-Categorization (Mode B)', () {
-    test('auto-categorizes items from metadata suggestions when category has not been manually changed', () async {
-      final service = _BatchTestDocService();
-      service.nextSuggestions = DocumentMetadataSuggestions(
-        categoryKey: 'certificates',
-        folderKey: 'seminars',
-        title: 'AI Detected Seminar',
-        documentDate: DateTime(2024, 6, 1),
-        confidence: 'high',
-      );
+    test(
+      'auto-categorizes items from metadata suggestions when category has not been manually changed',
+      () async {
+        final service = _BatchTestDocService();
+        service.nextSuggestions = DocumentMetadataSuggestions(
+          categoryKey: 'certificates',
+          folderKey: 'seminars',
+          title: 'AI Detected Seminar',
+          documentDate: DateTime(2024, 6, 1),
+          confidence: 'high',
+        );
 
-      final queue = BatchUploadQueue(documentService: service);
-      final file = _makePickedPdf('scan1.pdf');
+        final queue = BatchUploadQueue(documentService: service);
+        final file = _makePickedPdf('scan1.pdf');
 
-      queue.initialize(
-        [file],
-        defaultCategoryKey: 'curriculum-vitae',
-        defaultFolderKey: 'curriculum-vitae',
-        autoStart: false,
-      );
+        queue.initialize(
+          [file],
+          defaultCategoryKey: 'curriculum-vitae',
+          defaultFolderKey: 'curriculum-vitae',
+          autoStart: false,
+        );
 
-      expect(queue.items.first.isManualCategory, false);
-      expect(queue.items.first.isAutoCategorized, false);
+        expect(queue.items.first.isManualCategory, false);
+        expect(queue.items.first.isAutoCategorized, false);
 
-      await queue.startProcessing();
+        await queue.startProcessing();
 
-      final item = queue.items.first;
-      expect(item.status, BatchItemStatus.completed);
-      expect(item.categoryKey, 'certificates');
-      expect(item.folderKey, 'seminars');
-      expect(item.title, 'AI Detected Seminar');
-      expect(item.isAutoCategorized, true);
-      expect(service.updateMetadataCallCount, greaterThan(0));
-    });
+        final item = queue.items.first;
+        expect(item.status, BatchItemStatus.completed);
+        expect(item.categoryKey, 'certificates');
+        expect(item.folderKey, 'seminars');
+        expect(item.title, 'AI Detected Seminar');
+        expect(item.isAutoCategorized, true);
+        expect(service.updateMetadataCallCount, greaterThan(0));
+      },
+    );
 
-    test('manual category selection protects item from being overwritten by auto-categorization', () async {
-      final service = _BatchTestDocService();
-      service.nextSuggestions = DocumentMetadataSuggestions(
-        categoryKey: 'certificates',
-        folderKey: 'seminars',
-        title: 'AI Detected Seminar',
-        confidence: 'high',
-      );
+    test(
+      'manual category selection protects item from being overwritten by auto-categorization',
+      () async {
+        final service = _BatchTestDocService();
+        service.nextSuggestions = DocumentMetadataSuggestions(
+          categoryKey: 'certificates',
+          folderKey: 'seminars',
+          title: 'AI Detected Seminar',
+          confidence: 'high',
+        );
 
-      final queue = BatchUploadQueue(documentService: service);
-      final file = _makePickedPdf('scan2.pdf');
+        final queue = BatchUploadQueue(documentService: service);
+        final file = _makePickedPdf('scan2.pdf');
 
-      queue.initialize(
-        [file],
-        defaultCategoryKey: 'curriculum-vitae',
-        defaultFolderKey: 'curriculum-vitae',
-        autoStart: false,
-      );
+        queue.initialize(
+          [file],
+          defaultCategoryKey: 'curriculum-vitae',
+          defaultFolderKey: 'curriculum-vitae',
+          autoStart: false,
+        );
 
-      // User manually sets the category before OCR runs
-      queue.updateItemMetadata(
-        queue.items.first.id,
-        categoryKey: 'curriculum-vitae',
-        folderKey: 'curriculum-vitae',
-        isManual: true,
-      );
+        // User manually sets the category before OCR runs
+        queue.updateItemMetadata(
+          queue.items.first.id,
+          categoryKey: 'curriculum-vitae',
+          folderKey: 'curriculum-vitae',
+          isManual: true,
+        );
 
-      expect(queue.items.first.isManualCategory, true);
+        expect(queue.items.first.isManualCategory, true);
 
-      await queue.startProcessing();
+        await queue.startProcessing();
 
-      // OCR completed, but manual category choice MUST NOT be overwritten
-      final item = queue.items.first;
-      expect(item.status, BatchItemStatus.completed);
-      expect(item.categoryKey, 'curriculum-vitae');
-      expect(item.isAutoCategorized, false);
-    });
+        // OCR completed, but manual category choice MUST NOT be overwritten
+        final item = queue.items.first;
+        expect(item.status, BatchItemStatus.completed);
+        expect(item.categoryKey, 'curriculum-vitae');
+        expect(item.isAutoCategorized, false);
+      },
+    );
   });
 
   group('CompiledReviewScreen Widget Tests (Mode C)', () {
-    testWidgets('renders document proposal cards and page boundaries', (tester) async {
+    testWidgets('renders document proposal cards and page boundaries', (
+      tester,
+    ) async {
       tester.view.physicalSize = const Size(800, 2400);
       tester.view.devicePixelRatio = 1.0;
       addTearDown(tester.view.resetPhysicalSize);
@@ -366,10 +374,7 @@ void main() {
         MaterialApp(
           home: DocumentScope(
             documentService: service,
-            child: CompiledReviewScreen(
-              analysis: analysis,
-              file: file,
-            ),
+            child: CompiledReviewScreen(analysis: analysis, file: file),
           ),
         ),
       );
@@ -388,7 +393,9 @@ void main() {
       expect(find.text('Seminar Section'), findsOneWidget);
     });
 
-    testWidgets('splitting triggers splitCompiledDocument and pops with true', (tester) async {
+    testWidgets('splitting triggers splitCompiledDocument and pops with true', (
+      tester,
+    ) async {
       final service = _MockCompiledDocService();
       final file = _makePickedPdf('compiled_portfolio.pdf');
 
@@ -396,13 +403,14 @@ void main() {
         sessionId: 'csess_split_test',
         originalFileName: 'compiled_portfolio.pdf',
         totalPages: 2,
-        documents: const [
+        documents: [
           CompiledDocumentProposal(
             startPage: 1,
             endPage: 1,
             categoryKey: 'curriculum-vitae',
             folderKey: 'curriculum-vitae',
             title: 'Doc 1',
+            documentDate: DateTime(2026, 1, 1),
           ),
           CompiledDocumentProposal(
             startPage: 2,
@@ -410,6 +418,7 @@ void main() {
             categoryKey: 'certificates',
             folderKey: 'seminars',
             title: 'Doc 2',
+            documentDate: DateTime(2026, 1, 2),
           ),
         ],
       );

@@ -1,6 +1,6 @@
 import mongoose from 'mongoose';
 import { describe, expect, it } from 'vitest';
-import { APPLICATION_INDEXES } from '../../src/database/indexes/index-definitions.js';
+import { APPLICATION_INDEXES, LEGACY_APPLICATION_INDEXES, COMPILED_SESSION_INDEXES } from '../../src/database/indexes/index-definitions.js';
 import { COLLECTION_NAMES } from '../../src/database/collection-names.js';
 import { registerModels } from '../../src/infrastructure/database/model-registry.js';
 
@@ -30,8 +30,10 @@ describe('application index manifest', () => {
       })),
     );
 
-    expect(actual).toEqual(APPLICATION_INDEXES);
-    expect(APPLICATION_INDEXES).toHaveLength(18);
+    expect(actual).toEqual(LEGACY_APPLICATION_INDEXES);
+    expect(APPLICATION_INDEXES).toHaveLength(20);
+    expect(COMPILED_SESSION_INDEXES).toHaveLength(2);
+    expect(COMPILED_SESSION_INDEXES.some((index) => index.expireAfterSeconds !== undefined)).toBe(false);
     await connection.destroy();
   });
 

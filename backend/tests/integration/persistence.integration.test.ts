@@ -68,11 +68,11 @@ describe.sequential('MongoDB persistence', () => {
 
     const first = await runMigrations(db);
     const second = await runMigrations(db);
-    expect(first).toEqual({ appliedVersions: [1, 2], pendingCount: 0 });
+    expect(first).toEqual({ appliedVersions: [1, 2, 3], pendingCount: 0 });
     expect(second).toEqual({ appliedVersions: [], pendingCount: 0 });
 
     const status = await getMigrationStatus(db);
-    expect(status.applied).toHaveLength(2);
+    expect(status.applied).toHaveLength(3);
     expect(status.pending).toHaveLength(0);
 
     const migrationRecords = db.collection<{ _id: number; checksum: string }>(
@@ -89,7 +89,7 @@ describe.sequential('MongoDB persistence', () => {
     await migrationRecords
       .updateOne({ _id: 1 }, { $set: { checksum: APPLICATION_INDEX_CHECKSUM } });
 
-    await migrationRecords.deleteOne({ _id: 2 });
+    await migrationRecords.deleteOne({ _id: 3 });
     await migrationLocks.insertOne({
       _id: 'database-migrations',
       ownerId: 'another-runner',
@@ -97,7 +97,7 @@ describe.sequential('MongoDB persistence', () => {
     });
     await expect(runMigrations(db)).rejects.toBeInstanceOf(MigrationError);
     await migrationLocks.deleteOne({ _id: 'database-migrations' });
-    await expect(runMigrations(db)).resolves.toEqual({ appliedVersions: [2], pendingCount: 0 });
+    await expect(runMigrations(db)).resolves.toEqual({ appliedVersions: [3], pendingCount: 0 });
   });
 
   it('creates every declared index with the required options', async () => {
@@ -105,7 +105,7 @@ describe.sequential('MongoDB persistence', () => {
     const result = await verifyApplicationIndexes(context.connection.db!);
 
     expect(result.ok).toBe(true);
-    expect(result.expectedCount).toBe(18);
+    expect(result.expectedCount).toBe(20);
     expect(result.verifiedCount).toBe(APPLICATION_INDEXES.length);
     expect(result.missing).toEqual([]);
     expect(result.mismatched).toEqual([]);

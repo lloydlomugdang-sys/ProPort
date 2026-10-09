@@ -7,9 +7,10 @@ import { AppError } from '../../common/errors/app-error.js';
 import type { DatabaseConnection } from '../../infrastructure/database/database-connection.js';
 import { createRepositories } from '../../database/repositories/index.js';
 import type { ObjectStorage } from '../../infrastructure/storage/object-storage.js';
-import { OcrEngineError, type OcrEngine } from '../../infrastructure/ocr/ocr-engine.js';
-import type { AiMetadataService } from './ai-metadata.service.js';
-import { suggestDocumentMetadata } from './metadata-suggestion.service.js';
+import { OcrEngineError, type OcrEngine, type OcrPageText } from '../../infrastructure/ocr/ocr-engine.js';
+import { COLLECTION_NAMES } from '../../database/collection-names.js';
+import type { AiMetadataService, MetadataAnalysis } from './ai-metadata.service.js';
+import { suggestDocumentMetadata, type MetadataSuggestions } from './metadata-suggestion.service.js';
 import {
   MAX_DOCUMENT_FILE_SIZE_BYTES,
   type DocumentFileInput,
@@ -32,6 +33,10 @@ export interface CompiledAnalysisResult {
   readonly originalFileName: string;
   readonly totalPages: number;
   readonly documents: readonly CompiledDocumentProposal[];
+  readonly pages: readonly OcrPageText[];
+  readonly detection: 'single' | 'multiple' | 'needs_review';
+  readonly metadataSuggestions?: MetadataSuggestions;
+  readonly metadataAnalysis?: MetadataAnalysis;
 }
 
 export interface CompiledSplitSegment {
@@ -57,12 +62,25 @@ interface CompiledSessionRecord {
   readonly tempObjectKey: string;
   readonly originalFileName: string;
   readonly totalPages: number;
-  readonly pageTexts: readonly { readonly pageNumber: number; readonly text: string }[];
+  readonly pageTexts: readonly OcrPageText[];
   readonly proposals: readonly CompiledDocumentProposal[];
   readonly createdAt: Date;
   readonly expiresAt: Date;
   completedDocuments?: readonly PublicDocument[];
   completedIdempotencyKey?: string;
+  requestHash?: string;
+  state?: 'analyzing' | 'ready' | 'processing' | 'complete' | 'failed' | 'cancelling';
+}
+
+/** Do not sort/repair ranges: the reviewed order itself must cover every page once. */
+export function hasCompleteCoverage(segments: readonly { startPage: number; endPage: number }[], totalPages: number): boolean {
+  let next = 1;
+  for (const segment of segments) {
+    if (!Number.isInteger(segment.startPage) || !Number.isInteger(segment.endPage) ||
+        segment.startPage !== next || segment.endPage < segment.startPage || segment.endPage > totalPages) return false;
+    next = segment.endPage + 1;
+  }
+  return segments.length > 0 && next === totalPages + 1;
 }
 
 function validationError(field: string, message: string): AppError {
@@ -121,8 +139,6 @@ async function readableToBoundedBuffer(stream: Readable, maxBytes: number): Prom
 }
 
 export class CompiledDocumentService {
-  private readonly inMemorySessions = new Map<string, CompiledSessionRecord>();
-  private indexInitialized = false;
 
   constructor(
     private readonly database: DatabaseConnection,
@@ -139,50 +155,42 @@ export class CompiledDocumentService {
     return createRepositories(conn);
   }
 
+  private sessions() {
+    const conn = this.database.mongooseConnection;
+    if (!conn) throw new AppError(503, 'DATABASE_UNAVAILABLE', 'Database connection is unavailable.');
+    return conn.collection<CompiledSessionRecord>(COLLECTION_NAMES.compiledDocumentSessions);
+  }
+
+  private async retireSession(session: CompiledSessionRecord): Promise<void> {
+    // Delete storage first. Keep the cleanup record if deletion fails.
+    await this.storage.delete(session.tempObjectKey);
+    await this.sessions().deleteOne({ sessionId: session.sessionId, ownerId: session.ownerId });
+  }
+
   private async getSession(sessionId: string, ownerId: Types.ObjectId): Promise<CompiledSessionRecord | null> {
-    const conn = this.database.mongooseConnection;
-    if (conn) {
-      const col = conn.collection<CompiledSessionRecord>('compiled_document_sessions');
-      const found = await col.findOne({ sessionId, ownerId: ownerId.toString() });
-      if (found) return found;
-    }
-    const mem = this.inMemorySessions.get(sessionId);
-    if (mem && mem.ownerId === ownerId.toString() && mem.expiresAt > new Date()) {
-      return mem;
-    }
-    return null;
-  }
-
-  private async saveSession(session: CompiledSessionRecord): Promise<void> {
-    const conn = this.database.mongooseConnection;
-    if (conn) {
-      const col = conn.collection<CompiledSessionRecord>('compiled_document_sessions');
-      if (!this.indexInitialized) {
-        col.createIndex({ expiresAt: 1 }, { expireAfterSeconds: 0 }).catch(() => undefined);
-        this.indexInitialized = true;
+    const found = await this.sessions().findOne({ sessionId, ownerId: ownerId.toString() });
+    if (found && found.expiresAt <= new Date()) {
+      if (found.state !== 'processing' && found.state !== 'failed') {
+        await this.retireSession(found).catch(() => undefined);
       }
-      await col.updateOne(
-        { sessionId: session.sessionId },
-        { $set: session },
-        { upsert: true },
-      );
+      return null;
     }
-    this.inMemorySessions.set(session.sessionId, session);
+    return found;
   }
 
-  private async deleteSession(sessionId: string): Promise<void> {
-    const conn = this.database.mongooseConnection;
-    if (conn) {
-      const col = conn.collection<CompiledSessionRecord>('compiled_document_sessions');
-      await col.deleteOne({ sessionId }).catch(() => undefined);
+  private async cleanupExpired(ownerId: Types.ObjectId): Promise<void> {
+    const expired = await this.sessions().find({
+      ownerId: ownerId.toString(), expiresAt: { $lte: new Date() }, state: { $nin: ['processing', 'failed'] },
+    }).limit(10).toArray();
+    for (const session of expired) {
+      await this.retireSession(session).catch(() => undefined);
     }
-    this.inMemorySessions.delete(sessionId);
   }
 
   async analyze(
     ownerId: Types.ObjectId,
     file: DocumentFileInput,
-    _requestId?: string,
+    requestId?: string,
   ): Promise<CompiledAnalysisResult> {
     if (file.contents.length === 0) {
       throw validationError('file', 'must not be empty');
@@ -225,77 +233,113 @@ export class CompiledDocumentService {
         if (error.reason === 'invalid-pdf') {
           throw new AppError(400, 'INVALID_PDF', 'The provided PDF file is invalid or corrupted.');
         }
+        if (error.reason === 'pdf-too-many-pages' || error.reason === 'pdf-too-many-ocr-pages' || error.reason === 'text-too-large') {
+          throw new AppError(422, 'COMPILED_PROCESSING_LIMIT', 'This PDF exceeds the supported page, OCR-page, or text limit. Please use a smaller PDF.');
+        }
+        if (error.reason === 'timeout') throw new AppError(504, 'OCR_TIMEOUT', 'PDF analysis timed out. Please use a smaller PDF or retry.');
+        if (error.reason === 'busy') throw new AppError(503, 'OCR_BUSY', 'The server is processing another document. Please retry shortly.');
+        throw new AppError(503, 'OCR_UNAVAILABLE', 'PDF analysis is temporarily unavailable. Please retry.');
       }
       throw error;
     }
 
     const totalPages = extracted.totalPages ?? extracted.pages?.length ?? 1;
-    const pages = extracted.pages && extracted.pages.length > 0
+    const extractedPages = extracted.pages && extracted.pages.length > 0
       ? extracted.pages
       : [{ pageNumber: 1, text: extracted.rawText }];
-
-    // Detect scanned/insufficient text
-    const totalChars = pages.reduce((sum, p) => sum + p.text.trim().length, 0);
-    const avgChars = totalPages > 0 ? totalChars / totalPages : 0;
-    if (totalChars < 50 || avgChars < 15) {
-      throw new AppError(
-        422,
-        'COMPILED_INSUFFICIENT_TEXT',
-        'The uploaded PDF does not contain sufficient digital text for automated separation. Please upload scanned documents individually.',
-      );
-    }
+    const pages: OcrPageText[] = Array.from({ length: totalPages }, (_, index) => {
+      const page = extractedPages.find((value) => value.pageNumber === index + 1);
+      return page
+        ? { ...page, source: page.source ?? (page.text.trim() ? 'digital' : 'failed'), status: page.status ?? (page.text.trim() ? 'ready' : 'unresolved') }
+        : { pageNumber: index + 1, text: '', source: 'failed', status: 'unresolved' };
+    });
+    await this.cleanupExpired(ownerId);
 
     // Store temporary compiled PDF in R2
     const sessionId = `csess_${randomUUID()}`;
     const tempObjectKey = `users/${ownerId.toString()}/temp-compiled/${sessionId}.pdf`;
-    await this.storage.put(tempObjectKey, Readable.from([file.contents]));
-
-    // Fetch active categories
-    const repositories = this.repositories();
-    const categories = (await repositories.documentCategories.listActive()).map((cat) => ({
-      key: cat.key,
-      name: cat.name,
-      folders: cat.folders.filter((f) => f.active).map((f) => ({ key: f.key, name: f.name })),
-    }));
-
-    // AI Separation & Validation
-    let proposals: CompiledDocumentProposal[] = [];
-    if (this.metadata?.separateCompiled) {
-      try {
-        const rawAiResult = await this.metadata.separateCompiled(pages, categories);
-        if (rawAiResult) {
-          proposals = this.validateAndNormalizeProposals(rawAiResult, totalPages, categories, pages);
-        }
-      } catch {
-        // Fallback to deterministic rules
-        proposals = [];
-      }
-    }
-
-    if (proposals.length === 0) {
-      proposals = this.heuristicSplit(pages, totalPages, categories);
-    }
-
     const session: CompiledSessionRecord = {
-      sessionId,
-      ownerId: ownerId.toString(),
-      tempObjectKey,
-      originalFileName: sanitizedFileName(file.originalFileName),
-      totalPages,
-      pageTexts: pages.map((p) => ({ pageNumber: p.pageNumber, text: p.text })),
-      proposals,
-      createdAt: new Date(),
-      expiresAt: new Date(Date.now() + 60 * 60 * 1000), // 1 hour
+      sessionId, ownerId: ownerId.toString(), tempObjectKey,
+      originalFileName: sanitizedFileName(file.originalFileName), totalPages, pageTexts: pages,
+      proposals: [], createdAt: new Date(), expiresAt: new Date(Date.now() + 60 * 60 * 1000), state: 'analyzing',
     };
+    // Persist cleanup intent before storing an object; no runtime index creation.
+    await this.sessions().insertOne(session);
+    try {
+      await this.storage.put(tempObjectKey, Readable.from([file.contents]));
 
-    await this.saveSession(session);
+      // Fetch active categories
+      const repositories = this.repositories();
+      const categories = (await repositories.documentCategories.listActive()).map((cat) => ({
+        key: cat.key,
+        name: cat.name,
+        folders: cat.folders.filter((f) => f.active).map((f) => ({ key: f.key, name: f.name })),
+      }));
 
-    return {
-      sessionId,
-      originalFileName: session.originalFileName,
-      totalPages,
-      documents: proposals,
-    };
+      // AI Separation & Validation
+      let proposals: CompiledDocumentProposal[] = [];
+      const unresolved = pages.some((page) => page.status === 'unresolved');
+      let singleMetadata: { metadataSuggestions: MetadataSuggestions; metadataAnalysis: MetadataAnalysis } | undefined;
+      let aiAccepted = false;
+      let aiStatus: MetadataAnalysis['aiStatus'] = 'disabled';
+      // One physical page cannot be split into regions. Preserve the established
+      // metadata recommender for that case, using text already extracted above.
+      if (!unresolved && totalPages === 1 && this.metadata?.recommend) {
+        singleMetadata = await this.metadata.recommend({ rawText: extracted.rawText }, categories, requestId);
+        const metadata = singleMetadata.metadataSuggestions;
+        proposals = [{ startPage: 1, endPage: 1, categoryKey: metadata.categoryKey ?? '',
+          folderKey: metadata.folderKey ?? '', title: metadata.title ?? 'Document — review category',
+          documentDate: metadata.documentDate ?? null,
+          confidence: metadata.confidence === 'high' ? 0.9 : metadata.confidence === 'medium' ? 0.8 : 0 }];
+      } else if (!unresolved && this.metadata?.separateCompiled) {
+        try {
+          const rawAiResult = await this.metadata.separateCompiled(pages, categories);
+          if (rawAiResult) {
+            proposals = this.validateAndNormalizeProposals(rawAiResult, totalPages, categories, pages);
+            aiAccepted = proposals.length > 0;
+            aiStatus = aiAccepted ? 'success' : 'unavailable';
+          }
+        } catch {
+          // Fallback to deterministic rules
+          proposals = [];
+          aiStatus = 'unavailable';
+        }
+      }
+
+      if (proposals.length === 0) {
+        proposals = this.heuristicSplit(pages, totalPages, categories);
+      }
+      if (!singleMetadata && !unresolved && proposals.length === 1) {
+        const proposal = proposals[0]!;
+        const rules = suggestDocumentMetadata({ rawText: extracted.rawText }, categories);
+        singleMetadata = {
+          metadataSuggestions: {
+            ...rules,
+            ...(proposal.categoryKey ? { categoryKey: proposal.categoryKey, folderKey: proposal.folderKey } : {}),
+            ...(proposal.confidence > 0 ? { title: proposal.title } : {}),
+            ...(proposal.documentDate ? { documentDate: proposal.documentDate } : {}),
+            confidence: proposal.confidence >= 0.75 ? 'high' : 'low',
+          },
+          metadataAnalysis: { source: aiAccepted ? 'gemini' : 'rules', aiStatus },
+        };
+      }
+
+      await this.sessions().updateOne({ sessionId }, { $set: { proposals, state: 'ready' } });
+      const confident = !unresolved && proposals.every((proposal) => proposal.confidence >= 0.75 && proposal.categoryKey && proposal.folderKey);
+
+      return {
+        sessionId,
+        originalFileName: session.originalFileName,
+        totalPages,
+        documents: proposals,
+        pages,
+        detection: confident ? (proposals.length > 1 ? 'multiple' : 'single') : 'needs_review',
+        ...singleMetadata,
+      };
+    } catch (error) {
+      await this.retireSession(session).catch(() => undefined);
+      throw error;
+    }
   }
 
   async split(
@@ -313,9 +357,23 @@ export class CompiledDocumentService {
       throw new AppError(404, 'SESSION_NOT_FOUND', 'The compiled document session was not found or has expired.');
     }
 
-    // Idempotency: return previously completed documents
+    const requestHash = createHash('sha256').update(JSON.stringify(input.segments.map((segment) => ({
+      startPage: segment.startPage, endPage: segment.endPage, categoryKey: segment.categoryKey,
+      folderKey: segment.folderKey, title: segment.title.trim(), documentDate: segment.documentDate,
+      description: segment.description?.trim() ?? '', reflection: segment.reflection?.trim() ?? '',
+    })))).digest('hex');
+    // A cached success belongs to exactly this owner/session/key/payload.
     if (session.completedIdempotencyKey === input.idempotencyKey && session.completedDocuments) {
+      if (session.requestHash !== requestHash) throw new AppError(409, 'SPLIT_REQUEST_CHANGED', 'This retry does not match the saved split request.');
       return { documents: [...session.completedDocuments] };
+    }
+    if (session.state === 'complete' || session.completedDocuments) throw new AppError(409, 'SESSION_ALREADY_SPLIT', 'This PDF has already been separated. Open the saved documents.');
+    if (session.state === 'failed') throw new AppError(503, 'SPLIT_RECOVERY_REQUIRED', 'This split needs cleanup before it can be retried. No new documents were created by this request.');
+    if (session.pageTexts.some((page) => page.status === 'unresolved' || page.source === 'failed')) {
+      throw new AppError(422, 'COMPILED_UNRESOLVED_PAGES', 'Some pages could not be read. Retry analysis or handle the source manually before splitting.');
+    }
+    if (!hasCompleteCoverage(input.segments, session.totalPages)) {
+      throw validationError('segments', 'must cover every source page exactly once, in order, without gaps or overlaps');
     }
 
     const repositories = this.repositories();
@@ -350,29 +408,37 @@ export class CompiledDocumentService {
       if (seg.title.trim().length > 250) {
         throw validationError(`segments[${i}].title`, 'must contain at most 250 characters');
       }
+      documentDate(seg.documentDate);
     }
 
-    // Retrieve temporary compiled PDF
-    let pdfBuffer: Buffer;
-    try {
-      const stream = await this.storage.get(session.tempObjectKey);
-      pdfBuffer = await readableToBoundedBuffer(stream, MAX_DOCUMENT_FILE_SIZE_BYTES);
-    } catch (error) {
-      throw new AppError(503, 'STORAGE_UNAVAILABLE', 'Unable to retrieve compiled document from storage.', undefined, undefined, { cause: error });
-    }
-
-    let srcDoc: PDFDocument;
-    try {
-      srcDoc = await PDFDocument.load(pdfBuffer);
-    } catch (error) {
-      throw new AppError(422, 'INVALID_PDF', 'Unable to parse PDF for document separation.', undefined, undefined, { cause: error });
-    }
+    const claim = await this.sessions().updateOne({
+      sessionId: session.sessionId, ownerId: ownerId.toString(), expiresAt: { $gt: new Date() },
+      $or: [{ state: 'ready' }, { state: { $exists: false } }],
+    }, { $set: { state: 'processing', requestHash, completedIdempotencyKey: input.idempotencyKey } });
+    if (claim.modifiedCount !== 1) throw new AppError(409, 'SPLIT_IN_PROGRESS', 'This PDF is already being processed. Retry the same request shortly.');
 
     const createdDocs: PublicDocument[] = [];
     const createdObjectKeys: string[] = [];
     const createdDocIds: Types.ObjectId[] = [];
-
+    let recordingCompletion = false;
     try {
+
+      // Retrieve temporary compiled PDF
+      let pdfBuffer: Buffer;
+      try {
+        const stream = await this.storage.get(session.tempObjectKey);
+        pdfBuffer = await readableToBoundedBuffer(stream, MAX_DOCUMENT_FILE_SIZE_BYTES);
+      } catch (error) {
+        throw new AppError(503, 'STORAGE_UNAVAILABLE', 'Unable to retrieve compiled document from storage.', undefined, undefined, { cause: error });
+      }
+
+      let srcDoc: PDFDocument;
+      try {
+        srcDoc = await PDFDocument.load(pdfBuffer);
+      } catch (error) {
+        throw new AppError(422, 'INVALID_PDF', 'Unable to parse PDF for document separation.', undefined, undefined, { cause: error });
+      }
+
       for (let i = 0; i < input.segments.length; i++) {
         const seg = input.segments[i]!;
         const subDoc = await PDFDocument.create();
@@ -387,8 +453,8 @@ export class CompiledDocumentService {
         const subPdfBytes = Buffer.from(await subDoc.save());
 
         const objectKey = `users/${ownerId.toString()}/documents/${randomUUID()}.pdf`;
+        createdObjectKeys.push(objectKey);
         const stored = await this.storage.put(objectKey, Readable.from([subPdfBytes]));
-        createdObjectKeys.push(stored.key);
 
         // Pre-extracted text for this segment's page range
         const segmentPageTexts = session.pageTexts
@@ -476,34 +542,54 @@ export class CompiledDocumentService {
       }
 
       // Record completed documents for idempotency
-      await this.saveSession({
-        ...session,
-        completedIdempotencyKey: input.idempotencyKey,
-        completedDocuments: createdDocs,
+      recordingCompletion = true;
+      const receipt = await this.sessions().updateOne({ sessionId: session.sessionId, state: 'processing', requestHash }, {
+        $set: { state: 'complete', completedDocuments: createdDocs },
       });
+      if (receipt.modifiedCount !== 1) throw new Error('Split completion was not recorded');
 
       // Cleanup temporary compiled PDF
       await this.storage.delete(session.tempObjectKey).catch(() => undefined);
 
       return { documents: createdDocs };
     } catch (error) {
+      // An acknowledgement can be lost after MongoDB commits the receipt. Never
+      // delete documents that a subsequent identical retry could return as saved.
+      if (recordingCompletion) {
+        throw new AppError(503, 'SPLIT_RESULT_UNCONFIRMED', 'The split result could not be confirmed. Retry the same request; do not start another upload.', undefined, undefined, { cause: error });
+      }
       // Compensating rollback
+      let cleaned = true;
       for (const key of createdObjectKeys) {
-        await this.storage.delete(key).catch(() => undefined);
+        await this.storage.delete(key).catch(() => { cleaned = false; });
       }
       for (const docId of createdDocIds) {
-        await repositories.documents.deleteByIdForOwner(ownerId, docId).catch(() => undefined);
+        await repositories.documents.deleteByIdForOwner(ownerId, docId).catch(() => { cleaned = false; });
       }
+      await this.sessions().updateOne({ sessionId: session.sessionId, state: 'processing', requestHash }, {
+        $set: { state: cleaned ? 'ready' : 'failed' },
+      }).catch(() => undefined);
       if (error instanceof AppError) throw error;
-      throw new AppError(503, 'SPLIT_FAILED', 'Failed to split and create document records. All partial files were cleaned up.', undefined, undefined, { cause: error });
+      throw new AppError(503, 'SPLIT_FAILED', cleaned
+        ? 'The split failed. Created files and records were removed; you may retry.'
+        : 'The split failed and cleanup could not be completed. Please contact support before retrying.', undefined, undefined, { cause: error });
     }
   }
 
   async cancel(ownerId: Types.ObjectId, sessionId: string): Promise<{ cancelled: boolean }> {
-    const session = await this.getSession(sessionId, ownerId);
+    // Cancellation must report failed cleanup even for an expired session.
+    const session = await this.sessions().findOne({ sessionId, ownerId: ownerId.toString() });
     if (session) {
-      await this.storage.delete(session.tempObjectKey).catch(() => undefined);
-      await this.deleteSession(sessionId).catch(() => undefined);
+      if (session.state === 'processing' || session.state === 'failed') throw new AppError(409, 'SPLIT_IN_PROGRESS', 'This split cannot be discarded while processing or recovery is pending.');
+      if (session.state === 'complete') {
+        try { await this.storage.delete(session.tempObjectKey); }
+        catch { throw new AppError(503, 'CLEANUP_PENDING', 'Temporary-file cleanup is pending. Please retry cancellation.'); }
+        return { cancelled: true }; // Keep the successful retry receipt until expiry.
+      }
+      const claim = await this.sessions().updateOne({ sessionId, ownerId: ownerId.toString(), state: { $nin: ['processing', 'complete', 'failed'] } }, { $set: { state: 'cancelling' } });
+      if (claim.matchedCount !== 1) throw new AppError(409, 'SPLIT_IN_PROGRESS', 'This session is already being processed.');
+      try { await this.retireSession(session); }
+      catch { throw new AppError(503, 'CLEANUP_PENDING', 'Temporary-file cleanup is pending. Please retry cancellation.'); }
     }
     return { cancelled: true };
   }
@@ -522,21 +608,21 @@ export class CompiledDocumentService {
     let lastEndPage = 0;
 
     for (const doc of raw.documents) {
-      if (typeof doc !== 'object' || doc === null) continue;
-      const startPage = Number(doc.startPage);
-      const endPage = Number(doc.endPage);
-      if (!Number.isInteger(startPage) || !Number.isInteger(endPage)) continue;
-      if (startPage < 1 || endPage > totalPages || startPage > endPage) continue;
+      if (typeof doc !== 'object' || doc === null) return [];
+      const startPage = doc.startPage as number;
+      const endPage = doc.endPage as number;
+      if (!Number.isInteger(startPage) || !Number.isInteger(endPage)) return [];
+      if (startPage < 1 || endPage > totalPages || startPage > endPage) return [];
       // Ranges must be non-overlapping and contiguous/ascending
-      if (startPage <= lastEndPage) continue;
+      if (startPage !== lastEndPage + 1) return [];
 
       const catKey = typeof doc.categoryKey === 'string' ? doc.categoryKey.trim() : '';
       const cat = categories.find((c) => c.key === catKey);
-      if (!cat) continue;
+      if (!cat) return [];
 
-      let folderKey = typeof doc.folderKey === 'string' ? doc.folderKey.trim() : '';
+      const folderKey = typeof doc.folderKey === 'string' ? doc.folderKey.trim() : '';
       if (!cat.folders.some((f) => f.key === folderKey)) {
-        folderKey = cat.folders[0]?.key ?? '';
+        return [];
       }
 
       let title = typeof doc.title === 'string' ? doc.title.trim().slice(0, 250) : '';
@@ -544,7 +630,7 @@ export class CompiledDocumentService {
         title = cat.name;
       }
 
-      const date: string | null =
+      let date: string | null =
         typeof doc.documentDate === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(doc.documentDate)
           ? doc.documentDate
           : suggestDocumentMetadata(
@@ -556,10 +642,13 @@ export class CompiledDocumentService {
               },
               [],
             ).documentDate ?? null;
+      if (date !== null) {
+        try { documentDate(date); } catch { date = null; }
+      }
 
       const conf = typeof doc.confidence === 'number' && doc.confidence >= 0 && doc.confidence <= 1
         ? doc.confidence
-        : 0.85;
+        : 0;
 
       proposals.push({
         startPage,
@@ -574,11 +663,11 @@ export class CompiledDocumentService {
       lastEndPage = endPage;
     }
 
-    return proposals;
+    return hasCompleteCoverage(proposals, totalPages) ? proposals : [];
   }
 
   private heuristicSplit(
-    pages: readonly { readonly pageNumber: number; readonly text: string }[],
+    pages: readonly OcrPageText[],
     totalPages: number,
     categories: readonly PublicDocumentCategory[],
   ): CompiledDocumentProposal[] {
@@ -587,17 +676,20 @@ export class CompiledDocumentService {
     const getCat = (key: string) => categories.find((c) => c.key === key);
     const getFolder = (catKey: string, folderKey: string) => {
       const c = getCat(catKey);
-      if (!c) return { catKey: categories[0]?.key ?? 'accomplishments', folderKey: categories[0]?.folders[0]?.key ?? 'projects' };
-      const f = c.folders.find((fol) => fol.key === folderKey) ?? c.folders[0];
-      return { catKey: c.key, folderKey: f?.key ?? folderKey };
+      const f = c?.folders.find((fol) => fol.key === folderKey);
+      return c && f ? { catKey: c.key, folderKey: f.key } : { catKey: '', folderKey: '' };
     };
 
     for (const page of pages) {
       const text = page.text.toLowerCase();
       let match: { categoryKey: string; folderKey: string; defaultTitle: string } | null = null;
 
+      if (page.status === 'unresolved') {
+        boundaryStarts.push({ page: page.pageNumber, categoryKey: '', folderKey: '', defaultTitle: 'Unreadable page — retry required' });
+        continue;
+      }
       if (/(?:curriculum\s+vitae|\bresume\b|\bbio-data\b)/.test(text)) {
-        const f = getFolder('curriculum-vitae', 'resume');
+        const f = getFolder('curriculum-vitae', 'curriculum-vitae');
         match = { categoryKey: f.catKey, folderKey: f.folderKey, defaultTitle: 'Curriculum Vitae' };
       } else if (/(?:transcript\s+of\s+records|\bofficial\s+transcript\b|\bcertificate\s+of\s+grades\b|\bunofficial\s+tor\b)/.test(text)) {
         const f = getFolder('scholastic-record', 'unofficial-tor-with-reflections');
@@ -609,7 +701,7 @@ export class CompiledDocumentService {
         match = { categoryKey: f.catKey, folderKey: f.folderKey, defaultTitle: isTraining ? 'Training Certificate' : 'Certificate of Attendance' };
       } else if (/(?:capstone\s+project|\bthesis\b|\bcase\s+study\b|\bproject\s+documentation\b)/.test(text)) {
         const isThesis = /(?:capstone|\bthesis\b)/.test(text);
-        const folder = isThesis ? 'thesis-capstone' : 'projects';
+        const folder = isThesis ? 'thesis-capstone' : /case\s+study/.test(text) ? 'case-studies' : 'projects';
         const f = getFolder('accomplishments', folder);
         match = { categoryKey: f.catKey, folderKey: f.folderKey, defaultTitle: isThesis ? 'Capstone Project' : 'Academic Project' };
       } else if (/(?:terminal\s+report|\bpracticum\s+report|\bojt\s+report|\binternship\s+report\b)/.test(text)) {
@@ -618,19 +710,23 @@ export class CompiledDocumentService {
       }
 
       if (match) {
+        const prior = boundaryStarts.at(-1);
+        // Repeated CV/TOR/project headers usually introduce continuation pages,
+        // unlike separate certificates, which must remain independent.
+        if (prior?.categoryKey === match.categoryKey && ['curriculum-vitae', 'scholastic-record', 'accomplishments'].includes(match.categoryKey)) continue;
         if (boundaryStarts.length === 0 || boundaryStarts[boundaryStarts.length - 1]!.page !== page.pageNumber) {
           boundaryStarts.push({ page: page.pageNumber, ...match });
         }
+      } else if (boundaryStarts.at(-1)?.categoryKey === '') {
+        boundaryStarts.push({ page: page.pageNumber, categoryKey: '', folderKey: '', defaultTitle: 'Document — review category' });
       }
     }
 
     if (boundaryStarts.length === 0) {
-      const f = getFolder('accomplishments', 'projects');
-      boundaryStarts.push({ page: 1, categoryKey: f.catKey, folderKey: f.folderKey, defaultTitle: 'Portfolio Document' });
+      boundaryStarts.push({ page: 1, categoryKey: '', folderKey: '', defaultTitle: 'Document — review category' });
     } else if (boundaryStarts[0]!.page !== 1) {
-      // If page 1 had no explicit anchor, prepend it
-      const first = boundaryStarts[0]!;
-      boundaryStarts.unshift({ page: 1, categoryKey: first.categoryKey, folderKey: first.folderKey, defaultTitle: first.defaultTitle });
+      // An unrecognized leading page is not evidence for the next category.
+      boundaryStarts.unshift({ page: 1, categoryKey: '', folderKey: '', defaultTitle: 'Document — review category' });
     }
 
     const proposals: CompiledDocumentProposal[] = [];
@@ -655,7 +751,7 @@ export class CompiledDocumentService {
         folderKey: start.folderKey,
         title,
         documentDate: date,
-        confidence: 0.8,
+        confidence: start.categoryKey ? 0.8 : 0,
       });
     }
 

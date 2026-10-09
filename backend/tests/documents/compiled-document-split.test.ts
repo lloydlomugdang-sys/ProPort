@@ -61,7 +61,7 @@ describe('Compiled document split service', () => {
   });
 
   afterAll(async () => {
-    await disposable.stop();
+    await disposable?.stop();
   });
 
   async function createMultiDocPdf(): Promise<Buffer> {
@@ -189,7 +189,7 @@ describe('Compiled document split service', () => {
       segments: [
         {
           startPage: 1,
-          endPage: 1,
+          endPage: 3,
           categoryKey: 'curriculum-vitae',
           folderKey: 'curriculum-vitae',
           title: 'CV Single',

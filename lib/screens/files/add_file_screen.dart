@@ -25,11 +25,7 @@ import 'widgets/upload_card.dart';
 enum _OcrField { content, folder, title, date, description }
 
 class AddFileScreen extends StatefulWidget {
-  const AddFileScreen({
-    super.key,
-    this.filePicker,
-    this.initialFiles,
-  });
+  const AddFileScreen({super.key, this.filePicker, this.initialFiles});
 
   final DocumentPicker? filePicker;
   final List<PickedDocument>? initialFiles;
@@ -45,6 +41,9 @@ class _AddFileScreenState extends State<AddFileScreen>
   PickedDocument? get _pickedFile =>
       _pickedFiles.isNotEmpty ? _pickedFiles.first : null;
   late final DocumentPicker _filePicker;
+  DocumentService? _documentService;
+  PickedDocument? _analyzedPdf;
+  CompiledAnalysisResult? _pdfAnalysis;
 
   // ─── Form state ───────────────────────────────────────────────────────────
   String? _selectedContent;
@@ -125,6 +124,7 @@ class _AddFileScreenState extends State<AddFileScreen>
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
+    _documentService = DocumentScope.of(context);
     // Categories can finish loading after the OCR response. Apply matching keys
     // then as well, without letting a category-list failure discard useful text.
     final operation = _previewOperation;
@@ -137,6 +137,10 @@ class _AddFileScreenState extends State<AddFileScreen>
 
   @override
   void dispose() {
+    final analysis = _pdfAnalysis;
+    if (analysis != null) {
+      unawaited(_documentService?.cancelCompiledSession(analysis.sessionId));
+    }
     _titleCtrl.dispose();
     _descriptionCtrl.dispose();
     _reflectionCtrl.dispose();
@@ -238,9 +242,13 @@ class _AddFileScreenState extends State<AddFileScreen>
 
         final service = DocumentScope.of(context);
         final queue = BatchUploadQueue(documentService: service);
-        final defaultCat = _selectedContent ?? service.categories.firstOrNull?.key;
-        final catObj = service.categories.where((c) => c.key == defaultCat).firstOrNull;
-        final defaultFolder = _selectedFolder ?? catObj?.folders.firstOrNull?.key;
+        final defaultCat =
+            _selectedContent ?? service.categories.firstOrNull?.key;
+        final catObj = service.categories
+            .where((c) => c.key == defaultCat)
+            .firstOrNull;
+        final defaultFolder =
+            _selectedFolder ?? catObj?.folders.firstOrNull?.key;
         queue.initialize(
           selected,
           defaultCategoryKey: defaultCat,
@@ -287,8 +295,7 @@ class _AddFileScreenState extends State<AddFileScreen>
         _showSnack('${newPage.name} exceeds the 15 MB upload limit.');
         return;
       }
-      final currentBytes =
-          _pickedFiles.fold(0, (sum, f) => sum + f.sizeBytes);
+      final currentBytes = _pickedFiles.fold(0, (sum, f) => sum + f.sizeBytes);
       if (currentBytes + newPage.sizeBytes > 45 * 1024 * 1024) {
         _showSnack('The combined files exceed the 45 MB upload limit.');
         return;
@@ -332,8 +339,7 @@ class _AddFileScreenState extends State<AddFileScreen>
     } catch (e) {
       if (!mounted) return;
       final errStr = e.toString().toLowerCase();
-      final msg =
-          errStr.contains('permission') || errStr.contains('denied')
+      final msg = errStr.contains('permission') || errStr.contains('denied')
           ? 'Camera permission was denied. Please allow camera access in device settings.'
           : 'Unable to scan document. Please try again.';
       _showSnack(msg);
@@ -362,79 +368,118 @@ class _AddFileScreenState extends State<AddFileScreen>
   }
 
   Future<void> _startCompiledSeparation(PickedDocument file) async {
+    await _inspectPdf(file, forceReview: true);
+  }
+
+  Future<void> _inspectPdf(
+    PickedDocument file, {
+    bool forceReview = false,
+  }) async {
+    if (_isSuggesting || _isSubmitting) return;
     final service = DocumentScope.of(context);
+    final operation = ++_previewOperation;
     setState(() => _isSuggesting = true);
-
-    showDialog<void>(
-      context: context,
-      barrierDismissible: false,
-      builder: (ctx) => PopScope(
-        canPop: false,
-        child: AlertDialog(
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-          content: Padding(
-            padding: const EdgeInsets.symmetric(vertical: 16),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                const CircularProgressIndicator(color: AppColors.primary),
-                const SizedBox(height: 16),
-                Text(
-                  'Analyzing Document Sections...',
-                  style: GoogleFonts.poppins(fontWeight: FontWeight.w600, fontSize: 14),
-                ),
-                const SizedBox(height: 6),
-                Text(
-                  'GradPort AI is identifying document types and boundaries.',
-                  textAlign: TextAlign.center,
-                  style: GoogleFonts.poppins(fontSize: 12, color: AppColors.textMuted),
-                ),
-              ],
-            ),
-          ),
-        ),
-      ),
-    );
-
     try {
-      final analysis = await service.analyzeCompiledDocument(file);
-      if (!mounted) return;
-      Navigator.pop(context); // Close loading dialog
-      setState(() => _isSuggesting = false);
-
-      final splitSuccess = await Navigator.push<bool>(
-        context,
-        MaterialPageRoute(
-          builder: (ctx) => DocumentScope(
-            documentService: service,
-            child: CompiledReviewScreen(
-              analysis: analysis,
-              file: file,
+      var analysis = identical(file, _analyzedPdf) ? _pdfAnalysis : null;
+      if (analysis == null) {
+        final prior = _pdfAnalysis;
+        _pdfAnalysis = null;
+        if (prior != null) await service.cancelCompiledSession(prior.sessionId);
+        analysis = await service.analyzeCompiledDocument(file);
+      }
+      if (!mounted || operation != _previewOperation) {
+        await service.cancelCompiledSession(analysis.sessionId);
+        return;
+      }
+      _pdfAnalysis = analysis;
+      _analyzedPdf = file;
+      setState(() {
+        _isSuggesting = false;
+        _suggestionFailed = false;
+      });
+      final canNavigateAutomatically =
+          _manualFields.isEmpty && _reflectionCtrl.text.trim().isEmpty;
+      if (forceReview ||
+          (canNavigateAutomatically &&
+              (analysis.detection == 'multiple' ||
+                  analysis.hasUnresolvedPages))) {
+        await service.load();
+        if (!mounted || operation != _previewOperation) return;
+        // Categories may finish loading after the user starts editing.
+        if (!forceReview &&
+            (_manualFields.isNotEmpty ||
+                _reflectionCtrl.text.trim().isNotEmpty)) {
+          setState(
+            () => _suggestionMessage =
+                'PDF analysis is ready. Your edits are preserved; use Separate to review.',
+          );
+          return;
+        }
+        final splitSuccess = await Navigator.push<bool>(
+          context,
+          MaterialPageRoute(
+            builder: (ctx) => DocumentScope(
+              documentService: service,
+              child: CompiledReviewScreen(analysis: analysis!, file: file),
             ),
           ),
-        ),
-      );
-
-      if (splitSuccess == true && mounted) {
-        await service.load(force: true);
-        if (mounted) Navigator.pop(context, true);
-      }
-    } on ApiException catch (e) {
-      if (!mounted) return;
-      Navigator.pop(context); // Close loading dialog
-      setState(() => _isSuggesting = false);
-      if (e.code == 'COMPILED_INSUFFICIENT_TEXT') {
-        _showSnack(
-          'This PDF does not contain sufficient digital text to separate automatically. Please upload individual files or ensure the PDF was exported with selectable text.',
         );
-      } else {
-        _showSnack(e.message.isNotEmpty ? e.message : 'Unable to analyze compiled file.');
+        _pdfAnalysis =
+            null; // The review owns cancellation/success for this session.
+        if (splitSuccess == true && mounted) {
+          if (mounted) Navigator.pop(context, true);
+        }
+        return;
+      }
+      final proposal = analysis.documents.length == 1
+          ? analysis.documents.first
+          : null;
+      if (analysis.metadataSuggestions != null) {
+        _showMetadataSuggestions(
+          analysis.metadataSuggestions,
+          analysis.metadataAnalysis,
+        );
+        _applySuggestions();
+        return;
+      }
+      setState(() {
+        _suggestionMessage = analysis!.hasUnresolvedPages
+            ? 'Some pages are unreadable. Use Separate to review and retry.'
+            : analysis.detection == 'multiple'
+            ? 'Multiple documents detected. Your edits are preserved; use Separate to review.'
+            : 'PDF pages analyzed. Review the suggested details before saving.';
+        if (proposal != null) {
+          _suggestions = DocumentMetadataSuggestions(
+            categoryKey: proposal.categoryKey.isEmpty
+                ? null
+                : proposal.categoryKey,
+            folderKey: proposal.folderKey.isEmpty ? null : proposal.folderKey,
+            title: proposal.confidence > 0 ? proposal.title : null,
+            documentDate: proposal.documentDate,
+            confidence: proposal.confidence >= 0.75 ? 'high' : 'low',
+          );
+        }
+      });
+      _applySuggestions();
+    } on ApiException catch (e) {
+      if (mounted && operation == _previewOperation) {
+        setState(() {
+          _suggestionFailed = true;
+          _suggestionMessage = _readingFailure(e);
+        });
       }
     } catch (_) {
-      if (!mounted) return;
-      Navigator.pop(context); // Close loading dialog
-      setState(() => _isSuggesting = false);
-      _showSnack('Unable to separate compiled document. Please try again.');
+      if (mounted && operation == _previewOperation) {
+        setState(() {
+          _suggestionFailed = true;
+          _suggestionMessage =
+              'PDF analysis failed. Retry, or enter details manually.';
+        });
+      }
+    } finally {
+      if (mounted && operation == _previewOperation) {
+        setState(() => _isSuggesting = false);
+      }
     }
   }
 
@@ -554,9 +599,10 @@ class _AddFileScreenState extends State<AddFileScreen>
         429 => 'Too many upload attempts. Please wait a moment and try again.',
         401 => 'Your session has expired. Please log in again.',
         403 => 'You do not have permission to upload this document.',
-        _ => error.message.isNotEmpty
-            ? error.message
-            : 'Unable to upload the file. Please try again.',
+        _ =>
+          error.message.isNotEmpty
+              ? error.message
+              : 'Unable to upload the file. Please try again.',
       };
       _showSnack(msg);
     } catch (_) {
@@ -568,6 +614,11 @@ class _AddFileScreenState extends State<AddFileScreen>
 
   Future<void> _suggestDetails() async {
     if (_pickedFiles.isEmpty || _isSuggesting || _isSubmitting) return;
+    if (_pickedFiles.length == 1 &&
+        _pickedFiles.first.mimeType == 'application/pdf') {
+      await _inspectPdf(_pickedFiles.first);
+      return;
+    }
     final operation = ++_previewOperation;
     final service = DocumentScope.of(context);
     setState(() {
@@ -585,36 +636,13 @@ class _AddFileScreenState extends State<AddFileScreen>
         );
       }
       final suggestions = result.isReady ? result.metadataSuggestions : null;
-      setState(() {
-        _suggestions = suggestions;
-        _suggestedByAi = result.metadataAnalysis?.source == 'gemini';
-        _suggestionMessage = suggestions == null || suggestions.isEmpty
-            ? 'No reliable details found. You can enter them manually.'
-            : 'Suggested from OCR — review before adding your file.';
-        if (_suggestedByAi) {
-          _suggestionMessage =
-              'AI suggested from document — review and edit before saving.';
-        } else if (result.metadataAnalysis?.aiStatus == 'unavailable') {
-          _suggestionMessage = suggestions == null || suggestions.isEmpty
-              ? 'AI suggestions are temporarily unavailable. You can enter the details manually.'
-              : 'AI suggestions are temporarily unavailable. Basic document details were applied where possible.';
-        }
-      });
+      _showMetadataSuggestions(suggestions, result.metadataAnalysis);
       if (suggestions != null) _applySuggestions();
     } on ApiException catch (error) {
       if (mounted && operation == _previewOperation) {
         setState(() {
           _suggestionFailed = true;
-          _suggestionMessage = switch (error.code) {
-            'NETWORK_ERROR' =>
-              'No connection for automatic reading. You can still enter the details manually.',
-            'NETWORK_TIMEOUT' =>
-              'Automatic reading took too long. You can still enter the details manually.',
-            'RATE_LIMITED' =>
-              'Too many reading requests. Please wait before retrying, or enter the details manually.',
-            _ =>
-              "We couldn't automatically read this file. You can still enter the details manually.",
-          };
+          _suggestionMessage = _readingFailure(error);
         });
       }
     } catch (_) {
@@ -630,6 +658,38 @@ class _AddFileScreenState extends State<AddFileScreen>
         setState(() => _isSuggesting = false);
       }
     }
+  }
+
+  String _readingFailure(ApiException error) => switch (error.code) {
+    'NETWORK_ERROR' =>
+      'No connection for automatic reading. You can still enter the details manually.',
+    'NETWORK_TIMEOUT' =>
+      'Automatic reading took too long. You can still enter the details manually.',
+    'RATE_LIMITED' =>
+      'Too many reading requests. Please wait before retrying, or enter the details manually.',
+    _ =>
+      "We couldn't automatically read this file. You can still enter the details manually.",
+  };
+
+  void _showMetadataSuggestions(
+    DocumentMetadataSuggestions? suggestions,
+    DocumentMetadataAnalysis? analysis,
+  ) {
+    setState(() {
+      _suggestions = suggestions;
+      _suggestedByAi = analysis?.source == 'gemini';
+      _suggestionMessage = suggestions == null || suggestions.isEmpty
+          ? 'No reliable details found. You can enter them manually.'
+          : 'Suggested from OCR — review before adding your file.';
+      if (_suggestedByAi) {
+        _suggestionMessage =
+            'AI suggested from document — review and edit before saving.';
+      } else if (analysis?.aiStatus == 'unavailable') {
+        _suggestionMessage = suggestions == null || suggestions.isEmpty
+            ? 'AI suggestions are temporarily unavailable. You can enter the details manually.'
+            : 'AI suggestions are temporarily unavailable. Basic document details were applied where possible.';
+      }
+    });
   }
 
   void _markManual(_OcrField field) {
@@ -838,11 +898,16 @@ class _AddFileScreenState extends State<AddFileScreen>
                     _pickedFiles.first.mimeType == 'application/pdf') ...[
                   const SizedBox(height: 10),
                   Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 14,
+                      vertical: 12,
+                    ),
                     decoration: BoxDecoration(
                       color: Colors.white,
                       borderRadius: BorderRadius.circular(12),
-                      border: Border.all(color: AppColors.primary.withValues(alpha: 0.3)),
+                      border: Border.all(
+                        color: AppColors.primary.withValues(alpha: 0.3),
+                      ),
                     ),
                     child: Row(
                       children: [
@@ -884,7 +949,9 @@ class _AddFileScreenState extends State<AddFileScreen>
                         ElevatedButton(
                           onPressed: _isSuggesting || _isSubmitting
                               ? null
-                              : () => _startCompiledSeparation(_pickedFiles.first),
+                              : () => _startCompiledSeparation(
+                                  _pickedFiles.first,
+                                ),
                           style: ElevatedButton.styleFrom(
                             backgroundColor: AppColors.primary,
                             foregroundColor: Colors.white,

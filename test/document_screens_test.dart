@@ -15,6 +15,7 @@ import 'package:proport_app/services/document_picker.dart';
 import 'package:proport_app/services/document_scope.dart';
 import 'package:proport_app/services/document_service.dart';
 import 'package:proport_app/services/secure_token_store.dart';
+import 'helpers/compiled_analysis_fixture.dart';
 
 void main() {
   testWidgets('Files renders backend categories and real folder counts', (
@@ -1246,6 +1247,21 @@ class _ScreenDocumentService extends DocumentService {
 
   @override
   Future<DocumentOcrResult> previewOcr(dynamic fileOrFiles) async {
+    return _readingResult(fileOrFiles);
+  }
+
+  @override
+  Future<CompiledAnalysisResult> analyzeCompiledDocument(
+    PickedDocument file,
+  ) async {
+    return singlePdfAnalysis(file, await _readingResult(file));
+  }
+
+  @override
+  Future<bool> cancelCompiledSession(String sessionId) async => true;
+
+  // Count logical metadata reads for both image preview and PDF page analysis.
+  Future<DocumentOcrResult> _readingResult(dynamic fileOrFiles) async {
     previewCalls++;
     final files = fileOrFiles is List<PickedDocument>
         ? fileOrFiles
