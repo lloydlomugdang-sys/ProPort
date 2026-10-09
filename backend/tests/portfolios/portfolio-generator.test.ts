@@ -1,6 +1,5 @@
 import { Readable } from 'node:stream';
-import { inflateSync } from 'node:zlib';
-import { PDFDocument } from 'pdf-lib';
+import { PDFDocument, PDFRawStream, decodePDFRawStream } from 'pdf-lib';
 import { describe, expect, it } from 'vitest';
 import {
   PortfolioGeneratorService,
@@ -19,17 +18,14 @@ function hexToString(hex: string): string {
   return str;
 }
 
-function extractAllPdfText(pdfBytes: Buffer): string {
+async function extractAllPdfText(pdfBytes: Buffer): Promise<string> {
   const raw = pdfBytes.toString('latin1');
   let accumulated = raw;
-  const regex = /stream\r?\n([\s\S]*?)\r?\nendstream/g;
-  let match: RegExpExecArray | null;
-  while ((match = regex.exec(raw)) !== null) {
-    const streamContent = match[1];
-    if (!streamContent) continue;
-    const streamBuffer = Buffer.from(streamContent, 'latin1');
+  const pdf = await PDFDocument.load(pdfBytes);
+  for (const [, object] of pdf.context.enumerateIndirectObjects()) {
+    if (!(object instanceof PDFRawStream)) continue;
     try {
-      const decompressed = inflateSync(streamBuffer).toString('latin1');
+      const decompressed = Buffer.from(decodePDFRawStream(object).decode()).toString('latin1');
       accumulated += '\n' + decompressed;
       const hexMatches = decompressed.matchAll(/<([0-9a-fA-F]+)>/g);
       for (const h of hexMatches) {
@@ -37,7 +33,7 @@ function extractAllPdfText(pdfBytes: Buffer): string {
         if (hex) accumulated += ' ' + hexToString(hex);
       }
     } catch {
-      // Ignore non-zlib streams
+      // Ignore non-text image streams. Use PDF lengths, not regex over binary data.
     }
   }
   return accumulated;
@@ -377,7 +373,7 @@ describe('PortfolioGeneratorService', () => {
       expect(pdfString).toContain('/Filter /FlateDecode');
     });
 
-    it('copies all pages from actual multi-page source PDF via copyPages and preserves vector/text content', async () => {
+    it('embeds all pages from actual multi-page source PDF and preserves vector/text content', async () => {
       const storage = new InMemoryStorage();
       const generator = new PortfolioGeneratorService(undefined, storage);
 
@@ -416,7 +412,7 @@ describe('PortfolioGeneratorService', () => {
       // 1: Title page, 2: TOC, 3: CV divider, 4: CV metadata overview, 5: Page 1, 6: Page 2, 7: Page 3 = 7 pages total
       expect(loaded.getPageCount()).toBe(7);
 
-      const allText = extractAllPdfText(pdfBytes);
+      const allText = await extractAllPdfText(pdfBytes);
       // All 3 vector text markers preserved from source PDF
       for (const marker of markers) {
         expect(allText).toContain(marker);
@@ -474,7 +470,7 @@ describe('PortfolioGeneratorService', () => {
       // Title (1) + TOC (1) + Section Divider (1) + Page 1 (1) + Page 2 (1) = 5 pages
       expect(loaded.getPageCount()).toBe(5);
 
-      const allText = extractAllPdfText(pdfBytes);
+      const allText = await extractAllPdfText(pdfBytes);
       expect(allText).toContain('Page 1 of 2');
       expect(allText).toContain('Page 2 of 2');
 
@@ -512,7 +508,7 @@ describe('PortfolioGeneratorService', () => {
       });
 
       const pdfBytes = await generator.generateFromDocuments([docA, docB], testInfo);
-      const allText = extractAllPdfText(pdfBytes);
+      const allText = await extractAllPdfText(pdfBytes);
 
       expect(allText).toContain('Cert A - Cloud Architecture');
       expect(allText).toContain('UNIQUE_REFLECTION_CLOUD_1122');

@@ -12,19 +12,21 @@ import 'package:share_plus/share_plus.dart';
 import 'package:xml/xml.dart';
 
 import '../screens/portfolio/models/portfolio_models.dart';
+import '../screens/portfolio/models/portfolio_document_order.dart';
 import 'api_client.dart';
 import 'auth_service.dart';
 import 'document_service.dart';
 
-typedef FileSaveFunction = Future<String?> Function({
-  String? dialogTitle,
-  String? fileName,
-  String? initialDirectory,
-  FileType type,
-  List<String>? allowedExtensions,
-  Uint8List? bytes,
-  bool lockParentWindow,
-});
+typedef FileSaveFunction =
+    Future<String?> Function({
+      String? dialogTitle,
+      String? fileName,
+      String? initialDirectory,
+      FileType type,
+      List<String>? allowedExtensions,
+      Uint8List? bytes,
+      bool lockParentWindow,
+    });
 
 /// An explicit public-data projection: no tokens, storage keys or internal IDs.
 class PortfolioExportContent {
@@ -65,14 +67,17 @@ class PortfolioExportContent {
     final groups = <String, List<Map<String, String>>>{
       for (final section in summary.sections) section.name: [],
     };
-    for (final document in service.documents) {
+    for (final document in PortfolioDocumentOrder.sorted(
+      service.documents,
+      service.categories,
+    )) {
       final category = service.categories
           .where((value) => value.key == document.categoryKey)
           .firstOrNull;
       final folder = category?.folders
           .where((value) => value.key == document.folderKey)
           .firstOrNull;
-      final section = PortfolioSummary.sectionFor(document);
+      final section = PortfolioDocumentOrder.sectionFor(document);
       groups.putIfAbsent(section, () => []).add({
         'Title': document.title,
         'Date': document.documentDate.toIso8601String().substring(0, 10),

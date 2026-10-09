@@ -98,6 +98,20 @@ export class DocumentRepository {
     return found.map((value) => asPersistedRecord<Document>(value));
   }
 
+  /** Export-only keyset traversal; ordinary document API limits stay unchanged. */
+  async listPortfolioBatchForOwner(
+    ownerId: Types.ObjectId,
+    afterId?: Types.ObjectId,
+  ): Promise<readonly DocumentRecord[]> {
+    const found = await this.model
+      .find({ ownerId, ...(afterId === undefined ? {} : { _id: { $gt: afterId } }) })
+      .sort({ _id: 1 })
+      .limit(100)
+      .lean()
+      .exec();
+    return found.map((value) => asPersistedRecord<Document>(value));
+  }
+
   async countForOwner(ownerId: Types.ObjectId): Promise<DocumentCountSummary> {
     const rows = await this.model
       .aggregate<{

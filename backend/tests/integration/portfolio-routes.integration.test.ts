@@ -1,11 +1,14 @@
 import { Readable } from 'node:stream';
-import { inflateSync } from 'node:zlib';
+import { PDFDocument, PDFRawStream, decodePDFRawStream } from 'pdf-lib';
 import type { FastifyInstance, LightMyRequestResponse } from 'fastify';
 import { Types } from 'mongoose';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { buildApp } from '../../src/app.js';
 import { loadConfig } from '../../src/config/env.js';
 import { COLLECTION_NAMES } from '../../src/database/collection-names.js';
+import { createRepositories } from '../../src/database/repositories/index.js';
+import { PortfolioGeneratorService } from '../../src/modules/portfolios/portfolio-generator.service.js';
+import { portfolioDocument, PORTFOLIO_TEST_INFO } from '../helpers/portfolio-fixtures.js';
 import { runMigrations } from '../../src/database/migrations/migration-runner.js';
 import type { AppServices } from '../../src/infrastructure/create-services.js';
 import type {
@@ -32,17 +35,14 @@ function hexToString(hex: string): string {
   return str;
 }
 
-function extractAllPdfText(pdfBytes: Buffer): string {
+async function extractAllPdfText(pdfBytes: Buffer): Promise<string> {
   const raw = pdfBytes.toString('latin1');
   let accumulated = raw;
-  const regex = /stream\r?\n([\s\S]*?)\r?\nendstream/g;
-  let match: RegExpExecArray | null;
-  while ((match = regex.exec(raw)) !== null) {
-    const streamContent = match[1];
-    if (!streamContent) continue;
-    const streamBuffer = Buffer.from(streamContent, 'latin1');
+  const pdf = await PDFDocument.load(pdfBytes);
+  for (const [, object] of pdf.context.enumerateIndirectObjects()) {
+    if (!(object instanceof PDFRawStream)) continue;
     try {
-      const decompressed = inflateSync(streamBuffer).toString('latin1');
+      const decompressed = Buffer.from(decodePDFRawStream(object).decode()).toString('latin1');
       accumulated += '\n' + decompressed;
       const hexMatches = decompressed.matchAll(/<([0-9a-fA-F]+)>/g);
       for (const h of hexMatches) {
@@ -454,7 +454,7 @@ describe.sequential('authenticated portfolio API with disposable MongoDB', () =>
     expect(postExport.headers['content-type']).toBe('application/pdf');
 
     const pdfBuffer = postExport.rawPayload;
-    const decompressed = extractAllPdfText(pdfBuffer);
+    const decompressed = await extractAllPdfText(pdfBuffer);
 
     // Verify first owner's documents are present
     expect(decompressed).toContain('FirstUser_AllowedDoc_Title');
@@ -467,6 +467,33 @@ describe.sequential('authenticated portfolio API with disposable MongoDB', () =>
     // Verify raw storage keys / private URLs are not leaked
     expect(decompressed).not.toContain(doc1Key);
     expect(decompressed).not.toContain(doc2Key);
+  });
+
+  it('exports more than 100 owner documents via bounded batches without changing the ordinary list cap', async () => {
+    const ownerId = new Types.ObjectId();
+    const otherOwnerId = new Types.ObjectId();
+    const key = `users/${ownerId.toHexString()}/documents/batch.png`;
+    const records = Array.from({ length: 110 }, (_, i) => portfolioDocument({
+      ownerId, objectKey: `${key}-${i}`, title: `OwnerBatch_${String(i).padStart(3, '0')}`,
+    }));
+    for (const record of records) await services!.storage.put(record.objectKey, Readable.from([SAMPLE_1X1_PNG]));
+    await disposable!.connection.db!.collection(COLLECTION_NAMES.documents).insertMany([
+      ...records, portfolioDocument({ ownerId: otherOwnerId, objectKey: `${key}-other`, title: 'Forbidden_Batch_Owner' }),
+    ]);
+    const repository = createRepositories(disposable!.connection).documents;
+    expect(await repository.listForOwner(ownerId, 500)).toHaveLength(100);
+    const firstBatch = await repository.listPortfolioBatchForOwner(ownerId);
+    expect(firstBatch).toHaveLength(100);
+    const secondBatch = await repository.listPortfolioBatchForOwner(ownerId, firstBatch.at(-1)!._id);
+    expect(secondBatch).toHaveLength(10);
+    expect(new Set([...firstBatch, ...secondBatch].map((d) => d._id.toHexString())).size).toBe(110);
+    expect([...firstBatch, ...secondBatch].every((d) => d.ownerId.equals(ownerId))).toBe(true);
+    const bytes = await new PortfolioGeneratorService(disposable!.database, services!.storage)
+      .generate(ownerId, PORTFOLIO_TEST_INFO);
+    const text = await extractAllPdfText(bytes);
+    for (const record of records) expect(text).toContain(record.title);
+    expect(text).not.toContain('Forbidden_Batch_Owner');
+    expect((await PDFDocument.load(bytes)).getPageCount()).toBeGreaterThan(110);
   });
 
   it('deletes only the authenticated owner portfolio', async () => {

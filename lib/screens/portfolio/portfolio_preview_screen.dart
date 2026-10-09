@@ -17,6 +17,7 @@ import '../../widgets/document_pdf_preview.dart';
 import '../../widgets/document_unsupported_preview.dart';
 import '../files/document_ocr_screen.dart';
 import 'models/portfolio_models.dart';
+import 'models/portfolio_document_order.dart';
 import 'portfolio_list_screen.dart';
 import 'portfolio_export_screen.dart';
 import 'widgets/portfolio_documents_builder.dart';
@@ -338,7 +339,8 @@ class _PortfolioPreviewScreenState extends State<PortfolioPreviewScreen> {
                     constraints: const BoxConstraints(maxWidth: 440),
                     child: _PreviewSheet(
                       portfolioInfo: widget.portfolioInfo,
-                      exportFormat: _exportedFile?.format ?? widget.exportFormat,
+                      exportFormat:
+                          _exportedFile?.format ?? widget.exportFormat,
                     ),
                   ),
                 ),
@@ -442,7 +444,7 @@ class _PortfolioPreviewScreenState extends State<PortfolioPreviewScreen> {
   }
 }
 
-// ─── A4-like preview sheet ───────────────────────────────────────────────
+// Logical content preview; the server owns the printable Letter-page layout.
 class _PreviewSheet extends StatelessWidget {
   const _PreviewSheet({required this.portfolioInfo, this.exportFormat});
 
@@ -488,6 +490,19 @@ class _PreviewSheet extends StatelessWidget {
               return Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
+                  if (documents.documents.any(
+                    (doc) =>
+                        PortfolioDocumentOrder.sectionFor(doc) ==
+                        'Creative Title',
+                  )) ...[
+                    _buildDocuments(
+                      context,
+                      documents,
+                      summary,
+                      creativeOnly: true,
+                    ),
+                    const SizedBox(height: 24),
+                  ],
                   _buildSectionsIncluded(summary.sections),
                   const SizedBox(height: 24),
                   _buildDocuments(context, documents, summary),
@@ -507,19 +522,11 @@ class _PreviewSheet extends StatelessWidget {
     return Column(
       children: [
         Text(
-          'NEW ERA UNIVERSITY',
+          'Standard Title',
           textAlign: TextAlign.center,
           style: AppTextStyles.h2.copyWith(
             color: AppColors.primary,
             letterSpacing: 0.4,
-          ),
-        ),
-        const SizedBox(height: 6),
-        Text(
-          'College of Informatics and Computing Studies',
-          textAlign: TextAlign.center,
-          style: AppTextStyles.bodySmall.copyWith(
-            color: AppColors.textSecondary,
           ),
         ),
         const SizedBox(height: 14),
@@ -602,7 +609,7 @@ class _PreviewSheet extends StatelessWidget {
                   children: [
                     Expanded(
                       child: Text(
-                        section.name,
+                        PortfolioDocumentOrder.label(section.name),
                         style: AppTextStyles.bodyMedium,
                       ),
                     ),
@@ -625,44 +632,57 @@ class _PreviewSheet extends StatelessWidget {
   Widget _buildDocuments(
     BuildContext context,
     DocumentService service,
-    PortfolioSummary summary,
-  ) {
-    final documents = service.documents;
+    PortfolioSummary summary, {
+    bool creativeOnly = false,
+  }) {
+    final documents =
+        PortfolioDocumentOrder.sorted(service.documents, service.categories)
+            .where(
+              (doc) =>
+                  (PortfolioDocumentOrder.sectionFor(doc) ==
+                      'Creative Title') ==
+                  creativeOnly,
+            )
+            .toList();
     final groups = <String>{
       ...summary.sections.map((section) => section.name),
-      ...documents.map(PortfolioSummary.sectionFor),
+      ...documents.map(PortfolioDocumentOrder.sectionFor),
     };
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        Text(
-          'Document Details',
-          style: AppTextStyles.sectionHeader.copyWith(color: AppColors.primary),
-        ),
+        if (!creativeOnly)
+          Text(
+            'Document Details',
+            style: AppTextStyles.sectionHeader.copyWith(
+              color: AppColors.primary,
+            ),
+          ),
         const SizedBox(height: 12),
-        if (documents.isEmpty)
+        if (service.documents.isEmpty && !creativeOnly)
           const AppEmptyState(
             isCompact: true,
             title: 'No documents yet',
             description: 'No stored documents to include yet.',
             icon: Icons.description_outlined,
           ),
-        if (documents.length < summary.totalItems)
+        if (!creativeOnly && service.documents.length < summary.totalItems)
           Text(
-            'Showing ${documents.length} of ${summary.totalItems} documents returned by the current list. Section counts include all stored documents.',
+            'Showing ${service.documents.length} of ${summary.totalItems} documents returned by the current list. Section counts include all stored documents. The server PDF export retrieves all documents within its export limits.',
             style: AppTextStyles.bodySmall,
           ),
         for (final group in groups)
           if (documents.any(
-            (document) => PortfolioSummary.sectionFor(document) == group,
+            (document) => PortfolioDocumentOrder.sectionFor(document) == group,
           )) ...[
             Text(
-              group,
+              PortfolioDocumentOrder.label(group),
               style: AppTextStyles.h4.copyWith(color: AppColors.primary),
             ),
             const SizedBox(height: 8),
             for (final document in documents.where(
-              (document) => PortfolioSummary.sectionFor(document) == group,
+              (document) =>
+                  PortfolioDocumentOrder.sectionFor(document) == group,
             ))
               _buildDocumentDetails(context, document, service.categories),
           ],
@@ -684,10 +704,12 @@ class _PreviewSheet extends StatelessWidget {
     final ext = document.originalFileName.contains('.')
         ? document.originalFileName.split('.').last.toLowerCase()
         : document.extension.replaceAll('.', '').toLowerCase();
-    final isPdf = document.fileKind == 'pdf' ||
+    final isPdf =
+        document.fileKind == 'pdf' ||
         ext == 'pdf' ||
         document.originalFileName.toLowerCase().endsWith('.pdf');
-    final isImage = !isPdf &&
+    final isImage =
+        !isPdf &&
         (document.fileKind == 'image' ||
             const ['png', 'jpg', 'jpeg', 'webp', 'gif', 'bmp'].contains(ext) ||
             document.mimeType.startsWith('image/'));
@@ -742,11 +764,7 @@ class _PreviewSheet extends StatelessWidget {
                         color: typeColor.withValues(alpha: 0.10),
                         borderRadius: BorderRadius.circular(8),
                       ),
-                      child: Icon(
-                        typeIcon,
-                        size: 20,
-                        color: typeColor,
-                      ),
+                      child: Icon(typeIcon, size: 20, color: typeColor),
                     ),
                     const SizedBox(width: 10),
                     Expanded(
