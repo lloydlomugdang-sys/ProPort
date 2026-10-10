@@ -7,6 +7,8 @@ import { createRepositories } from '../../database/repositories/index.js';
 import { CATEGORY_SEEDS } from '../../database/seeds/categories.seed.js';
 import type { DatabaseConnection } from '../../infrastructure/database/database-connection.js';
 import type { ObjectStorage } from '../../infrastructure/storage/object-storage.js';
+import { CollegeReportService, type OfficialReportView } from '../college-report/college-report.service.js';
+import { collegeReportPages } from '../college-report/college-report.pdf.js';
 import {
   CONTENT_WIDTH, PORTFOLIO_LAYOUT as L, TEXT_LINES_PER_PAGE, fitPortfolioArtifact,
   loadPortfolioFallbackFonts, wrapPortfolioText,
@@ -119,14 +121,18 @@ export class PortfolioGeneratorService {
       if (batch.length < 100) break;
       afterId = batch[batch.length - 1]!._id;
     }
-    return this.generateFromDocuments(documents, info);
+    const { report } = await new CollegeReportService(this.database!).current(ownerId);
+    return this.generateFromDocuments(documents, info, report);
   }
 
-  async generateFromDocuments(documents: readonly DocumentRecord[], info: PortfolioExportInfo): Promise<Buffer> {
+  async generateFromDocuments(documents: readonly DocumentRecord[], info: PortfolioExportInfo, collegeReport: OfficialReportView | null = null): Promise<Buffer> {
     if (documents.length > MAX_PORTFOLIO_DOCUMENTS) {
       throw tooLarge(`At most ${MAX_PORTFOLIO_DOCUMENTS} documents can be exported at once.`);
     }
     const sections = planPortfolioSections(documents);
+    if (collegeReport && !sections.some((section) => section.key === 'college-report')) {
+      sections.push({ key: 'college-report', name: 'College Report', subsections: [] });
+    }
     const sourceBytes = sections.flatMap((s) => s.subsections.flatMap((sub) =>
       sub.items.flatMap((item) => item.attachments))).reduce((sum, att) => sum + att.sizeBytes, 0);
     if (sourceBytes > MAX_PORTFOLIO_TOTAL_SOURCE_BYTES) {
@@ -256,7 +262,12 @@ export class PortfolioGeneratorService {
     const creative = sections.find((section) => section.key === 'creative-title');
     if (creative) await planSection(creative);
     const tocIndex = pages.length;
-    for (const section of sections.filter((section) => section.key !== 'creative-title')) await planSection(section);
+    for (const section of sections.filter((section) => section.key !== 'creative-title')) {
+      await planSection(section);
+      if (section.key === 'college-report' && collegeReport) {
+        for (const content of collegeReportPages(collegeReport, fonts)) addPage({ kind: 'text', lines: content });
+      }
+    }
 
     // Wrapped TOC rows reserve a fixed page-number column. Page-number digits do
     // not affect wrapping, so the resulting page count is stable in two passes.

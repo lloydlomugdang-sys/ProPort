@@ -461,6 +461,45 @@ Copy-Item android/key.properties.example android/key.properties
 
 Fill in the four ignored `android/key.properties` values, rebuild, and securely back up the keystore and credentials. Keystores, properties, aliases, and passwords must never be committed. The current `com.example.proport_app` application ID is acceptable only for direct demo sideloading and must be replaced with the final owned identifier before Play Store release; `version: 2.0.0+1` supplies the current version name/code.
 
-## Deferred work
+## Phase C: official College Report
+
+The authenticated questionnaire is available through **Files → College Report → Answer College Report questionnaire**. The source is `Portfolio_LO-Questionnaire (1).pdf`, all five pages. Its ten section item counts are **19, 5, 5, 1, 7, 4, 14, 5, 1, 1** (62 total).
+
+`src/modules/college-report/college-report.template.ts` is the versioned official definition (`key: college-report`, `version: 2`). Stable positional IDs are independent of printed labels. Preserve the source's combined section 1/p row, missing closing parenthesis in 1/q, `m` labels without a period, missing 7/l, and `academicall` in 8/b. Line wrapping (including `Some-times`) is normalized, not question wording. Section 2 ends in **Once**. Section 4 runs **7 down to 1**. Sections 9/10 show blank response space and no visible choice scale, so the app offers optional written responses without inventing choices.
+
+### API and persistence
+
+All routes use the existing access-token **and active-session** checks and normal envelopes. No owner/user/template ID is accepted from the client. Responses are `Cache-Control: no-store`.
+
+| Method/path | Behavior |
+| --- | --- |
+| `GET /api/v1/college-report/template` | Complete official template |
+| `GET /api/v1/college-report/me` | `{report, templateReady, hasLegacyReport}`; report may be null |
+| `POST /api/v1/college-report/me` | Save/replace the current answer snapshot |
+| `PATCH /api/v1/college-report/me` | Merge the supplied answer IDs; null explicitly clears an answer |
+
+Save body: `{questionnaireVersion: 2, answers: [{questionKey: "s04-q01", value: 7}], essay: "Student-written text"}`. `essay` is optional. Categorical/range values use stable option keys; rating values are numbers, not strings. Unknown fields/IDs, duplicate IDs, wrong types/options, unsupported versions and overlong payloads are rejected. At most 62 answers, 5,000 characters per written response and 10,000 essay characters are accepted. Omitted POST answers become null; PATCH retains omitted answers/essay. Neither supplies defaults or inferred answers. Successful saves return `{report:{questionnaireVersion,answers,essay,updatedAt}}` without database IDs. Validation uses `400 VALIDATION_ERROR`; unavailable database/template uses sanitized `503 COLLEGE_REPORT_UNAVAILABLE`.
+
+The existing `college_reports` and `report_templates` collections are reused. Additive fields are `questionnaireVersion`, `essay`, typed/null answer values, and immutable `officialDefinition` on the version-2 template. One current response per owner/template uses the internal `academicYear: current` sentinel with the **existing** unique owner/template/year index; it is not a claimed academic year. The same current response is used for that account's newly generated portfolios. No new collection, index or migration is required. Simultaneous saves of the same questionnaire are last-write-wins; this is not a collaborative editor.
+
+The legacy `college-engagement-v1` template and year-specific reports remain untouched, with no automatic answer mapping. The app flags legacy records and asks the student to complete the official questionnaire. Legacy answers are not silently substituted into official exports.
+
+### Reference-data initialization (maintenance only)
+
+The existing idempotent `db:seed` adds the version-2 template using `$setOnInsert` and verifies both templates. Runtime credentials retain read-only access to templates; the API never creates them. Until seeded, template reading works but saving returns a clear initialization error. Existing portfolio export without a saved official report still works.
+
+**No Atlas seed or migration was executed for Phase C.** Before deployment, an authorized maintainer must review the target database, migration status and additive seed, then initialize reference data through the established maintenance workflow. The seed's pending-migration guard remains intact. If migration 003 is pending, stop and obtain separate approval; do not bypass the guard or run migrations automatically on startup/deploy.
+
+### UI, privacy and PDF behavior
+
+Drafts are memory-only, retained across screen navigation and failed saves, and cleared on account change/logout. A successful API response is required for save feedback. Only saved data survives restart; unsaved edits do not. No AI/OCR/profile inference supplies responses or an essay. Optional essay/objectives text is written explicitly by the student.
+
+New PDFs render the saved questionnaire after uploaded College Report evidence within the existing **final College Report major section**, with one major TOC entry and calculated page numbers. Structured question/options/selected-label blocks preserve relationships without dumping storage keys. Unanswered items are printed as `Unanswered`. Long answers/essays continue across pages using Phase B Letter, margins, 12pt type, 24pt baselines and existing size/page limits. The existing fallback remains Helvetica, not an unlicensed Arial substitute. Unsupported font characters retain the existing safe export error. A preview notice distinguishes saved data from unsaved edits; existing generated PDF snapshots are not retroactively changed.
+
+Owner checks and query filters isolate reports. Database failures are sanitized, answer/essay log fields are redacted, and no answer payload is logged. No questionnaire response is stored in insecure Flutter preferences/files.
+
+Manual acceptance: initialize the reviewed reference seed separately; on Android/iOS open the questionnaire, answer each response type, clear one answer, enter your own essay, save/reopen/restart, edit and retry after a network failure. Sign into a second account and confirm isolation. Generate a new PDF and inspect the final College Report/TOC, chosen labels, unanswered items and long-response page breaks. Confirm an old generated PDF remains unchanged. These physical-device/deployed-backend checks remain pending.
+
+## Previously deferred deployment work
 
 Scanned-PDF raster OCR, PDF/DOCX generation, final Play Store/App Store identifiers and signing, production monitoring, and paid-instance capacity planning remain deferred. Local/R2 storage and console/SMTP/Brevo email share the existing abstractions, so those later tasks do not require API or Flutter-flow redesign.

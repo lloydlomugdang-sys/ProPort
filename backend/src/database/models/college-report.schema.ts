@@ -1,18 +1,19 @@
 import { Schema, type Types } from 'mongoose';
-import { REPORT_ANSWER_OPTIONS, type ReportAnswerOption } from './report-template.schema.js';
 
 export const COLLEGE_REPORT_STATUSES = ['draft', 'submitted'] as const;
 export type CollegeReportStatus = (typeof COLLEGE_REPORT_STATUSES)[number];
 
 export interface CollegeReportAnswer {
   questionKey: string;
-  value: ReportAnswerOption;
+  value: string | number | null;
 }
 
 export interface CollegeReport {
   ownerId: Types.ObjectId;
   templateId: Types.ObjectId;
   academicYear: string;
+  questionnaireVersion?: number;
+  essay?: string;
   answers: CollegeReportAnswer[];
   status: CollegeReportStatus;
   submittedAt?: Date;
@@ -23,7 +24,15 @@ export interface CollegeReport {
 const collegeReportAnswerSchema = new Schema<CollegeReportAnswer>(
   {
     questionKey: { type: String, required: true, trim: true, maxlength: 100 },
-    value: { type: String, enum: REPORT_ANSWER_OPTIONS, required: true },
+    value: {
+      type: Schema.Types.Mixed, default: null,
+      validate: {
+        validator: (value: unknown) => value === null ||
+          (typeof value === 'string' && value.length <= 5000) ||
+          (typeof value === 'number' && Number.isInteger(value) && value >= 1 && value <= 7),
+        message: 'Unsupported answer representation.',
+      },
+    },
   },
   { _id: false, strict: 'throw' },
 );
@@ -36,10 +45,12 @@ export const collegeReportSchema = new Schema<CollegeReport>(
       type: String,
       required: true,
       trim: true,
-      match: /^\d{4}-\d{4}$/,
+      match: /^(?:\d{4}-\d{4}|current)$/,
       maxlength: 9,
     },
     answers: { type: [collegeReportAnswerSchema], required: true, default: [] },
+    questionnaireVersion: { type: Number, min: 1 },
+    essay: { type: String, maxlength: 10000 },
     status: { type: String, enum: COLLEGE_REPORT_STATUSES, required: true, default: 'draft' },
     submittedAt: { type: Date },
   },

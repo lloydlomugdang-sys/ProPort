@@ -14,6 +14,7 @@ import {
 } from './modules/documents/document.routes.js';
 import { registerPortfolioRoutes } from './modules/portfolios/portfolio.routes.js';
 import { registerCurrentUserRoutes } from './modules/users/user.routes.js';
+import { registerCollegeReportRoutes } from './modules/college-report/college-report.routes.js';
 
 export interface BuildAppOptions {
   readonly config: AppConfig;
@@ -50,6 +51,7 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
   });
   await registerAuthRoutes(app, { config: options.config, services });
   await registerCurrentUserRoutes(app, services);
+  await registerCollegeReportRoutes(app, services);
   await registerPortfolioRoutes(app, services);
   await registerDocumentRoutes(app, { config: options.config, services });
 

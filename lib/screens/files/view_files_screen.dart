@@ -12,6 +12,7 @@ import '../../widgets/grad_app_bar.dart';
 import '../../widgets/search_bar_field.dart';
 import '../../widgets/document_image_preview.dart';
 import 'document_ocr_screen.dart';
+import 'college_report_screen.dart';
 
 class ViewFilesScreen extends StatefulWidget {
   const ViewFilesScreen({
@@ -152,6 +153,20 @@ class _ViewFilesScreenState extends State<ViewFilesScreen> {
       appBar: GradBackAppBar(title: title),
       body: Column(
         children: [
+          if (widget.categoryKey == 'college-report')
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
+              child: OutlinedButton.icon(
+                icon: const Icon(Icons.fact_check_outlined),
+                label: const Text('Answer College Report questionnaire'),
+                onPressed: () => Navigator.push(
+                  context,
+                  MaterialPageRoute<void>(
+                    builder: (_) => const CollegeReportScreen(),
+                  ),
+                ),
+              ),
+            ),
           Container(
             color: Colors.white,
             padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
@@ -203,9 +218,7 @@ class _ViewFilesScreenState extends State<ViewFilesScreen> {
                           fileType: document.fileTypeLabel,
                           year: document.documentDate.year.toString(),
                           thumbnail: isImage
-                              ? DocumentThumbnail(
-                                  documentId: document.id,
-                                )
+                              ? DocumentThumbnail(documentId: document.id)
                               : null,
                           onTap: () => Navigator.push(
                             context,

@@ -118,12 +118,12 @@ describe.sequential('MongoDB persistence', () => {
     const verification = await verifySeedData(context.connection);
 
     expect(first.insertedCategories).toBe(6);
-    expect(first.insertedReportTemplates).toBe(1);
+    expect(first.insertedReportTemplates).toBe(2);
     expect(second.insertedCategories).toBe(0);
     expect(second.insertedReportTemplates).toBe(0);
     expect(verification).toMatchObject({
       categoryCount: 6,
-      reportTemplateCount: 1,
+      reportTemplateCount: 2,
       issues: [],
       ok: true,
     });

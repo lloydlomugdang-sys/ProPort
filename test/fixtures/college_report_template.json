@@ -1,0 +1,578 @@
+{
+  "key": "college-report",
+  "version": 2,
+  "title": "The College Report",
+  "instructions": "Check your answers in the boxes.",
+  "source": "Portfolio_LO-Questionnaire (1).pdf",
+  "reference": "The College Student Report 2001. From the Carnegie Foundation for the Advancement of Teaching and Pew Forum on Undergraduate Education (2002).",
+  "sections": [
+    {
+      "id": "s01",
+      "label": "1.",
+      "prompt": "During the current school year, about how often have you done each of the following?",
+      "responseType": "choice",
+      "options": [
+        {
+          "value": "very_often",
+          "label": "Very Often"
+        },
+        {
+          "value": "often",
+          "label": "Often"
+        },
+        {
+          "value": "sometimes",
+          "label": "Sometimes"
+        },
+        {
+          "value": "never",
+          "label": "Never"
+        }
+      ],
+      "questions": [
+        {
+          "key": "s01-q01",
+          "label": "a.",
+          "text": "Asked questions in class or contributed to class discussions"
+        },
+        {
+          "key": "s01-q02",
+          "label": "b.",
+          "text": "Made a class presentation"
+        },
+        {
+          "key": "s01-q03",
+          "label": "c.",
+          "text": "Prepared two or more drafts of a paper or assignment before turning it in"
+        },
+        {
+          "key": "s01-q04",
+          "label": "d.",
+          "text": "Worked on a paper or project that required integrating ideas or information from various sources"
+        },
+        {
+          "key": "s01-q05",
+          "label": "e.",
+          "text": "Came to class without completing readings or assignments"
+        },
+        {
+          "key": "s01-q06",
+          "label": "f.",
+          "text": "Worked with other students on projects during class"
+        },
+        {
+          "key": "s01-q07",
+          "label": "g.",
+          "text": "Worked with classmates outside of class to prepare class assignments"
+        },
+        {
+          "key": "s01-q08",
+          "label": "h.",
+          "text": "Tutored or taught other students (paid or voluntary)"
+        },
+        {
+          "key": "s01-q09",
+          "label": "i.",
+          "text": "Participated in a community-based project as part of a regular course"
+        },
+        {
+          "key": "s01-q10",
+          "label": "j.",
+          "text": "Used an electronic medium (list-serv, chat group, Internet, etc.) to discuss or complete an assignment"
+        },
+        {
+          "key": "s01-q11",
+          "label": "k.",
+          "text": "Used e-mail to communicate with an instructor"
+        },
+        {
+          "key": "s01-q12",
+          "label": "l.",
+          "text": "Discussed grades or assignments with an instructor"
+        },
+        {
+          "key": "s01-q13",
+          "label": "m",
+          "text": "Talked about career plans with a faculty member or advisor"
+        },
+        {
+          "key": "s01-q14",
+          "label": "n.",
+          "text": "Discussed ideas from your reading or classes with faculty members outside of class"
+        },
+        {
+          "key": "s01-q15",
+          "label": "o.",
+          "text": "Received prompt feedback from faculty on your academic performance (written or oral)"
+        },
+        {
+          "key": "s01-q16",
+          "label": "p.",
+          "text": "Worked harder than you thought you could to meet an instructor's standards or expectations Worked with faculty members on activities other than coursework (committees, orientation, student life activities, etc.)"
+        },
+        {
+          "key": "s01-q17",
+          "label": "q.",
+          "text": "Discussed ideas from your readings or classes with others outside of class (students, family members, coworkers, etc."
+        },
+        {
+          "key": "s01-q18",
+          "label": "r.",
+          "text": "Had serious conversations with students of a different race or ethnicity than your own"
+        },
+        {
+          "key": "s01-q19",
+          "label": "s.",
+          "text": "Had serious conversations with students who differ from you in terms of their religious beliefs, political opinions, or personal values"
+        }
+      ]
+    },
+    {
+      "id": "s02",
+      "label": "2.",
+      "prompt": "During the current academic year, to what extent has your coursework emphasized the following mental activities?",
+      "responseType": "choice",
+      "options": [
+        {
+          "value": "very_often",
+          "label": "Very Often"
+        },
+        {
+          "value": "often",
+          "label": "Often"
+        },
+        {
+          "value": "sometimes",
+          "label": "Sometimes"
+        },
+        {
+          "value": "once",
+          "label": "Once"
+        }
+      ],
+      "questions": [
+        {
+          "key": "s02-q01",
+          "label": "a.",
+          "text": "Memorizing facts, ideas, or methods from your courses and readings so you can repeat them in pretty much the same form"
+        },
+        {
+          "key": "s02-q02",
+          "label": "b.",
+          "text": "Analyzing the basic elements of an idea, experience, or theory such as examining a particular case or situation in depth and considering its components"
+        },
+        {
+          "key": "s02-q03",
+          "label": "c.",
+          "text": "Synthesizing and organizing ideas, information, or experiences into new, more complex interpretations and relationships"
+        },
+        {
+          "key": "s02-q04",
+          "label": "d.",
+          "text": "Making judgments about the value of information, arguments, or methods such as examining how others gathered and interpreted data and assessing the soundness of their conclusions"
+        },
+        {
+          "key": "s02-q05",
+          "label": "e.",
+          "text": "Applying theories or concepts to practical problems or in new situations"
+        }
+      ]
+    },
+    {
+      "id": "s03",
+      "label": "3.",
+      "prompt": "During the current academic year, about how much reading and writing have you done?",
+      "responseType": "range",
+      "options": [
+        {
+          "value": "none",
+          "label": "None"
+        },
+        {
+          "value": "1_4",
+          "label": "1 – 4"
+        },
+        {
+          "value": "5_10",
+          "label": "5 – 10"
+        },
+        {
+          "value": "11_20",
+          "label": "11–20"
+        },
+        {
+          "value": "over_20",
+          "label": "> 20"
+        }
+      ],
+      "questions": [
+        {
+          "key": "s03-q01",
+          "label": "a.",
+          "text": "Number of assigned textbooks, books, or book-length packs of course readings"
+        },
+        {
+          "key": "s03-q02",
+          "label": "b.",
+          "text": "Number of books read on your own (not assigned) for personal enjoyment or academic enrichment"
+        },
+        {
+          "key": "s03-q03",
+          "label": "c.",
+          "text": "Number of written papers or reports of 20 pages or more"
+        },
+        {
+          "key": "s03-q04",
+          "label": "d.",
+          "text": "Number of written papers or reports between 5 and 19 pages"
+        },
+        {
+          "key": "s03-q05",
+          "label": "e.",
+          "text": "Number of written papers or reports of fewer than 5 pages"
+        }
+      ]
+    },
+    {
+      "id": "s04",
+      "label": "4.",
+      "prompt": "Mark the box that best represents the extent to which your examinations during the current school year have challenged you to do your best work.",
+      "responseType": "rating",
+      "options": [
+        {
+          "value": 7,
+          "label": "7"
+        },
+        {
+          "value": 6,
+          "label": "6"
+        },
+        {
+          "value": 5,
+          "label": "5"
+        },
+        {
+          "value": 4,
+          "label": "4"
+        },
+        {
+          "value": 3,
+          "label": "3"
+        },
+        {
+          "value": 2,
+          "label": "2"
+        },
+        {
+          "value": 1,
+          "label": "1"
+        }
+      ],
+      "questions": [
+        {
+          "key": "s04-q01",
+          "label": "",
+          "text": "Mark the box that best represents the extent to which your examinations during the current school year have challenged you to do your best work."
+        }
+      ],
+      "note": "7: Very much; 1: Very little"
+    },
+    {
+      "id": "s05",
+      "label": "5.",
+      "prompt": "Which of the following have you done or you plan to do before you graduate from your institution?",
+      "responseType": "choice",
+      "options": [
+        {
+          "value": "yes",
+          "label": "Yes"
+        },
+        {
+          "value": "no",
+          "label": "No"
+        },
+        {
+          "value": "undecided",
+          "label": "Undecided"
+        }
+      ],
+      "questions": [
+        {
+          "key": "s05-q01",
+          "label": "a.",
+          "text": "Practicum, internship, field experience, co-op experience, or clinical assignment"
+        },
+        {
+          "key": "s05-q02",
+          "label": "b.",
+          "text": "Community service or volunteer work"
+        },
+        {
+          "key": "s05-q03",
+          "label": "c.",
+          "text": "Work on a research project with a faculty member outside of course or program requirements"
+        },
+        {
+          "key": "s05-q04",
+          "label": "d.",
+          "text": "Foreign language coursework"
+        },
+        {
+          "key": "s05-q05",
+          "label": "e.",
+          "text": "Study abroad"
+        },
+        {
+          "key": "s05-q06",
+          "label": "f.",
+          "text": "Independent study or self-designed major"
+        },
+        {
+          "key": "s05-q07",
+          "label": "g.",
+          "text": "Culminating senior experience (comprehensive exam, capstone course, thesis, project, etc.)"
+        }
+      ]
+    },
+    {
+      "id": "s06",
+      "label": "6.",
+      "prompt": "About how many hours do you spend in a typical 7-day week doing each of the following?",
+      "responseType": "range",
+      "options": [
+        {
+          "value": "0",
+          "label": "0"
+        },
+        {
+          "value": "1_5",
+          "label": "1 – 5"
+        },
+        {
+          "value": "6_10",
+          "label": "6 – 10"
+        },
+        {
+          "value": "11_15",
+          "label": "11 – 15"
+        },
+        {
+          "value": "16_20",
+          "label": "16 – 20"
+        },
+        {
+          "value": "21_25",
+          "label": "21 – 25"
+        },
+        {
+          "value": "26_30",
+          "label": "26 – 30"
+        },
+        {
+          "value": "over_30",
+          "label": ">30"
+        }
+      ],
+      "questions": [
+        {
+          "key": "s06-q01",
+          "label": "a.",
+          "text": "Preparing for class (studying, reading, writing, rehearsing, and other activities related to your academic program)"
+        },
+        {
+          "key": "s06-q02",
+          "label": "b.",
+          "text": "Participating in co-curricular activities (organizations, campus publications, student government, social fraternity or sorority, intercollegiate or intramural sports, etc.)"
+        },
+        {
+          "key": "s06-q03",
+          "label": "c.",
+          "text": "Relaxing and socializing (watching TV, partying, exercising, playing computer and other games, etc.)"
+        },
+        {
+          "key": "s06-q04",
+          "label": "d.",
+          "text": "Providing care for dependents living with you (parents, children, spouse, etc.)"
+        }
+      ],
+      "note": "No. of hours per week"
+    },
+    {
+      "id": "s07",
+      "label": "7.",
+      "prompt": "To what extent has your institution experience contributed to your knowledge, skills, and personal development in the following areas?",
+      "responseType": "choice",
+      "options": [
+        {
+          "value": "very_much",
+          "label": "Very much"
+        },
+        {
+          "value": "quite_a_bit",
+          "label": "Quite a bit"
+        },
+        {
+          "value": "some",
+          "label": "Some"
+        },
+        {
+          "value": "very_little",
+          "label": "Very little"
+        }
+      ],
+      "questions": [
+        {
+          "key": "s07-q01",
+          "label": "a.",
+          "text": "Acquiring a broad general education"
+        },
+        {
+          "key": "s07-q02",
+          "label": "b.",
+          "text": "Acquiring job or work-related knowledge and skills"
+        },
+        {
+          "key": "s07-q03",
+          "label": "c.",
+          "text": "Writing clearly and effectively"
+        },
+        {
+          "key": "s07-q04",
+          "label": "d.",
+          "text": "Speaking clearly and effectively"
+        },
+        {
+          "key": "s07-q05",
+          "label": "e.",
+          "text": "Thinking critically and analytically"
+        },
+        {
+          "key": "s07-q06",
+          "label": "f.",
+          "text": "Analyzing quantitative problems"
+        },
+        {
+          "key": "s07-q07",
+          "label": "g.",
+          "text": "Using computing and information technology"
+        },
+        {
+          "key": "s07-q08",
+          "label": "h.",
+          "text": "Working effectively with others"
+        },
+        {
+          "key": "s07-q09",
+          "label": "i.",
+          "text": "Voting in local, state, or national elections"
+        },
+        {
+          "key": "s07-q10",
+          "label": "j.",
+          "text": "Learning effectively on your own"
+        },
+        {
+          "key": "s07-q11",
+          "label": "k.",
+          "text": "Understanding yourself"
+        },
+        {
+          "key": "s07-q12",
+          "label": "m",
+          "text": "Understanding people of other racial and ethnic backgrounds"
+        },
+        {
+          "key": "s07-q13",
+          "label": "n.",
+          "text": "Developing a personal code of values and ethics"
+        },
+        {
+          "key": "s07-q14",
+          "label": "o.",
+          "text": "Contributing to the welfare of your community"
+        }
+      ]
+    },
+    {
+      "id": "s08",
+      "label": "8.",
+      "prompt": "To what extent does your institution emphasize each of the following?",
+      "responseType": "choice",
+      "options": [
+        {
+          "value": "very_much",
+          "label": "Very much"
+        },
+        {
+          "value": "quite_a_bit",
+          "label": "Quite a bit"
+        },
+        {
+          "value": "some",
+          "label": "Some"
+        },
+        {
+          "value": "very_little",
+          "label": "Very little"
+        }
+      ],
+      "questions": [
+        {
+          "key": "s08-q01",
+          "label": "a.",
+          "text": "Spending significant amounts of time studying and on academic work"
+        },
+        {
+          "key": "s08-q02",
+          "label": "b.",
+          "text": "Providing the support you need to help you succeed academicall"
+        },
+        {
+          "key": "s08-q03",
+          "label": "c.",
+          "text": "Encouraging contact among students from different economic, social, and racial or ethnic backgrounds"
+        },
+        {
+          "key": "s08-q04",
+          "label": "d.",
+          "text": "Helping you cope with your non-academic responsibilities (work, family, etc.)"
+        },
+        {
+          "key": "s08-q05",
+          "label": "e.",
+          "text": "Providing the support you need to thrive socially"
+        }
+      ]
+    },
+    {
+      "id": "s09",
+      "label": "9.",
+      "prompt": "How would you evaluate your entire educational experience at this institution?",
+      "responseType": "text",
+      "options": [],
+      "questions": [
+        {
+          "key": "s09-q01",
+          "label": "",
+          "text": "How would you evaluate your entire educational experience at this institution?"
+        }
+      ],
+      "note": "The source provides blank response space, without a choice scale. Written response is optional."
+    },
+    {
+      "id": "s10",
+      "label": "10.",
+      "prompt": "If you could start over again, would you go to the same institution you are now attending?",
+      "responseType": "text",
+      "options": [],
+      "questions": [
+        {
+          "key": "s10-q01",
+          "label": "",
+          "text": "If you could start over again, would you go to the same institution you are now attending?"
+        }
+      ],
+      "note": "The source provides blank response space, without a choice scale. Written response is optional."
+    }
+  ]
+}

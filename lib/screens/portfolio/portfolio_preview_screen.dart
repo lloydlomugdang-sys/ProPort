@@ -1,6 +1,7 @@
 // LOCATION: lib/screens/portfolio/portfolio_preview_screen.dart
 
 import 'package:flutter/material.dart';
+import '../../widgets/college_report_preview_status.dart';
 import 'package:google_fonts/google_fonts.dart';
 
 import '../../constants/app_colors.dart';
@@ -512,6 +513,7 @@ class _PreviewSheet extends StatelessWidget {
           ),
           const SizedBox(height: 24),
           _buildFooterNote(),
+          const CollegeReportPreviewStatus(),
         ],
       ),
     );

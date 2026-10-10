@@ -15,6 +15,35 @@ export type UpdateCollegeReportInput = UpdateRecord<CollegeReport>;
 export class CollegeReportRepository {
   constructor(private readonly model: Model<CollegeReport>) {}
 
+  async findCurrentForOwner(ownerId: Types.ObjectId, templateId: Types.ObjectId): Promise<CollegeReportRecord | null> {
+    const found = await this.model.findOne({ ownerId, templateId, academicYear: 'current' }).lean().exec();
+    return found === null ? null : asPersistedRecord<CollegeReport>(found);
+  }
+
+  async hasLegacyForOwner(ownerId: Types.ObjectId, templateId?: Types.ObjectId): Promise<boolean> {
+    return (await this.model.exists({ ownerId, ...(templateId ? { templateId: { $ne: templateId } } : {}) })) !== null;
+  }
+
+  async saveCurrentForOwner(
+    ownerId: Types.ObjectId, templateId: Types.ObjectId,
+    patch: Pick<CollegeReport, 'answers' | 'essay' | 'questionnaireVersion'>,
+  ): Promise<CollegeReportRecord> {
+    const filter = { ownerId, templateId, academicYear: 'current' };
+    const update = { $set: patch, $setOnInsert: { ...filter, status: 'draft' } };
+    try {
+      const saved = await this.model.findOneAndUpdate(filter, update,
+        { upsert: true, returnDocument: 'after', runValidators: true, strict: 'throw' }).lean().exec();
+      return asPersistedRecord<CollegeReport>(saved!);
+    } catch (error) {
+      // Concurrent initial saves still share the existing owner/template/year index.
+      if (!(typeof error === 'object' && error !== null && 'code' in error && error.code === 11000)) throw error;
+      const saved = await this.model.findOneAndUpdate(filter, update,
+        { returnDocument: 'after', runValidators: true, strict: 'throw' }).lean().exec();
+      if (!saved) throw error;
+      return asPersistedRecord<CollegeReport>(saved);
+    }
+  }
+
   async create(input: CreateCollegeReportInput): Promise<CollegeReportRecord> {
     const created = await this.model.create(input);
     return asPersistedRecord<CollegeReport>(created.toObject());

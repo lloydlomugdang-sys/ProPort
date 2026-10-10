@@ -17,6 +17,7 @@ export interface ReportTemplate {
   prompt: string;
   questions: ReportQuestion[];
   active: boolean;
+  officialDefinition?: Record<string, unknown>;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -46,6 +47,7 @@ export const reportTemplateSchema = new Schema<ReportTemplate>(
     prompt: { type: String, required: true, trim: true, maxlength: 2_000 },
     questions: { type: [reportQuestionSchema], required: true, default: [] },
     active: { type: Boolean, required: true, default: true },
+    officialDefinition: { type: Schema.Types.Mixed, immutable: true },
   },
   { strict: 'throw', timestamps: true, versionKey: false },
 );

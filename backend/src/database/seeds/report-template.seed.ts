@@ -1,6 +1,7 @@
 import type { Connection } from 'mongoose';
 import { REPORT_ANSWER_OPTIONS } from '../models/report-template.schema.js';
 import { registerModels } from '../../infrastructure/database/model-registry.js';
+import { OFFICIAL_COLLEGE_REPORT } from '../../modules/college-report/college-report.template.js';
 
 export const COLLEGE_ENGAGEMENT_TEMPLATE_V1 = {
   key: 'college-engagement-v1',
@@ -48,6 +49,14 @@ export const COLLEGE_ENGAGEMENT_TEMPLATE_V1 = {
   ],
 } as const;
 
+export const OFFICIAL_COLLEGE_REPORT_SEED = {
+  key: OFFICIAL_COLLEGE_REPORT.key, version: OFFICIAL_COLLEGE_REPORT.version,
+  title: OFFICIAL_COLLEGE_REPORT.title, prompt: OFFICIAL_COLLEGE_REPORT.instructions,
+  questions: [], active: true, officialDefinition: OFFICIAL_COLLEGE_REPORT,
+} as const;
+
+export const REPORT_TEMPLATE_SEEDS = [COLLEGE_ENGAGEMENT_TEMPLATE_V1, OFFICIAL_COLLEGE_REPORT_SEED];
+
 export async function seedReportTemplate(connection: Connection): Promise<void> {
   const { ReportTemplate } = registerModels(connection);
   await ReportTemplate.updateOne(
@@ -56,6 +65,12 @@ export async function seedReportTemplate(connection: Connection): Promise<void> 
       version: COLLEGE_ENGAGEMENT_TEMPLATE_V1.version,
     },
     { $setOnInsert: COLLEGE_ENGAGEMENT_TEMPLATE_V1 },
+    { upsert: true },
+  );
+  // Additive reference-data seed: never overwrite historical templates/answers.
+  await ReportTemplate.updateOne(
+    { key: OFFICIAL_COLLEGE_REPORT.key, version: OFFICIAL_COLLEGE_REPORT.version },
+    { $setOnInsert: OFFICIAL_COLLEGE_REPORT_SEED },
     { upsert: true },
   );
 }

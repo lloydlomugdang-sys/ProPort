@@ -9,6 +9,8 @@ export function createLoggerOptions(logLevel: AppConfig['logLevel']): Record<str
     level: logLevel,
     redact: {
       paths: [
+        'answers', '*.answers', 'essay', '*.essay',
+        'req.body.answers', 'req.body.essay', 'request.body.answers', 'request.body.essay',
         'req.headers.authorization',
         'req.headers.cookie',
         'request.headers.authorization',

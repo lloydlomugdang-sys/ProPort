@@ -4,7 +4,7 @@ import { registerModels } from '../../infrastructure/database/model-registry.js'
 import { getMigrationStatus } from '../migrations/migration-runner.js';
 import { CATEGORY_SEEDS, seedDocumentCategories } from './categories.seed.js';
 import {
-  COLLEGE_ENGAGEMENT_TEMPLATE_V1,
+  REPORT_TEMPLATE_SEEDS,
   seedReportTemplate,
 } from './report-template.seed.js';
 
@@ -38,6 +38,7 @@ function comparableTemplate(value: Record<string, unknown>): Record<string, unkn
     prompt: value.prompt,
     questions: value.questions,
     active: value.active,
+    ...(value.officialDefinition === undefined ? {} : { officialDefinition: value.officialDefinition }),
   };
 }
 
@@ -50,10 +51,9 @@ export async function verifySeedData(connection: Connection): Promise<SeedVerifi
     .lean()
     .exec()) as unknown as Record<string, unknown>[];
   const templates = (await ReportTemplate.find({
-    key: COLLEGE_ENGAGEMENT_TEMPLATE_V1.key,
-    version: COLLEGE_ENGAGEMENT_TEMPLATE_V1.version,
+    $or: REPORT_TEMPLATE_SEEDS.map(({ key, version }) => ({ key, version })),
   })
-    .select('-_id key version title prompt questions active')
+    .select('-_id key version title prompt questions active officialDefinition')
     .lean()
     .exec()) as unknown as Record<string, unknown>[];
 
@@ -65,12 +65,11 @@ export async function verifySeedData(connection: Connection): Promise<SeedVerifi
     }
   }
 
-  const actualTemplate = templates[0];
-  if (
-    actualTemplate === undefined ||
-    !isDeepStrictEqual(comparableTemplate(actualTemplate), COLLEGE_ENGAGEMENT_TEMPLATE_V1)
-  ) {
-    issues.push('Report template seed college-engagement-v1 is missing or differs.');
+  for (const expected of REPORT_TEMPLATE_SEEDS) {
+    const actual = templates.find((item) => item.key === expected.key && item.version === expected.version);
+    if (actual === undefined || !isDeepStrictEqual(comparableTemplate(actual), expected)) {
+      issues.push(`Report template seed ${expected.key} is missing or differs.`);
+    }
   }
 
   return {
@@ -94,8 +93,7 @@ export async function seedDatabase(connection: Connection): Promise<SeedRunResul
   const { DocumentCategory, ReportTemplate } = registerModels(connection);
   const categoryFilter = { key: { $in: CATEGORY_SEEDS.map((category) => category.key) } };
   const templateFilter = {
-    key: COLLEGE_ENGAGEMENT_TEMPLATE_V1.key,
-    version: COLLEGE_ENGAGEMENT_TEMPLATE_V1.version,
+    $or: REPORT_TEMPLATE_SEEDS.map(({ key, version }) => ({ key, version })),
   };
   const beforeCategories = await DocumentCategory.countDocuments(categoryFilter);
   const beforeTemplates = await ReportTemplate.countDocuments(templateFilter);
