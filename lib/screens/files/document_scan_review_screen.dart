@@ -28,24 +28,32 @@ class DocumentScanReviewScreen extends StatefulWidget {
   final ScanEnhancementMode initialMode;
 
   @override
-  State<DocumentScanReviewScreen> createState() => _DocumentScanReviewScreenState();
+  State<DocumentScanReviewScreen> createState() =>
+      _DocumentScanReviewScreenState();
 }
 
 class _DocumentScanReviewScreenState extends State<DocumentScanReviewScreen> {
   late DocumentCorners _corners;
   late ScanEnhancementMode _selectedMode;
   bool _isProcessing = false;
+  bool _adjusting = false;
+  bool _hasManualCrop = false;
   int? _activeCornerIndex; // 0: TL, 1: TR, 2: BR, 3: BL
 
   Uint8List? _rawImageBytes;
+  Uint8List? _previewBytes;
   Size? _imagePixelSize;
   String? _errorMessage;
 
   @override
   void initState() {
     super.initState();
-    _corners = widget.initialCorners;
-    _selectedMode = widget.initialMode;
+    _corners = widget.initialCorners.isAutoDetected
+        ? widget.initialCorners
+        : DocumentCorners.fullImage();
+    _selectedMode = widget.initialCorners.isAutoDetected
+        ? widget.initialMode
+        : ScanEnhancementMode.original;
     _loadImage();
   }
 
@@ -53,40 +61,95 @@ class _DocumentScanReviewScreenState extends State<DocumentScanReviewScreen> {
     try {
       final file = File(widget.imagePath);
       if (!await file.exists()) {
-        setState(() => _errorMessage = 'The captured image could not be loaded.');
+        if (!mounted) return;
+        setState(
+          () => _errorMessage = 'The captured image could not be loaded.',
+        );
         return;
       }
       final bytes = await file.readAsBytes();
       final decoded = await decodeImageFromList(bytes);
+      final imageSize = Size(
+        decoded.width.toDouble(),
+        decoded.height.toDouble(),
+      );
+      decoded.dispose();
       if (!mounted) return;
       setState(() {
         _rawImageBytes = bytes;
-        _imagePixelSize = Size(decoded.width.toDouble(), decoded.height.toDouble());
+        _imagePixelSize = imageSize;
       });
+      await _refreshPreview();
     } catch (e) {
       if (!mounted) return;
       setState(() => _errorMessage = 'Failed to load image: ${e.toString()}');
     }
   }
 
-  Future<void> _onAccept() async {
-    if (_rawImageBytes == null || _isProcessing) return;
-    setState(() => _isProcessing = true);
-
+  Future<bool> _refreshPreview() async {
+    if (_rawImageBytes == null || _isProcessing) return false;
+    setState(() {
+      _isProcessing = true;
+      _previewBytes = null;
+    });
     try {
-      final processedBytes = await ClassicalCvEngine.warpAndEnhanceAsync(
+      final bytes = await ClassicalCvEngine.warpAndEnhanceAsync(
         WarpParams(
           imageBytes: _rawImageBytes!,
           corners: _corners,
           mode: _selectedMode,
-          jpegQuality: 90,
         ),
       );
+      if (!mounted) return false;
+      setState(() {
+        _previewBytes = bytes;
+        _isProcessing = false;
+      });
+      return true;
+    } catch (_) {
+      if (!mounted) return false;
+      setState(() {
+        _isProcessing = false;
+        _adjusting = true;
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Unable to process these corners. Adjust them or use the full photo.',
+          ),
+        ),
+      );
+      return false;
+    }
+  }
 
+  Future<void> _previewAdjustment() async {
+    if (await _refreshPreview() && mounted) {
+      setState(() => _adjusting = false);
+    }
+  }
+
+  Future<void> _useFullPhoto() async {
+    if (_isProcessing || _rawImageBytes == null) return;
+    setState(() {
+      _corners = DocumentCorners.fullImage();
+      _selectedMode = ScanEnhancementMode.original;
+      _hasManualCrop = false;
+      _adjusting = false;
+    });
+    await _refreshPreview();
+  }
+
+  Future<void> _onAccept() async {
+    if (_previewBytes == null || _isProcessing || _adjusting) return;
+    setState(() => _isProcessing = true);
+
+    try {
       final tempDir = await getTemporaryDirectory();
       final outName = 'scan_${DateTime.now().millisecondsSinceEpoch}.jpg';
       final outFile = File('${tempDir.path}/$outName');
-      await outFile.writeAsBytes(processedBytes);
+      // Upload exactly the reviewed JPEG; do not warp/re-encode it a second time.
+      await outFile.writeAsBytes(_previewBytes!);
 
       if (!mounted) return;
       Navigator.pop(context, outFile.path);
@@ -119,7 +182,7 @@ class _DocumentScanReviewScreenState extends State<DocumentScanReviewScreen> {
         foregroundColor: Colors.white,
         elevation: 0,
         title: Text(
-          'Document Boundary',
+          _adjusting ? 'Document Boundary' : 'Review Scan',
           style: GoogleFonts.poppins(
             fontSize: 17,
             fontWeight: FontWeight.w600,
@@ -147,11 +210,39 @@ class _DocumentScanReviewScreenState extends State<DocumentScanReviewScreen> {
                         style: GoogleFonts.poppins(color: Colors.white70),
                       ),
                     )
-                  : _rawImageBytes == null
-                      ? const Center(
-                          child: CircularProgressIndicator(color: Colors.white),
-                        )
-                      : _buildInteractiveImageViewport(),
+                  : _rawImageBytes == null || _isProcessing
+                  ? const Center(
+                      child: CircularProgressIndicator(color: Colors.white),
+                    )
+                  : _adjusting
+                  ? _buildInteractiveImageViewport()
+                  : _previewBytes == null
+                  ? const SizedBox.shrink()
+                  : Image.memory(
+                      _previewBytes!,
+                      key: const Key('scan-corrected-preview'),
+                      fit: BoxFit.contain,
+                    ),
+            ),
+
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+              children: [
+                TextButton(
+                  onPressed: _isProcessing || _rawImageBytes == null
+                      ? null
+                      : _adjusting
+                      ? _previewAdjustment
+                      : () => setState(() => _adjusting = true),
+                  child: Text(_adjusting ? 'Preview Scan' : 'Adjust corners'),
+                ),
+                TextButton(
+                  onPressed: _isProcessing || _rawImageBytes == null
+                      ? null
+                      : _useFullPhoto,
+                  child: const Text('Use full photo'),
+                ),
+              ],
             ),
 
             // Mode Selector
@@ -184,8 +275,10 @@ class _DocumentScanReviewScreenState extends State<DocumentScanReviewScreen> {
           Expanded(
             child: Text(
               isAuto
-                  ? 'Boundary auto-detected. Drag corners if adjustment is needed.'
-                  : 'Boundary not auto-detected. Adjust the 4 corners to fit document.',
+                  ? 'Automatically cropped and straightened. Review before using.'
+                  : _hasManualCrop
+                  ? 'Manual adjustment. Preview and check all document edges.'
+                  : 'No confident crop selected. Full photo kept; review or adjust corners.',
               style: GoogleFonts.poppins(
                 fontSize: 12,
                 color: Colors.white.withValues(alpha: 0.9),
@@ -217,17 +310,35 @@ class _DocumentScanReviewScreenState extends State<DocumentScanReviewScreen> {
         final renderLeft = (containerW - renderW) / 2.0;
         final renderTop = (containerH - renderH) / 2.0;
 
-        final renderRect = Rect.fromLTWH(renderLeft, renderTop, renderW, renderH);
+        final renderRect = Rect.fromLTWH(
+          renderLeft,
+          renderTop,
+          renderW,
+          renderH,
+        );
 
         // Map normalized corners to container coordinates
-        final absTL = Offset(renderLeft + _corners.topLeft.dx * renderW, renderTop + _corners.topLeft.dy * renderH);
-        final absTR = Offset(renderLeft + _corners.topRight.dx * renderW, renderTop + _corners.topRight.dy * renderH);
-        final absBR = Offset(renderLeft + _corners.bottomRight.dx * renderW, renderTop + _corners.bottomRight.dy * renderH);
-        final absBL = Offset(renderLeft + _corners.bottomLeft.dx * renderW, renderTop + _corners.bottomLeft.dy * renderH);
+        final absTL = Offset(
+          renderLeft + _corners.topLeft.dx * renderW,
+          renderTop + _corners.topLeft.dy * renderH,
+        );
+        final absTR = Offset(
+          renderLeft + _corners.topRight.dx * renderW,
+          renderTop + _corners.topRight.dy * renderH,
+        );
+        final absBR = Offset(
+          renderLeft + _corners.bottomRight.dx * renderW,
+          renderTop + _corners.bottomRight.dy * renderH,
+        );
+        final absBL = Offset(
+          renderLeft + _corners.bottomLeft.dx * renderW,
+          renderTop + _corners.bottomLeft.dy * renderH,
+        );
 
         final cornerPoints = [absTL, absTR, absBR, absBL];
 
         return GestureDetector(
+          key: const Key('scan-corner-adjustment'),
           onPanStart: (details) {
             final touch = details.localPosition;
             const touchRadius = 36.0;
@@ -259,18 +370,32 @@ class _DocumentScanReviewScreenState extends State<DocumentScanReviewScreen> {
             final newNormOffset = Offset(normX, normY);
 
             setState(() {
+              _hasManualCrop = true;
+              _previewBytes = null;
               switch (_activeCornerIndex!) {
                 case 0:
-                  _corners = _corners.copyWith(topLeft: newNormOffset, isAutoDetected: false);
+                  _corners = _corners.copyWith(
+                    topLeft: newNormOffset,
+                    isAutoDetected: false,
+                  );
                   break;
                 case 1:
-                  _corners = _corners.copyWith(topRight: newNormOffset, isAutoDetected: false);
+                  _corners = _corners.copyWith(
+                    topRight: newNormOffset,
+                    isAutoDetected: false,
+                  );
                   break;
                 case 2:
-                  _corners = _corners.copyWith(bottomRight: newNormOffset, isAutoDetected: false);
+                  _corners = _corners.copyWith(
+                    bottomRight: newNormOffset,
+                    isAutoDetected: false,
+                  );
                   break;
                 case 3:
-                  _corners = _corners.copyWith(bottomLeft: newNormOffset, isAutoDetected: false);
+                  _corners = _corners.copyWith(
+                    bottomLeft: newNormOffset,
+                    isAutoDetected: false,
+                  );
                   break;
               }
             });
@@ -282,8 +407,8 @@ class _DocumentScanReviewScreenState extends State<DocumentScanReviewScreen> {
             children: [
               // Base image
               Center(
-                child: Image.file(
-                  File(widget.imagePath),
+                child: Image.memory(
+                  _rawImageBytes!,
                   width: renderW,
                   height: renderH,
                   fit: BoxFit.contain,
@@ -314,7 +439,11 @@ class _DocumentScanReviewScreenState extends State<DocumentScanReviewScreen> {
     );
   }
 
-  Widget _buildMagnifierLoupe(Offset touchPos, double containerW, double containerH) {
+  Widget _buildMagnifierLoupe(
+    Offset touchPos,
+    double containerW,
+    double containerH,
+  ) {
     const loupeSize = 80.0;
     // Position loupe above the finger so it is not obscured
     var loupeX = touchPos.dx - loupeSize / 2;
@@ -344,23 +473,15 @@ class _DocumentScanReviewScreenState extends State<DocumentScanReviewScreen> {
               // Magnified image fragment
               Transform.scale(
                 scale: 1.8,
-                origin: Offset(touchPos.dx - loupeX - loupeSize / 2, touchPos.dy - loupeY - loupeSize / 2),
-                child: Image.file(
-                  File(widget.imagePath),
-                  fit: BoxFit.cover,
+                origin: Offset(
+                  touchPos.dx - loupeX - loupeSize / 2,
+                  touchPos.dy - loupeY - loupeSize / 2,
                 ),
+                child: Image.memory(_rawImageBytes!, fit: BoxFit.cover),
               ),
               // Center crosshairs
-              Container(
-                width: 14,
-                height: 1.5,
-                color: AppColors.primary,
-              ),
-              Container(
-                width: 1.5,
-                height: 14,
-                color: AppColors.primary,
-              ),
+              Container(width: 14, height: 1.5, color: AppColors.primary),
+              Container(width: 1.5, height: 14, color: AppColors.primary),
             ],
           ),
         ),
@@ -387,7 +508,13 @@ class _DocumentScanReviewScreenState extends State<DocumentScanReviewScreen> {
   Widget _buildModeChip(String label, ScanEnhancementMode mode) {
     final isSelected = _selectedMode == mode;
     return GestureDetector(
-      onTap: () => setState(() => _selectedMode = mode),
+      onTap: _isProcessing || _rawImageBytes == null || _adjusting
+          ? null
+          : () async {
+              if (_selectedMode == mode) return;
+              setState(() => _selectedMode = mode);
+              await _refreshPreview();
+            },
       child: AnimatedContainer(
         duration: const Duration(milliseconds: 150),
         padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
@@ -425,13 +552,18 @@ class _DocumentScanReviewScreenState extends State<DocumentScanReviewScreen> {
               icon: const Icon(Icons.refresh_rounded, size: 18),
               label: Text(
                 'Retake',
-                style: GoogleFonts.poppins(fontSize: 13, fontWeight: FontWeight.w600),
+                style: GoogleFonts.poppins(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w600,
+                ),
               ),
               style: OutlinedButton.styleFrom(
                 foregroundColor: Colors.white,
                 side: const BorderSide(color: Colors.white38),
                 padding: const EdgeInsets.symmetric(vertical: 13),
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
               ),
             ),
           ),
@@ -441,23 +573,33 @@ class _DocumentScanReviewScreenState extends State<DocumentScanReviewScreen> {
           Expanded(
             flex: 2,
             child: ElevatedButton.icon(
-              onPressed: _isProcessing ? null : _onAccept,
+              onPressed: _isProcessing || _adjusting || _previewBytes == null
+                  ? null
+                  : _onAccept,
               icon: _isProcessing
                   ? const SizedBox(
                       width: 16,
                       height: 16,
-                      child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        color: Colors.white,
+                      ),
                     )
                   : const Icon(Icons.check_circle_rounded, size: 18),
               label: Text(
                 _isProcessing ? 'Processing...' : 'Use Scan',
-                style: GoogleFonts.poppins(fontSize: 13, fontWeight: FontWeight.w600),
+                style: GoogleFonts.poppins(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w600,
+                ),
               ),
               style: ElevatedButton.styleFrom(
                 backgroundColor: AppColors.primary,
                 foregroundColor: Colors.white,
                 padding: const EdgeInsets.symmetric(vertical: 13),
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
               ),
             ),
           ),
@@ -542,4 +684,3 @@ class _DocumentQuadPainter extends CustomPainter {
         oldDelegate.activeCornerIndex != activeCornerIndex;
   }
 }
-

@@ -11,21 +11,23 @@ import 'document_models.dart';
 import 'scanner/classical_cv_engine.dart';
 
 /// Delegate for handling the document review screen or mocking scan execution in tests.
-typedef DocumentScannerRunner = Future<String?> Function({
-  required String imagePath,
-  required DocumentCorners initialCorners,
-});
+typedef DocumentScannerRunner =
+    Future<String?> Function({
+      required String imagePath,
+      required DocumentCorners initialCorners,
+    });
 
 /// Delegate for cleaning temporary scanner cache files.
 typedef DocumentScannerCleaner = Future<void> Function();
 
 /// Delegate for picking camera photos (allowing mock injection in tests).
-typedef CameraPhotoPicker = Future<XFile?> Function({
-  required ImageSource source,
-  double? maxWidth,
-  double? maxHeight,
-  int? imageQuality,
-});
+typedef CameraPhotoPicker =
+    Future<XFile?> Function({
+      required ImageSource source,
+      double? maxWidth,
+      double? maxHeight,
+      int? imageQuality,
+    });
 
 Future<void> _defaultScannerCleaner() async {
   try {
@@ -67,13 +69,14 @@ class DeviceDocumentPicker implements DocumentPicker {
     CameraPhotoPicker? photoPicker,
     DocumentScannerRunner? scannerRunner,
     DocumentScannerCleaner? scannerCleaner,
-  })  : _imagePicker = imagePicker ?? ImagePicker(),
-        _photoPicker = photoPicker,
-        _scannerRunner = scannerRunner,
-        _scannerCleaner = scannerCleaner ?? _defaultScannerCleaner;
+  }) : _imagePicker = imagePicker ?? ImagePicker(),
+       _photoPicker = photoPicker,
+       _scannerRunner = scannerRunner,
+       _scannerCleaner = scannerCleaner ?? _defaultScannerCleaner;
 
   /// Global navigator key allowing the scanner review screen to be pushed from camera entry points.
-  static final GlobalKey<NavigatorState> navigatorKey = GlobalKey<NavigatorState>();
+  static final GlobalKey<NavigatorState> navigatorKey =
+      GlobalKey<NavigatorState>();
 
   final ImagePicker _imagePicker;
   final CameraPhotoPicker? _photoPicker;
@@ -116,7 +119,9 @@ class DeviceDocumentPicker implements DocumentPicker {
     final photoPath = photo.path;
     final photoFile = File(photoPath);
     if (!await photoFile.exists()) {
-      throw const FileSystemException('The scanned document could not be found.');
+      throw const FileSystemException(
+        'The scanned document could not be found.',
+      );
     }
 
     final size = await photoFile.length();
@@ -148,7 +153,11 @@ class DeviceDocumentPicker implements DocumentPicker {
         WarpParams(
           imageBytes: rawBytes,
           corners: corners,
-          mode: ScanEnhancementMode.enhanced,
+          // A failed detection must not apply an arbitrary inset or destructive
+          // enhancement. Keep the full normalized capture in headless flows.
+          mode: corners.isAutoDetected
+              ? ScanEnhancementMode.enhanced
+              : ScanEnhancementMode.original,
         ),
       );
       final tempDir = await getTemporaryDirectory();
@@ -162,7 +171,9 @@ class DeviceDocumentPicker implements DocumentPicker {
 
     final processedFile = File(processedPath);
     if (!await processedFile.exists()) {
-      throw const FileSystemException('The scanned document could not be found.');
+      throw const FileSystemException(
+        'The scanned document could not be found.',
+      );
     }
 
     final sizeBytes = await processedFile.length();
