@@ -361,6 +361,168 @@ class ClassicalCvEngine {
     return compute(detectCorners, imageBytes);
   }
 
+  /// Detects document in still image, using an optional live-tracking hint quad
+  /// as a bounded ROI seed. The still detector always runs independently; the
+  /// hint only assists when still detection is slightly weaker or agrees within
+  /// tolerance.
+  ///
+  /// Cases:
+  /// 1. Still confident + agrees with live hint (or no hint): use still corners
+  ///    (high-resolution evidence is authoritative).
+  /// 2. Still not confident + live hint corroborated by high-res boundary edges
+  ///    and interior/exterior contrast: use corroborated corners.
+  /// 3. Still confident + strongly disagrees with live hint: do not force an
+  ///    uncertain crop; fall back to full image for manual review.
+  /// 4. Still not confident + no corroborating high-res evidence (stale hint):
+  ///    fall back to full image.
+  static Future<DocumentCorners> detectCornersWithHintAsync(
+    Uint8List imageBytes, {
+    DocumentCorners? liveHint,
+  }) {
+    return compute(
+      _detectCornersWithHint,
+      _DetectWithHintParams(imageBytes, liveHint),
+    );
+  }
+
+  /// Synchronous entry point for [detectCornersWithHintAsync].
+  static DocumentCorners detectCornersWithHint(
+    Uint8List imageBytes, {
+    DocumentCorners? liveHint,
+  }) => _detectCornersWithHint(_DetectWithHintParams(imageBytes, liveHint));
+
+  static DocumentCorners _detectCornersWithHint(_DetectWithHintParams p) {
+    final stillResult = detectDocument(p.imageBytes);
+    final hint = p.liveHint;
+    if (hint == null || !hint.isAutoDetected) {
+      return stillResult.corners;
+    }
+    final hintList = hint.toList();
+    final validHint = hintList.every(
+      (pt) =>
+          !pt.dx.isNaN &&
+          !pt.dy.isNaN &&
+          pt.dx >= 0.0 &&
+          pt.dx <= 1.0 &&
+          pt.dy >= 0.0 &&
+          pt.dy <= 1.0,
+    );
+    if (!validHint) {
+      return stillResult.corners;
+    }
+
+    if (stillResult.isConfident) {
+      final stillList = stillResult.corners.toList();
+      final maxCornerDelta = List.generate(
+        4,
+        (i) => (stillList[i] - hintList[i]).distance,
+      ).reduce(math.max);
+      if (maxCornerDelta <= 0.18) {
+        // Case 1: High-res detection agrees with live quad — prefer high-res.
+        return stillResult.corners;
+      }
+      // Case 3: Live and high-res strongly disagree — safe full-image fallback.
+      return DocumentCorners.fullImage();
+    }
+
+    // Case 2 / Case 4: Standalone still detection was not confident; verify
+    // whether high-res boundary evidence corroborates the live hint.
+    final decoded = img.decodeImage(p.imageBytes);
+    if (decoded == null) return DocumentCorners.fullImage();
+    final oriented = _normalizeOrientation(decoded);
+    const maxDimension = 800;
+    final scale = math.min(
+      1.0,
+      maxDimension / math.max(oriented.width, oriented.height),
+    );
+    final w = math.max(1, (oriented.width * scale).round());
+    final h = math.max(1, (oriented.height * scale).round());
+    if (w < 50 || h < 50) return DocumentCorners.fullImage();
+    final analysisImage = scale < 1.0
+        ? img.copyResize(oriented, width: w, height: h)
+        : oriented;
+    final gray = Uint8List(w * h);
+    for (var y = 0; y < h; y++) {
+      for (var x = 0; x < w; x++) {
+        final p2 = analysisImage.getPixel(x, y);
+        gray[y * w + x] = (0.299 * p2.r + 0.587 * p2.g + 0.114 * p2.b)
+            .round()
+            .clamp(0, 255);
+      }
+    }
+    final blurred = _applyGaussian5x5(gray, w, h);
+    final gradients = _computeSobelGradients(blurred, w, h);
+    if (gradients.maxMag <= 0) return DocumentCorners.fullImage();
+    final nms = _applyNonMaxSuppression(gradients, w, h);
+    final edges = _applyHysteresis(nms, w, h);
+
+    final quadPixels = hintList
+        .map((pt) => Offset(pt.dx * (w - 1), pt.dy * (h - 1)))
+        .toList();
+    if (!_isValidDocumentQuad(quadPixels, w, h)) {
+      return DocumentCorners.fullImage();
+    }
+
+    final sideSupports = <double>[];
+    var contrastSum = 0.0;
+    var contrastCount = 0;
+    final gradFloor = math.max(18.0, gradients.maxMag * 0.14);
+
+    for (var side = 0; side < 4; side++) {
+      final a = quadPixels[side];
+      final b = quadPixels[(side + 1) % 4];
+      final delta = b - a;
+      final dist = delta.distance;
+      if (dist < 12) return DocumentCorners.fullImage();
+      final normal = Offset(-delta.dy, delta.dx) / dist;
+      var hits = 0;
+      const samples = 40;
+      for (var i = 0; i < samples; i++) {
+        final t = 0.05 + 0.90 * i / (samples - 1);
+        final px = a.dx + delta.dx * t;
+        final py = a.dy + delta.dy * t;
+        var hit = false;
+        for (var dy = -4; dy <= 4 && !hit; dy++) {
+          for (var dx = -4; dx <= 4; dx++) {
+            final ex = px.round() + dx;
+            final ey = py.round() + dy;
+            if (ex >= 0 && ex < w && ey >= 0 && ey < h) {
+              final idx = ey * w + ex;
+              if (edges[idx] != 0 || gradients.mag[idx] >= gradFloor) {
+                hit = true;
+                break;
+              }
+            }
+          }
+        }
+        if (hit) hits++;
+
+        final inside = Offset(px, py) + normal * 5;
+        final outside = Offset(px, py) - normal * 5;
+        bool inBounds(Offset v) =>
+            v.dx >= 0 && v.dx < w && v.dy >= 0 && v.dy < h;
+        if (inBounds(inside) && inBounds(outside)) {
+          final inVal = blurred[inside.dy.floor() * w + inside.dx.floor()];
+          final outVal = blurred[outside.dy.floor() * w + outside.dx.floor()];
+          contrastSum += (inVal - outVal).abs();
+          contrastCount++;
+        }
+      }
+      sideSupports.add(hits / samples);
+    }
+
+    final avgSupport = sideSupports.reduce((a, b) => a + b) / 4;
+    final weakestSupport = sideSupports.reduce(math.min);
+    final avgContrast = contrastCount > 0 ? contrastSum / contrastCount : 0.0;
+
+    if (avgSupport >= 0.55 && weakestSupport >= 0.35 && avgContrast >= 8.0) {
+      return DocumentCorners.fromList(ClassicalCvEngine.orderCorners(hintList));
+    }
+
+    // Case 4: No valid high-res boundary evidence (stale live quad rejected).
+    return DocumentCorners.fullImage();
+  }
+
   /// Warps the perspective of the document using projective homography and applies deterministic enhancement.
   ///
   /// Processes the full-resolution source image using the 4 normalized corners.
@@ -1217,13 +1379,16 @@ class ClassicalCvEngine {
     }
   }
 
-  /// Contrast stretch (1st and 99th percentile dynamic range mapping) + conservative unsharp mask.
+  /// Contrast stretch (2nd and 98th percentile) + adaptive unsharp mask.
+  /// Luminance-only percentile analysis preserves hue; per-channel stretch
+  /// keeps colored certificate headings and seals intact.
+  /// Sharpening is attenuated for screenshot-like / high-frequency content.
   static img.Image _contrastStretchAndSharpen(img.Image src) {
     final w = src.width;
     final h = src.height;
     final total = w * h;
 
-    // 1. Build luminance histogram
+    // 1. Build luminance histogram for percentile analysis only.
     final hist = Int32List(256);
     for (var y = 0; y < h; y++) {
       for (var x = 0; x < w; x++) {
@@ -1236,15 +1401,15 @@ class ClassicalCvEngine {
       }
     }
 
-    // Find 1st percentile and 99th percentile
-    final count1 = (total * 0.01).round();
-    final count99 = (total * 0.99).round();
+    // 2nd/98th percentile (more robust than 1st/99th for noisy sensor captures).
+    final count2 = (total * 0.02).round();
+    final count98 = (total * 0.98).round();
 
     var acc = 0;
     var yMin = 0;
     for (var i = 0; i < 256; i++) {
       acc += hist[i];
-      if (acc >= count1) {
+      if (acc >= count2) {
         yMin = i;
         break;
       }
@@ -1254,7 +1419,7 @@ class ClassicalCvEngine {
     var yMax = 255;
     for (var i = 0; i < 256; i++) {
       acc += hist[i];
-      if (acc >= count99) {
+      if (acc >= count98) {
         yMax = i;
         break;
       }
@@ -1267,7 +1432,7 @@ class ClassicalCvEngine {
 
     final out = img.Image(width: w, height: h);
 
-    // Apply linear contrast stretch
+    // Apply linear contrast stretch per channel.
     for (var y = 0; y < h; y++) {
       for (var x = 0; x < w; x++) {
         final p = src.getPixel(x, y);
@@ -1278,7 +1443,36 @@ class ClassicalCvEngine {
       }
     }
 
-    // 2. Conservative unsharp mask (sharpening kernel: center 5, cross -1)
+    // 3. Estimate local variance to detect screenshot / moiré content.
+    // Sample a 16x16 grid of 8x8 blocks; compute average luminance variance.
+    double totalVariance = 0;
+    var blockCount = 0;
+    const blockSize = 8;
+    final gridStep = math.max(blockSize, w ~/ 16);
+    for (var blockY = 0; blockY + blockSize < h; blockY += gridStep) {
+      for (var blockX = 0; blockX + blockSize < w; blockX += gridStep) {
+        var sum = 0.0, sumSq = 0.0;
+        var n = 0;
+        for (var dy = 0; dy < blockSize; dy++) {
+          for (var dx = 0; dx < blockSize; dx++) {
+            final p = out.getPixel(blockX + dx, blockY + dy);
+            final lum = 0.299 * p.r + 0.587 * p.g + 0.114 * p.b;
+            sum += lum;
+            sumSq += lum * lum;
+            n++;
+          }
+        }
+        final mean = sum / n;
+        totalVariance += sumSq / n - mean * mean;
+        blockCount++;
+      }
+    }
+    final avgVariance = blockCount > 0 ? totalVariance / blockCount : 0.0;
+    // High local variance (> 800) suggests screenshot-like or moiré content;
+    // attenuate sharpening to avoid ringing/aliasing.
+    final sharpenStrength = avgVariance > 800 ? 0.18 : 0.28;
+
+    // 4. Conservative unsharp mask (sharpening kernel: center + cross neighbours).
     final sharpened = img.Image(width: w, height: h);
     for (var y = 0; y < h; y++) {
       final ym1 = math.max(0, y - 1);
@@ -1294,14 +1488,13 @@ class ClassicalCvEngine {
         final left = out.getPixel(xm1, y);
         final right = out.getPixel(xp1, y);
 
-        // Subtle boost: original + 0.3 * (original - blur)
         final blurR = (top.r + bot.r + left.r + right.r) * 0.25;
         final blurG = (top.g + bot.g + left.g + right.g) * 0.25;
         final blurB = (top.b + bot.b + left.b + right.b) * 0.25;
 
-        final r = (p.r + 0.35 * (p.r - blurR)).round().clamp(0, 255);
-        final g = (p.g + 0.35 * (p.g - blurG)).round().clamp(0, 255);
-        final b = (p.b + 0.35 * (p.b - blurB)).round().clamp(0, 255);
+        final r = (p.r + sharpenStrength * (p.r - blurR)).round().clamp(0, 255);
+        final g = (p.g + sharpenStrength * (p.g - blurG)).round().clamp(0, 255);
+        final b = (p.b + sharpenStrength * (p.b - blurB)).round().clamp(0, 255);
 
         sharpened.setPixelRgb(x, y, r, g, b);
       }
@@ -1391,6 +1584,12 @@ class ClassicalCvEngine {
 
     return out;
   }
+}
+
+class _DetectWithHintParams {
+  const _DetectWithHintParams(this.imageBytes, this.liveHint);
+  final Uint8List imageBytes;
+  final DocumentCorners? liveHint;
 }
 
 class _SobelResult {

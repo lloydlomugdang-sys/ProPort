@@ -168,4 +168,182 @@ void main() {
     );
     expect(controller.stable, isFalse);
   });
+  test(
+    'exceptionally strong candidate (confidence >= 0.95) becomes stable in 2 frames',
+    () async {
+      var now = 0;
+      final controller = LiveScanController(
+        clock: () => now,
+        detector: (_) async => DocumentDetection(
+          corners: DocumentCorners.fromList(const [
+            Offset(.15, .15),
+            Offset(.75, .15),
+            Offset(.75, .85),
+            Offset(.15, .85),
+          ]),
+          confidence: 0.96,
+          edgeSupport: 0.95,
+          weakestSideSupport: 0.92,
+          areaFraction: 0.5,
+          ambiguous: false,
+        ),
+      );
+      addTearDown(controller.dispose);
+      // 1st frame: first observation, _consistent = 1
+      await controller.process(frame, geometry);
+      now += 200;
+      expect(controller.stable, isFalse);
+      // 2nd frame: tight quad, _consistent = 2 → stable (strong detection)
+      await controller.process(frame, geometry);
+      expect(controller.stable, isTrue);
+    },
+  );
+  test(
+    'weak candidate (confidence < 0.88) still requires 3 consistent frames',
+    () async {
+      var now = 0;
+      final controller = LiveScanController(
+        clock: () => now,
+        detector: (_) async => DocumentDetection(
+          corners: DocumentCorners.fromList(const [
+            Offset(.15, .15),
+            Offset(.75, .15),
+            Offset(.75, .85),
+            Offset(.15, .85),
+          ]),
+          confidence: 0.80,
+          edgeSupport: 0.78,
+          weakestSideSupport: 0.72,
+          areaFraction: 0.45,
+          ambiguous: false,
+        ),
+      );
+      addTearDown(controller.dispose);
+      await controller.process(frame, geometry);
+      now += 200;
+      expect(controller.stable, isFalse);
+      await controller.process(frame, geometry);
+      now += 200;
+      expect(controller.stable, isFalse); // Only 2 frames — still not ready
+      await controller.process(frame, geometry);
+      expect(controller.stable, isTrue); // 3rd frame → ready
+    },
+  );
+  test(
+    'loose-but-not-large jitter frame resets _consistent to 1 not 0',
+    () async {
+      var now = 0;
+      var shift = 0.0;
+      final controller = LiveScanController(
+        clock: () => now,
+        detector: (_) async => DocumentDetection(
+          corners: DocumentCorners.fromList([
+            Offset(.15 + shift, .15),
+            Offset(.75 + shift, .15),
+            Offset(.75 + shift, .85),
+            Offset(.15 + shift, .85),
+          ]),
+          confidence: 0.91,
+          edgeSupport: 0.90,
+          weakestSideSupport: 0.85,
+          areaFraction: 0.5,
+          ambiguous: false,
+        ),
+      );
+      addTearDown(controller.dispose);
+      // Build up 2 consistent frames
+      await controller.process(frame, geometry);
+      now += 200;
+      await controller.process(frame, geometry);
+      now += 200;
+      expect(controller.debugStabilizationCount, 2);
+      // Now inject a slightly loose jitter (distance > 0.035 but < 0.12)
+      shift = 0.06;
+      await controller.process(frame, geometry);
+      now += 200;
+      // _consistent should be 1 (not 0) — jitter frame is "1 confirmed observation"
+      expect(controller.debugStabilizationCount, 1);
+      expect(controller.stable, isFalse);
+    },
+  );
+  test('adaptive interval is 120 ms minimum instead of 350 ms', () {
+    final controller = LiveScanController(
+      clock: () => 0,
+      detector: (_) async => detection(),
+    );
+    addTearDown(controller.dispose);
+    // When last processing was fast, floor is 120 ms
+    expect(controller.intervalMilliseconds, 120);
+    // When processing was slow (300 ms), interval = 300 + 50 = 350 ms
+    controller.lastProcessingMilliseconds = 300;
+    expect(controller.intervalMilliseconds, 350);
+    // When processing was very slow (1500 ms), interval = 1500 + 50 = 1550 ms
+    controller.lastProcessingMilliseconds = 1500;
+    expect(controller.intervalMilliseconds, 1550);
+  });
+  test(
+    'one noisy frame does not reset stable tracking; real movement causes reacquisition and oriented hint maps rotation',
+    () async {
+      var now = 0;
+      var shift = 0.0;
+      final controller = LiveScanController(
+        clock: () => now,
+        detector: (_) async => DocumentDetection(
+          corners: DocumentCorners.fromList([
+            Offset(.15 + shift, .15),
+            Offset(.75 + shift, .15),
+            Offset(.75 + shift, .85),
+            Offset(.15 + shift, .85),
+          ]),
+          confidence: 0.91,
+          edgeSupport: 0.90,
+          weakestSideSupport: 0.85,
+          areaFraction: 0.5,
+          ambiguous: false,
+        ),
+      );
+      addTearDown(controller.dispose);
+      const rotatedGeometry = ScanPreviewGeometry(
+        frameSize: Size(100, 100),
+        clockwiseQuarterTurns: 1,
+      );
+
+      // Reach stable state (3 consistent frames)
+      for (var i = 0; i < 3; i++) {
+        await controller.process(frame, rotatedGeometry);
+        now += 200;
+      }
+      expect(controller.stable, isTrue);
+      expect(controller.stableOrientedCorners, isNotNull);
+      expect(controller.stableOrientedCorners!.isAutoDetected, isTrue);
+
+      // Single moderate noisy frame (distance 0.05 <= 0.08): hysteresis keeps stable = true
+      shift = 0.05;
+      await controller.process(frame, rotatedGeometry);
+      now += 200;
+      expect(controller.stable, isTrue);
+
+      // Real document movement (distance > 0.12) requires reacquisition
+      shift = 0.22;
+      await controller.process(frame, rotatedGeometry);
+      now += 200;
+      expect(
+        controller.stable,
+        isFalse,
+      ); // 1st frame at new position: isolated jump ignored
+      await controller.process(frame, rotatedGeometry);
+      now += 200;
+      expect(
+        controller.stable,
+        isFalse,
+      ); // 2nd frame confirms new position (_consistent = 1)
+      expect(controller.debugStabilizationCount, 1);
+      await controller.process(frame, rotatedGeometry);
+      now += 200;
+      expect(controller.stable, isFalse); // _consistent = 2
+      await controller.process(frame, rotatedGeometry);
+      now += 200;
+      expect(controller.stable, isTrue); // _consistent = 3 -> reacquired!
+    },
+  );
 }

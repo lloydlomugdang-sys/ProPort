@@ -344,4 +344,168 @@ void main() {
     expect(output.getPixel(40, 60).r, lessThan(output.getPixel(40, 30).r));
     expect(math.min(output.width, output.height), greaterThan(0));
   });
+  test(
+    'live/high-resolution quad agreement uses authoritative high-resolution corners',
+    () async {
+      final photo = scannerPhoto(width: 400, height: 320);
+      final bytes = scannerBytes(photo);
+      // Slightly shifted live hint within agreement tolerance
+      final hint = DocumentCorners.fromList(const [
+        Offset(.18, .15),
+        Offset(.82, .15),
+        Offset(.82, .85),
+        Offset(.18, .85),
+      ]);
+      final result = await ClassicalCvEngine.detectCornersWithHintAsync(
+        bytes,
+        liveHint: hint,
+      );
+      expect(result.isAutoDetected, isTrue);
+      // Authoritative high-res corners are near (.15, .12), not stuck at (.18, .15)
+      expect(
+        (result.topLeft - const Offset(.15, .12)).distance,
+        lessThan(.025),
+      );
+    },
+  );
+  test(
+    'mild disagreement / ambiguous still is assisted by corroborated live hint',
+    () async {
+      // Two plausible rectangles cause standalone still detection to be ambiguous/unconfident
+      final photo = scannerPhoto(width: 600, height: 400, paper: 45);
+      for (final x in [30, 330]) {
+        img.fillRect(
+          photo,
+          x1: x,
+          y1: 40,
+          x2: x + 240,
+          y2: 360,
+          color: img.ColorRgb8(230, 230, 230),
+        );
+      }
+      final bytes = scannerBytes(photo);
+      expect(ClassicalCvEngine.detectDocument(bytes).isConfident, isFalse);
+
+      // Live tracking locked onto the left document: [30..270]/600 x [40..360]/400
+      final leftHint = DocumentCorners.fromList(const [
+        Offset(0.05, 0.10),
+        Offset(0.45, 0.10),
+        Offset(0.45, 0.90),
+        Offset(0.05, 0.90),
+      ]);
+      final assisted = await ClassicalCvEngine.detectCornersWithHintAsync(
+        bytes,
+        liveHint: leftHint,
+      );
+      expect(assisted.isAutoDetected, isTrue);
+      expect(
+        (assisted.topLeft - const Offset(0.05, 0.10)).distance,
+        lessThan(0.02),
+      );
+    },
+  );
+  test(
+    'major disagreement between live hint and high-res still safely falls back to full image',
+    () async {
+      final photo = scannerPhoto(width: 400, height: 320);
+      final bytes = scannerBytes(photo);
+      final conflictingHint = DocumentCorners.fromList(const [
+        Offset(.60, .60),
+        Offset(.95, .60),
+        Offset(.95, .95),
+        Offset(.60, .95),
+      ]);
+      final result = await ClassicalCvEngine.detectCornersWithHintAsync(
+        bytes,
+        liveHint: conflictingHint,
+      );
+      expect(result.isAutoDetected, isFalse);
+      expect(result, DocumentCorners.fullImage());
+    },
+  );
+  test(
+    'stale live quad on blank/removed-document still is rejected safely',
+    () async {
+      final blankDesk = scannerPhoto(
+        width: 400,
+        height: 320,
+        paper: 180,
+        background: 180,
+      );
+      final bytes = scannerBytes(blankDesk);
+      final staleHint = DocumentCorners.fromList(rectangle);
+      final result = await ClassicalCvEngine.detectCornersWithHintAsync(
+        bytes,
+        liveHint: staleHint,
+      );
+      expect(result.isAutoDetected, isFalse);
+      expect(result, DocumentCorners.fullImage());
+    },
+  );
+  test(
+    'OCR preprocessing preserves faint text and colored certificate headings',
+    () {
+      final cert = img.Image(width: 240, height: 180);
+      img.fill(cert, color: img.ColorRgb8(242, 240, 235));
+      // Dark body text region (ensures 2nd/98th percentile contrast stretch activates)
+      img.fillRect(
+        cert,
+        x1: 20,
+        y1: 20,
+        x2: 220,
+        y2: 35,
+        color: img.ColorRgb8(30, 30, 30),
+      );
+      // Faint gray text / signature stroke
+      img.fillRect(
+        cert,
+        x1: 20,
+        y1: 60,
+        x2: 220,
+        y2: 72,
+        color: img.ColorRgb8(185, 185, 185),
+      );
+      // Colored blue certificate heading
+      img.fillRect(
+        cert,
+        x1: 20,
+        y1: 95,
+        x2: 120,
+        y2: 120,
+        color: img.ColorRgb8(25, 65, 195),
+      );
+      // Colored red/gold seal
+      img.fillRect(
+        cert,
+        x1: 140,
+        y1: 95,
+        x2: 220,
+        y2: 120,
+        color: img.ColorRgb8(200, 45, 35),
+      );
+
+      final output = img.decodeJpg(
+        ClassicalCvEngine.warpAndEnhance(
+          imageBytes: scannerBytes(cert),
+          corners: DocumentCorners.fullImage(),
+          mode: ScanEnhancementMode.enhanced,
+        ),
+      )!;
+
+      final paperPx = output.getPixel(120, 155);
+      final darkPx = output.getPixel(120, 27);
+      final faintPx = output.getPixel(120, 66);
+      final bluePx = output.getPixel(70, 107);
+      final redPx = output.getPixel(180, 107);
+
+      expect(paperPx.r, greaterThan(225));
+      expect(darkPx.r, lessThan(40));
+      // Faint text remains clearly darker than paper (not washed out to white)
+      expect(faintPx.r, lessThan(paperPx.r - 35));
+      expect(faintPx.r, greaterThan(darkPx.r + 40));
+      // Colored certificate heading and seal preserve hue dominance
+      expect(bluePx.b, greaterThan(bluePx.r + 80));
+      expect(redPx.r, greaterThan(redPx.b + 80));
+    },
+  );
 }

@@ -148,6 +148,9 @@ class _LiveDocumentScannerScreenState extends State<LiveDocumentScannerScreen>
   void _capture() {
     if (!_ready || _capturing || !_wantsCamera) return;
     final epoch = _epoch;
+    // Snapshot the last stable live quad (mapped to upright orientation)
+    // BEFORE resetting the controller.
+    final liveHint = _live.stableOrientedCorners;
     setState(() {
       _capturing = true;
       _error = null;
@@ -165,8 +168,9 @@ class _LiveDocumentScannerScreenState extends State<LiveDocumentScannerScreen>
         // Refine independently from the full still (EXIF normalized, bounded
         // detection, normalized corners back to source resolution). A preview
         // frame is NEVER the OCR source or the authority for the final crop.
-        final corners = await ClassicalCvEngine.detectCornersAsync(
+        final corners = await ClassicalCvEngine.detectCornersWithHintAsync(
           await File(path).readAsBytes(),
+          liveHint: liveHint,
         );
         if (!mounted || !_wantsCamera || epoch != _epoch) return;
         _reviewing = true;
