@@ -21,6 +21,39 @@ class PortfolioInfo {
   final String courseCode;
   final String semesterAndYear;
 
+  static const fieldLabels = {
+    'fullName': 'Full Name',
+    'yearAndSection': 'Year & Section',
+    'schedule': 'Schedule',
+    'instructorName': "Instructor's Name",
+    'course': 'Course',
+    'courseCode': 'Course Code',
+    'semesterAndYear': 'Semester & Academic Year',
+  };
+  static const fieldLimits = {
+    'fullName': 200,
+    'yearAndSection': 100,
+    'schedule': 200,
+    'instructorName': 200,
+    'course': 200,
+    'courseCode': 100,
+    'semesterAndYear': 100,
+  };
+
+  Map<String, String> get validationErrors => {
+    for (final entry in toMap().entries)
+      if ((entry.value as String).trim().isEmpty)
+        entry.key: '${fieldLabels[entry.key]} is required.'
+      else if ((entry.value as String).trim().length > fieldLimits[entry.key]!)
+        entry.key:
+            '${fieldLabels[entry.key]} must be ${fieldLimits[entry.key]} characters or fewer.',
+  };
+
+  Map<String, dynamic> get normalizedMap => {
+    for (final entry in toMap().entries)
+      entry.key: (entry.value as String).trim(),
+  };
+
   String get formattedSchedule => PortfolioSchedule.displayValue(schedule);
 
   factory PortfolioInfo.fromJson(Map<String, dynamic> json) {

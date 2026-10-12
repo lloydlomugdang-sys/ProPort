@@ -31,6 +31,9 @@ class _Auth extends AuthService {
   Completer<void>? pendingSave;
   bool failLoad = false;
   bool failSave = false;
+  Object? loadError;
+  bool templateReady = true;
+  bool malformed = false;
   int posts = 0;
   Map<String, dynamic>? lastBody;
 
@@ -55,6 +58,8 @@ class _Auth extends AuthService {
 
   @override
   Future<Map<String, dynamic>> authenticatedGetJson(String path) async {
+    if (loadError != null) throw loadError!;
+    if (malformed) return {'data': 'invalid'};
     if (failLoad) {
       throw const ApiException(code: 'UNAVAILABLE', message: 'Test failure');
     }
@@ -62,7 +67,7 @@ class _Auth extends AuthService {
     if (pendingRead != null) return pendingRead!.future;
     return _envelope({
       'report': reports[owner],
-      'templateReady': true,
+      'templateReady': templateReady,
       'hasLegacyReport': false,
     });
   }
@@ -103,6 +108,114 @@ Widget _app(
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
   GoogleFonts.config.allowRuntimeFetching = false;
+
+  for (final entry in <(String, int?, String)>[
+    ('ROUTE_NOT_FOUND', 404, 'not available on this server'),
+    ('UNAUTHORIZED', 401, 'session could not be verified'),
+    ('FORBIDDEN', 403, 'session could not be verified'),
+    ('COLLEGE_REPORT_NOT_CONFIGURED', 503, 'not configured'),
+    ('COLLEGE_REPORT_UNAVAILABLE', 503, 'temporarily unavailable'),
+    ('INTERNAL_ERROR', 500, 'unexpected College Report error'),
+    ('COLD_START_TIMEOUT', null, 'may be waking up'),
+    ('NETWORK_TIMEOUT', null, 'took too long'),
+    ('NETWORK_OFFLINE', null, 'Network unavailable'),
+    ('NETWORK_ERROR', null, 'Network unavailable'),
+    ('INVALID_RESPONSE', 200, 'unexpected response'),
+    ('RATE_LIMITED', 429, 'Too many requests'),
+  ]) {
+    test('College Report safely distinguishes ${entry.$1}', () async {
+      final auth = _Auth()
+        ..loadError = ApiException(
+          code: entry.$1,
+          statusCode: entry.$2,
+          message: 'private provider details',
+        );
+      final service = CollegeReportService(authService: auth);
+      await service.load();
+      expect(service.loaded, isFalse);
+      expect(service.errorMessage, contains(entry.$3));
+      expect(service.errorMessage, isNot(contains('private provider')));
+      auth.loadError = null;
+      await service.load(force: true);
+      expect(service.loaded, isTrue);
+      expect(service.errorMessage, isNull);
+      service.dispose();
+      auth.dispose();
+    });
+  }
+
+  test('malformed response is not misreported as network failure', () async {
+    final auth = _Auth()..malformed = true;
+    final service = CollegeReportService(authService: auth);
+    await service.load();
+    expect(service.errorMessage, contains('unexpected response'));
+    expect(service.loaded, isFalse);
+    service.dispose();
+    auth.dispose();
+  });
+
+  testWidgets(
+    'unconfigured template retry preserves a draft and then permits save',
+    (tester) async {
+      final auth = _Auth()..templateReady = false;
+      final service = CollegeReportService(authService: auth);
+      await service.load();
+      service.answer('s01-q01', 'often');
+      service.setEssay('Keep my unsaved essay');
+      final revision = service.draftRevision;
+      await tester.pumpWidget(_app(service));
+      expect(find.textContaining('not configured yet'), findsOneWidget);
+      expect(await service.save(), isFalse);
+      expect(auth.posts, 0);
+      auth.templateReady = true;
+      await tester.tap(find.text('Retry'));
+      await tester.pumpAndSettle();
+      expect(service.templateReady, isTrue);
+      expect(service.draftRevision, revision);
+      expect(service.essay, 'Keep my unsaved essay');
+      expect(service.answers['s01-q01'], 'often');
+      expect(service.dirty, isTrue);
+      expect(await service.save(), isTrue);
+      expect(auth.reports[auth.owner]!['essay'], 'Keep my unsaved essay');
+      await tester.pumpWidget(const SizedBox());
+      service.dispose();
+      auth.dispose();
+    },
+  );
+
+  test(
+    'failed and in-flight retries preserve saved answers and newer edits',
+    () async {
+      final auth = _Auth();
+      final service = CollegeReportService(authService: auth);
+      await service.load();
+      service.answer('s04-q01', 6);
+      service.setEssay('Saved essay');
+      await service.save();
+      auth.failLoad = true;
+      await service.load(force: true);
+      expect(service.answers['s04-q01'], 6);
+      expect(service.essay, 'Saved essay');
+      expect(service.saved!.essay, 'Saved essay');
+      auth.failLoad = false;
+      auth.pendingRead = Completer<Map<String, dynamic>>();
+      final retry = service.load(force: true);
+      service.setEssay('Edit while retry is in flight');
+      auth.pendingRead!.complete(
+        _envelope({
+          'report': auth.reports[auth.owner],
+          'templateReady': true,
+          'hasLegacyReport': false,
+        }),
+      );
+      await retry;
+      expect(service.essay, 'Edit while retry is in flight');
+      expect(service.answers['s04-q01'], 6);
+      expect(service.dirty, isTrue);
+      service.dispose();
+      auth.dispose();
+    },
+  );
 
   test(
     'complete contract parses all source groups and distinct typed scales',

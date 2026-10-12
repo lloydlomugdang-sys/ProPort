@@ -175,6 +175,6 @@ describe('College Report authenticated persistence (disposable local database on
     await models.ReportTemplate.deleteOne({ key: 'college-report', version: 2 });
     const missing = await app.inject({ method: 'POST', url: `${path}/me`, headers, payload: { questionnaireVersion: 2, answers: [] } });
     expect(missing.statusCode).toBe(503);
-    expect(missing.json().error.code).toBe('COLLEGE_REPORT_UNAVAILABLE');
+    expect(missing.json().error.code).toBe('COLLEGE_REPORT_NOT_CONFIGURED');
   });
 });

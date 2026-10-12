@@ -42,6 +42,9 @@ const REQUIRED_FIELDS = new Set<keyof PortfolioInput>([
   'yearAndSection',
   'schedule',
   'instructorName',
+  'course',
+  'courseCode',
+  'semesterAndYear',
 ]);
 
 const NOT_FOUND = new AppError(
@@ -65,7 +68,7 @@ function normalizeField<Key extends keyof PortfolioInput>(key: Key, value: strin
   return normalized;
 }
 
-function normalizeInput(input: PortfolioInput): PortfolioInput {
+export function normalizePortfolioInput(input: PortfolioInput): PortfolioInput {
   return {
     fullName: normalizeField('fullName', input.fullName),
     yearAndSection: normalizeField('yearAndSection', input.yearAndSection),
@@ -126,9 +129,11 @@ export class PortfolioService {
     let info: PortfolioExportInfo;
     if ('portfolioId' in target) {
       const stored = await this.get(ownerId, target.portfolioId);
-      info = stored;
+      // Legacy incomplete records remain readable/editable, but cannot produce
+      // a new artifact until the student supplies all title-page facts.
+      info = normalizePortfolioInput(stored);
     } else {
-      info = normalizeInput(target);
+      info = normalizePortfolioInput(target);
     }
     const generator = new PortfolioGeneratorService(this.database, this.storage);
     const pdfBytes = await generator.generate(ownerId, info);
@@ -139,7 +144,7 @@ export class PortfolioService {
   async create(ownerId: Types.ObjectId, input: PortfolioInput): Promise<PublicPortfolio> {
     const created = await this.repositories().portfolios.create({
       ownerId,
-      ...normalizeInput(input),
+      ...normalizePortfolioInput(input),
     });
     return publicPortfolio(created);
   }

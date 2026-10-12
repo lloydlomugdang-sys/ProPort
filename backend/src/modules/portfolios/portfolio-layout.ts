@@ -37,19 +37,33 @@ export const TEXT_LINES_PER_PAGE = Math.floor(
 /** Wrap paragraphs and even unbroken words by measured font width; never ellipsize. */
 export function wrapPortfolioText(text: string, font: PDFFont, width = CONTENT_WIDTH): string[] {
   const lines: string[] = [];
+  // Standard-font metrics include kerning; drawText emits individual glyph
+  // advances. Reserve the larger width so actual output stays within margins.
+  const glyphWidths = new Map<string, number>();
+  const measuredWidth = (value: string) => Math.max(
+    font.widthOfTextAtSize(value, PORTFOLIO_LAYOUT.bodySize),
+    [...value].reduce((total, character) => {
+      let advance = glyphWidths.get(character);
+      if (advance === undefined) {
+        advance = font.widthOfTextAtSize(character, PORTFOLIO_LAYOUT.bodySize);
+        glyphWidths.set(character, advance);
+      }
+      return total + advance;
+    }, 0),
+  );
   try {
     for (const paragraph of text.replaceAll('\r\n', '\n').replaceAll('\r', '\n').split('\n')) {
       let line = '';
       for (const word of paragraph.split(/\s+/).filter(Boolean)) {
         const candidate = line ? `${line} ${word}` : word;
-        if (font.widthOfTextAtSize(candidate, PORTFOLIO_LAYOUT.bodySize) <= width) {
+        if (measuredWidth(candidate) <= width) {
           line = candidate;
           continue;
         }
         if (line) lines.push(line);
         line = '';
         for (const character of word) {
-          if (line && font.widthOfTextAtSize(line + character, PORTFOLIO_LAYOUT.bodySize) > width) {
+          if (line && measuredWidth(line + character) > width) {
             lines.push(line);
             line = '';
           }

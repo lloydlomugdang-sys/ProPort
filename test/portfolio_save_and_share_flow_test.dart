@@ -166,7 +166,8 @@ void main() {
         // Existing "Export Portfolio" text button is also available when format is null
         expect(find.text('Export Portfolio'), findsOneWidget);
         expect(find.text('My Portfolios'), findsOneWidget);
-        expect(find.text('Back'), findsOneWidget);
+        expect(find.text('Back'), findsNothing);
+        expect(find.byIcon(Icons.arrow_back_ios_new), findsOneWidget);
       },
     );
 

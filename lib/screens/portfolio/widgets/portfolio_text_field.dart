@@ -18,6 +18,9 @@ class PortfolioTextField extends StatefulWidget {
     this.textInputAction = TextInputAction.next,
     this.onSubmitted,
     this.maxLines = 1,
+    this.errorText,
+    this.focusNode,
+    this.onChanged,
   });
 
   final TextEditingController controller;
@@ -28,6 +31,9 @@ class PortfolioTextField extends StatefulWidget {
   final TextInputAction textInputAction;
   final ValueChanged<String>? onSubmitted;
   final int maxLines;
+  final String? errorText;
+  final FocusNode? focusNode;
+  final ValueChanged<String>? onChanged;
 
   @override
   State<PortfolioTextField> createState() => _PortfolioTextFieldState();
@@ -43,7 +49,7 @@ class _PortfolioTextFieldState extends State<PortfolioTextField>
   @override
   void initState() {
     super.initState();
-    _focusNode = FocusNode();
+    _focusNode = widget.focusNode ?? FocusNode();
     _borderCtrl = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 180),
@@ -51,10 +57,7 @@ class _PortfolioTextFieldState extends State<PortfolioTextField>
     _borderColor = ColorTween(
       begin: AppColors.cardBorder,
       end: AppColors.primary,
-    ).animate(CurvedAnimation(
-      parent: _borderCtrl,
-      curve: Curves.easeOut,
-    ));
+    ).animate(CurvedAnimation(parent: _borderCtrl, curve: Curves.easeOut));
     _focusNode.addListener(_onFocus);
   }
 
@@ -66,7 +69,7 @@ class _PortfolioTextFieldState extends State<PortfolioTextField>
   @override
   void dispose() {
     _focusNode.removeListener(_onFocus);
-    _focusNode.dispose();
+    if (widget.focusNode == null) _focusNode.dispose();
     _borderCtrl.dispose();
     super.dispose();
   }
@@ -127,6 +130,7 @@ class _PortfolioTextFieldState extends State<PortfolioTextField>
               keyboardType: widget.keyboardType,
               textInputAction: widget.textInputAction,
               onSubmitted: widget.onSubmitted,
+              onChanged: widget.onChanged,
               maxLines: widget.maxLines,
               style: GoogleFonts.poppins(
                 fontSize: 14,
@@ -149,6 +153,14 @@ class _PortfolioTextFieldState extends State<PortfolioTextField>
             ),
           ),
         ),
+        if (widget.errorText != null)
+          Padding(
+            padding: const EdgeInsets.only(top: 6),
+            child: Text(
+              widget.errorText!,
+              style: const TextStyle(color: AppColors.danger, fontSize: 12),
+            ),
+          ),
       ],
     );
   }

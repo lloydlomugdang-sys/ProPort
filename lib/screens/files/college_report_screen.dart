@@ -51,7 +51,7 @@ class _CollegeReportScreenState extends State<CollegeReportScreen> {
                           child: Text(service.errorMessage!),
                         ),
                         TextButton(
-                          onPressed: service.load,
+                          onPressed: () => service.load(force: true),
                           child: const Text('Retry'),
                         ),
                       ],
@@ -78,12 +78,20 @@ class _CollegeReportScreenState extends State<CollegeReportScreen> {
                         'Your earlier six-question report is retained separately. Please complete this official questionnaire; old answers have not been mapped.',
                       ),
                     ),
+                  if (service.isLoading) const LinearProgressIndicator(),
                   if (!service.templateReady)
                     const Padding(
                       padding: EdgeInsets.only(top: 12),
                       child: Text(
-                        'The official template needs backend initialization before saving. Please contact support.',
+                        'College Report is not configured yet. Please contact support. Your answers are still here; retry after setup is complete.',
                       ),
+                    ),
+                  if (!service.templateReady)
+                    TextButton(
+                      onPressed: service.isLoading || service.isSaving
+                          ? null
+                          : () => service.load(force: true),
+                      child: const Text('Retry'),
                     ),
                   const SizedBox(height: 16),
                   for (final section in service.template!.sections)

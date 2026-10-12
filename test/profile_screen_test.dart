@@ -6,6 +6,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:proport_app/screens/profile/profile_screen.dart';
+import 'package:proport_app/screens/settings/settings_screen.dart';
 import 'package:proport_app/services/api_client.dart';
 import 'package:proport_app/services/auth_models.dart';
 import 'package:proport_app/services/auth_scope.dart';
@@ -14,6 +15,32 @@ import 'package:proport_app/services/secure_token_store.dart';
 import 'package:proport_app/services/profile_options.dart';
 
 void main() {
+  testWidgets(
+    'Profile owns editing; Settings retains security and logout, not duplicate editing',
+    (tester) async {
+      final auth = _FakeAuthService(user: _user());
+      await tester.pumpWidget(_testApp(auth));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byTooltip('Edit profile'));
+      await tester.pumpAndSettle();
+      expect(find.byTooltip('Save profile'), findsOneWidget);
+      await tester.binding.handlePopRoute();
+      await tester.pumpAndSettle();
+      expect(find.byTooltip('Edit profile'), findsOneWidget);
+      await tester.pumpWidget(
+        AuthScope(
+          authService: auth,
+          child: const MaterialApp(home: SettingsScreen()),
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(find.text('Edit Profile'), findsNothing);
+      expect(find.text('Change Password'), findsOneWidget);
+      expect(find.text('Log out'), findsOneWidget);
+      await tester.pumpWidget(const SizedBox());
+      auth.dispose();
+    },
+  );
   testWidgets(
     'empty profile fields use display-only fallbacks replaced after save',
     (tester) async {

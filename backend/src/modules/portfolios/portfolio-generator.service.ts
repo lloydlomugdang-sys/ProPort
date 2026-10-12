@@ -156,8 +156,15 @@ export class PortfolioGeneratorService {
     const lines = (text: string, bold = false): TextLine[] =>
       wrapPortfolioText(text, bold ? fonts.bold : fonts.regular).map((text) => ({ text, bold, indent: 0 }));
     const addTextPages = (content: readonly TextLine[]) => {
-      for (let i = 0; i < content.length; i += TEXT_LINES_PER_PAGE) {
-        addPage({ kind: 'text', lines: content.slice(i, i + TEXT_LINES_PER_PAGE) });
+      for (let start = 0; start < content.length;) {
+        let end = Math.min(start + TEXT_LINES_PER_PAGE, content.length);
+        if (end < content.length) {
+          // Keep a wrapped heading with the first body line where possible.
+          while (end > start && content[end - 1]!.bold) end--;
+          if (end === start) end = start + TEXT_LINES_PER_PAGE;
+        }
+        addPage({ kind: 'text', lines: content.slice(start, end) });
+        start = end;
       }
     };
     // Pass 1: measure all text and artifact pages using the same fonts as rendering.
@@ -276,6 +283,13 @@ export class PortfolioGeneratorService {
       const indent = entry.level * 12;
       const wrapped = wrapPortfolioText(entry.title, entry.level < 2 ? fonts.bold : fonts.regular,
         CONTENT_WIDTH - indent - 36);
+      const currentToc = tocPages[tocPages.length - 1]!;
+      const rowCapacity = TEXT_LINES_PER_PAGE - 2;
+      const followingLine = entry.level < 2 ? 1 : 0;
+      if (currentToc.length && wrapped.length + followingLine <= rowCapacity &&
+          currentToc.length + wrapped.length + followingLine > rowCapacity) {
+        tocPages.push([]); // Do not strand an ordinary wrapped TOC row across pages.
+      }
       for (const [index, text] of wrapped.entries()) {
         let page = tocPages[tocPages.length - 1]!;
         if (page.length >= TEXT_LINES_PER_PAGE - 2) {

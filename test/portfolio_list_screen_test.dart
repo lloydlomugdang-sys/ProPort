@@ -264,8 +264,17 @@ void main() {
     expect(auth.itemGetCount, 1);
     expect(find.text('Portfolio Preview'), findsOneWidget);
     expect(find.text('Portfolio Student'), findsWidgets);
+    expect(find.text('Back'), findsNothing);
     await tester.tap(find.byIcon(Icons.arrow_back_ios_new));
     await tester.pumpAndSettle();
+    expect(find.byType(PortfolioListScreen), findsOneWidget);
+
+    await tester.tap(find.byKey(const Key('view-portfolio-1')));
+    await tester.pumpAndSettle();
+    await tester.binding.handlePopRoute();
+    await tester.pumpAndSettle();
+    expect(find.byType(PortfolioListScreen), findsOneWidget);
+    expect(find.text('Portfolio Preview'), findsNothing);
 
     await tester.tap(find.byKey(const Key('edit-portfolio-1')));
     await tester.pumpAndSettle();
@@ -307,6 +316,8 @@ void main() {
     await tester.enterText(fields.at(1), '3BSIT-2');
     await tester.enterText(fields.at(2), 'Professor New');
     await tester.enterText(fields.at(3), 'Mobile Development');
+    await tester.enterText(fields.at(4), 'CS401');
+    await tester.enterText(fields.at(5), 'First semester 2026-2027');
 
     await tester.ensureVisible(find.byKey(const Key('schedule-day')));
     await tester.tap(find.byKey(const Key('schedule-day')));

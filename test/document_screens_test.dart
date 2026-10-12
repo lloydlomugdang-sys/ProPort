@@ -90,6 +90,8 @@ void main() {
 
       await tester.tap(find.text('certificate.pdf'));
       await tester.pumpAndSettle();
+      await tester.tap(find.text('Review extracted text'));
+      await tester.pumpAndSettle();
       expect(find.text('Extracted Text'), findsOneWidget);
       expect(find.text('Extract Text'), findsOneWidget);
 
@@ -108,6 +110,8 @@ void main() {
       );
       await tester.pumpAndSettle();
       expect(find.text('Raw certificate text'), findsOneWidget);
+      await tester.drag(find.byType(SnackBar), const Offset(0, 200));
+      await tester.pumpAndSettle();
 
       await tester.enterText(
         find.byKey(const Key('ocr-reviewed-text')),
@@ -118,11 +122,22 @@ void main() {
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 100));
       expect(service.savedText, 'Corrected certificate text');
-      expect(find.text('Text changes saved.'), findsOneWidget);
+      // Both the inline saved state and the confirmation notification appear.
+      expect(find.text('Text changes saved.'), findsNWidgets(2));
+      // Dismiss the confirmed save message before using the next route's
+      // bottom action, just as a user can swipe away the floating SnackBar.
+      await tester.pumpAndSettle();
+      await tester.drag(find.byType(SnackBar), const Offset(0, 200));
+      await tester.pumpAndSettle();
+      expect(find.byType(SnackBar), findsNothing);
 
       await tester.tap(find.byIcon(Icons.arrow_back_ios_new));
       await tester.pumpAndSettle();
+      await tester.tap(find.byIcon(Icons.arrow_back_ios_new));
+      await tester.pumpAndSettle();
       await tester.tap(find.text('certificate.pdf'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Review extracted text'));
       await tester.pumpAndSettle();
       expect(find.text('Corrected certificate text'), findsOneWidget);
 
@@ -145,6 +160,8 @@ void main() {
     await tester.pumpWidget(_app(service, _viewFiles()));
     await tester.pumpAndSettle();
     await tester.tap(find.text('certificate.pdf'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Review extracted text'));
     await tester.pumpAndSettle();
 
     await tester.ensureVisible(find.text('Extract Again'));
@@ -174,6 +191,8 @@ void main() {
     await tester.pumpAndSettle();
     await tester.tap(find.text('certificate.pdf'));
     await tester.pumpAndSettle();
+    await tester.tap(find.text('Review extracted text'));
+    await tester.pumpAndSettle();
     await tester.tap(find.text('Extract Text'));
     await tester.pumpAndSettle();
 
@@ -199,6 +218,8 @@ void main() {
     await tester.pumpWidget(_app(service, _viewFiles()));
     await tester.pumpAndSettle();
     await tester.tap(find.text('certificate.pdf'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Review extracted text'));
     await tester.pumpAndSettle();
     await tester.tap(find.text('Extract Text'));
     await tester.pumpAndSettle();

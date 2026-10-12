@@ -45,6 +45,22 @@ function tocTarget(pages: Awaited<ReturnType<typeof inspect>>, prefix: string) {
 }
 
 describe('official Phase B portfolio formatting', () => {
+  it('measures actual glyph advances so kerning pairs cannot overflow the right margin', async () => {
+    const pages = await inspect(await generate([doc({ title: 'AV'.repeat(90) })]));
+    for (const page of pages) for (const item of page.items.filter((item) => item.str.trim())) {
+      expect(item.transform[4] + item.width).toBeLessThanOrEqual(540.01);
+    }
+  });
+
+  it('keeps a reflection heading with the first reflection line across metadata page breaks', async () => {
+    const pages = await inspect(await generate([doc({
+      description: Array.from({ length: 22 }, (_, n) => `Description line ${n}`).join('\n'),
+      reflection: 'The first reflection line belongs with its heading.',
+    })]));
+    const reflectionPage = pages.find((page) => page.text.includes('Student Reflection'))!;
+    expect(reflectionPage.text).toContain('The first reflection line');
+  });
+
   it('uses the seeded official hierarchy, including Creative Title before TOC and College Report last', async () => {
     const pairs = [
       ['college-report', 'college-report'], ['other-achievements', 'projects'],

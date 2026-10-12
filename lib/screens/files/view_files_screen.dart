@@ -12,6 +12,7 @@ import '../../widgets/grad_app_bar.dart';
 import '../../widgets/search_bar_field.dart';
 import '../../widgets/document_image_preview.dart';
 import 'document_ocr_screen.dart';
+import 'document_pdf_screen.dart';
 import 'college_report_screen.dart';
 
 class ViewFilesScreen extends StatefulWidget {
@@ -223,8 +224,9 @@ class _ViewFilesScreenState extends State<ViewFilesScreen> {
                           onTap: () => Navigator.push(
                             context,
                             MaterialPageRoute<void>(
-                              builder: (_) =>
-                                  DocumentOcrScreen(document: document),
+                              builder: (_) => document.fileKind == 'pdf'
+                                  ? DocumentPdfScreen(document: document)
+                                  : DocumentOcrScreen(document: document),
                             ),
                           ),
                           onDelete: _deleting.contains(document.id)

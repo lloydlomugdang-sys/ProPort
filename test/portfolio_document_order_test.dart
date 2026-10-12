@@ -16,6 +16,9 @@ const _info = PortfolioInfo(
   yearAndSection: 'Fourth Year',
   schedule: 'Monday',
   instructorName: 'Instructor',
+  course: 'Portfolio Studies',
+  courseCode: 'PS401',
+  semesterAndYear: 'First semester 2026-2027',
 );
 
 final _documents = [

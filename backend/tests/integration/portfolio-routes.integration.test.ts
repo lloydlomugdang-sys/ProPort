@@ -297,11 +297,11 @@ describe.sequential('authenticated portfolio API with disposable MongoDB', () =>
       method: 'PATCH',
       url: `/api/v1/portfolios/${portfolioId}`,
       headers: bearer(firstUser.accessToken),
-      payload: { course: '  Updated Course  ', semesterAndYear: '' },
+      payload: { course: '  Updated Course  ', semesterAndYear: 'Updated semester' },
     });
     expect(updated.statusCode).toBe(200);
     expect(updated.json()).toMatchObject({
-      data: { portfolio: { id: portfolioId, course: 'Updated Course', semesterAndYear: '' } },
+      data: { portfolio: { id: portfolioId, course: 'Updated Course', semesterAndYear: 'Updated semester' } },
     });
 
     const persisted = await disposable!.connection.db!
@@ -333,6 +333,37 @@ describe.sequential('authenticated portfolio API with disposable MongoDB', () =>
       payload: { ...portfolioInput, schedule: undefined },
     });
     expectError(missingRequired, 400, 'VALIDATION_ERROR');
+  });
+
+  it('rejects invalid title fields on create, patch and direct PDF generation', async () => {
+    const limits = { fullName: 200, yearAndSection: 100, schedule: 200, instructorName: 200,
+      course: 200, courseCode: 100, semesterAndYear: 100 };
+    for (const [key, limit] of Object.entries(limits)) {
+      for (const value of ['', '   ', 'x'.repeat(limit + 1)]) {
+        for (const url of ['/api/v1/portfolios', '/api/v1/portfolios/export/pdf']) {
+          expectError(await app!.inject({ method: 'POST', url,
+            headers: bearer(firstUser.accessToken), payload: { ...portfolioInput, [key]: value },
+          }), 400, 'VALIDATION_ERROR');
+        }
+        expectError(await app!.inject({ method: 'PATCH', url: `/api/v1/portfolios/${portfolioId}`,
+          headers: bearer(firstUser.accessToken), payload: { [key]: value },
+        }), 400, 'VALIDATION_ERROR');
+      }
+    }
+  });
+
+  it('keeps an incomplete legacy portfolio readable and editable but blocks its PDF export', async () => {
+    const collection = disposable!.connection.db!.collection(COLLECTION_NAMES.portfolios);
+    await collection.updateOne({ _id: new Types.ObjectId(portfolioId) }, { $set: { course: '' } });
+    expect((await app!.inject({ method: 'GET', url: `/api/v1/portfolios/${portfolioId}`,
+      headers: bearer(firstUser.accessToken),
+    })).statusCode).toBe(200);
+    expectError(await app!.inject({ method: 'GET', url: `/api/v1/portfolios/${portfolioId}/export/pdf`,
+      headers: bearer(firstUser.accessToken),
+    }), 400, 'VALIDATION_ERROR');
+    expect((await app!.inject({ method: 'PATCH', url: `/api/v1/portfolios/${portfolioId}`,
+      headers: bearer(firstUser.accessToken), payload: { course: 'Updated Course' },
+    })).statusCode).toBe(200);
   });
 
   it('returns the same safe not-found response for another owner', async () => {

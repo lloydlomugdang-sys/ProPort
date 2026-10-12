@@ -199,7 +199,15 @@ void main() {
         );
 
         final content = PortfolioExportContent(
-          titleFields: {'Full Name': 'Student'},
+          titleFields: {
+            'Full Name': 'Student',
+            'Year & Section': '4-A',
+            'Schedule': 'Monday 8:00 AM - 10:00 AM',
+            "Instructor's Name": 'Instructor',
+            'Course': 'Portfolio Studies',
+            'Course Code': 'PS401',
+            'Semester & Academic Year': 'First semester 2026-2027',
+          },
           totalDocuments: 10,
           sections: const [],
         );
@@ -242,7 +250,15 @@ void main() {
         );
 
         final content = PortfolioExportContent(
-          titleFields: {'Full Name': 'Student'},
+          titleFields: {
+            'Full Name': 'Student',
+            'Year & Section': '4-A',
+            'Schedule': 'Monday 8:00 AM - 10:00 AM',
+            "Instructor's Name": 'Instructor',
+            'Course': 'Portfolio Studies',
+            'Course Code': 'PS401',
+            'Semester & Academic Year': 'First semester 2026-2027',
+          },
           totalDocuments: 1,
           sections: const [],
         );
@@ -277,7 +293,15 @@ void main() {
         );
 
         final content = PortfolioExportContent(
-          titleFields: {'Full Name': 'Student'},
+          titleFields: {
+            'Full Name': 'Student',
+            'Year & Section': '4-A',
+            'Schedule': 'Monday 8:00 AM - 10:00 AM',
+            "Instructor's Name": 'Instructor',
+            'Course': 'Portfolio Studies',
+            'Course Code': 'PS401',
+            'Semester & Academic Year': 'First semester 2026-2027',
+          },
           totalDocuments: 1,
           sections: const [],
         );

@@ -7,8 +7,6 @@ import '../../constants/app_colors.dart';
 import '../../services/auth_scope.dart';
 import '../../widgets/grad_app_bar.dart';
 import '../auth/login_screen.dart';
-import '../profile/edit_profile_screen.dart';
-import '../profile/models/user_profile_model.dart';
 import 'change_password_screen.dart';
 import 'help_center_screen.dart';
 import 'about_screen.dart';
@@ -20,8 +18,6 @@ class SettingsScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final currentUser = AuthScope.of(context).user;
-
     return Scaffold(
       backgroundColor: AppColors.background,
       appBar: const GradAppBar(title: 'Settings'),
@@ -39,30 +35,6 @@ class SettingsScreen extends StatelessWidget {
                   SettingsSection(
                     title: 'Account Settings',
                     children: [
-                      SettingsTile(
-                        icon: Icons.person_outline_rounded,
-                        label: 'Edit Profile',
-                        onTap: () {
-                          if (currentUser == null) {
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              const SnackBar(
-                                content: Text(
-                                  'Your profile is unavailable. Please sign in again.',
-                                ),
-                              ),
-                            );
-                            return;
-                          }
-                          Navigator.push(
-                            context,
-                            _slideRoute(
-                              EditProfileScreen(
-                                profile: UserProfile.fromAuthUser(currentUser),
-                              ),
-                            ),
-                          );
-                        },
-                      ),
                       SettingsTile(
                         icon: Icons.lock_outline_rounded,
                         label: 'Change Password',

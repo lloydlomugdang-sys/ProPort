@@ -3,8 +3,11 @@ import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:printing/printing.dart';
+import 'package:printing/src/interface.dart';
 import 'package:proport_app/screens/auth/login_screen.dart';
 import 'package:proport_app/screens/files/document_ocr_screen.dart';
+import 'package:proport_app/screens/files/document_pdf_screen.dart';
 import 'package:proport_app/screens/files/view_files_screen.dart';
 import 'package:proport_app/screens/portfolio/models/portfolio_models.dart';
 import 'package:proport_app/screens/portfolio/portfolio_preview_screen.dart';
@@ -21,16 +24,97 @@ import 'package:proport_app/widgets/document_pdf_preview.dart';
 import 'package:proport_app/widgets/document_unsupported_preview.dart';
 
 final samplePngBytes = Uint8List.fromList([
-  0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A,
-  0x00, 0x00, 0x00, 0x0D, 0x49, 0x48, 0x44, 0x52,
-  0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01,
-  0x08, 0x06, 0x00, 0x00, 0x00, 0x1F, 0x15, 0xC4,
-  0x89, 0x00, 0x00, 0x00, 0x0A, 0x49, 0x44, 0x41,
-  0x54, 0x78, 0x9C, 0x63, 0x00, 0x01, 0x00, 0x00,
-  0x05, 0x00, 0x01, 0x0D, 0x0A, 0x2D, 0xB4, 0x00,
-  0x00, 0x00, 0x00, 0x49, 0x45, 0x4E, 0x44, 0xAE,
-  0x42, 0x60, 0x82,
+  0x89,
+  0x50,
+  0x4E,
+  0x47,
+  0x0D,
+  0x0A,
+  0x1A,
+  0x0A,
+  0x00,
+  0x00,
+  0x00,
+  0x0D,
+  0x49,
+  0x48,
+  0x44,
+  0x52,
+  0x00,
+  0x00,
+  0x00,
+  0x01,
+  0x00,
+  0x00,
+  0x00,
+  0x01,
+  0x08,
+  0x06,
+  0x00,
+  0x00,
+  0x00,
+  0x1F,
+  0x15,
+  0xC4,
+  0x89,
+  0x00,
+  0x00,
+  0x00,
+  0x0A,
+  0x49,
+  0x44,
+  0x41,
+  0x54,
+  0x78,
+  0x9C,
+  0x63,
+  0x00,
+  0x01,
+  0x00,
+  0x00,
+  0x05,
+  0x00,
+  0x01,
+  0x0D,
+  0x0A,
+  0x2D,
+  0xB4,
+  0x00,
+  0x00,
+  0x00,
+  0x00,
+  0x49,
+  0x45,
+  0x4E,
+  0x44,
+  0xAE,
+  0x42,
+  0x60,
+  0x82,
 ]);
+
+class _SourceRaster extends PdfRaster {
+  _SourceRaster() : super(1, 1, Uint8List(0));
+  @override
+  Future<Uint8List> toPng() async => samplePngBytes;
+}
+
+class _SourcePdfPlatform extends PrintingPlatform {
+  @override
+  Future<PrintingInfo> info() async => const PrintingInfo(canRaster: true);
+  @override
+  Stream<PdfRaster> raster(
+    Uint8List document,
+    List<int>? pages,
+    double dpi,
+  ) async* {
+    yield _SourceRaster();
+  }
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) =>
+      throw UnsupportedError('Unexpected printing operation');
+}
 
 class _MockPdfThumbnailRenderer implements PdfThumbnailRenderer {
   _MockPdfThumbnailRenderer({this.bytesToReturn, this.throwError = false});
@@ -39,7 +123,10 @@ class _MockPdfThumbnailRenderer implements PdfThumbnailRenderer {
   int renderCalls = 0;
 
   @override
-  Future<Uint8List?> renderPage1(Uint8List pdfBytes, {double dpi = 72.0}) async {
+  Future<Uint8List?> renderPage1(
+    Uint8List pdfBytes, {
+    double dpi = 72.0,
+  }) async {
     renderCalls++;
     if (throwError) throw Exception('PDF raster failure');
     return bytesToReturn ?? samplePngBytes;
@@ -86,9 +173,11 @@ class _TestDocumentService extends DocumentService {
   _TestDocumentService({
     required _MockAuthService authService,
     List<DocumentRecord> documents = const [],
-    this.ocrResult = const DocumentOcrResult(status: DocumentOcrStatus.notProcessed),
-  })  : _docs = documents,
-        super(authService: authService);
+    this.ocrResult = const DocumentOcrResult(
+      status: DocumentOcrStatus.notProcessed,
+    ),
+  }) : _docs = documents,
+       super(authService: authService);
 
   final List<DocumentRecord> _docs;
   DocumentOcrResult ocrResult;
@@ -108,21 +197,19 @@ class _TestDocumentService extends DocumentService {
 
   @override
   List<DocumentCategory> get categories => const [
-        DocumentCategory(
-          key: 'certificates',
-          name: 'Certificates',
-          folders: [
-            DocumentFolder(key: 'seminars', name: 'Seminars'),
-          ],
-        ),
-      ];
+    DocumentCategory(
+      key: 'certificates',
+      name: 'Certificates',
+      folders: [DocumentFolder(key: 'seminars', name: 'Seminars')],
+    ),
+  ];
 
   @override
   DocumentSummary get summary => DocumentSummary(
-        totalCount: _docs.length,
-        categoryCounts: {'certificates': _docs.length},
-        folderCounts: {'certificates/seminars': _docs.length},
-      );
+    totalCount: _docs.length,
+    categoryCounts: {'certificates': _docs.length},
+    folderCounts: {'certificates/seminars': _docs.length},
+  );
 
   @override
   Future<void> load({bool force = false}) async {
@@ -236,277 +323,309 @@ Widget _wrapWithScope({
 }) {
   return DocumentScope(
     documentService: documentService,
-    child: MaterialApp(
-      home: child,
-    ),
+    child: MaterialApp(home: child),
   );
 }
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
+  late PrintingPlatform originalPlatform;
+  setUp(() {
+    originalPlatform = PrintingPlatform.instance;
+    PrintingPlatform.instance = _SourcePdfPlatform();
+  });
+  tearDown(() => PrintingPlatform.instance = originalPlatform);
 
   group('Goal 1: Portfolio Preview Shows Actual Documents', () {
-    testWidgets('image document displays actual visual preview with contain fit and taps to details', (
-      tester,
-    ) async {
-      final auth = _MockAuthService(contentBytes: samplePngBytes);
-      final doc = _makeImageDoc();
-      final docService = _TestDocumentService(
-        authService: auth,
-        documents: [doc],
-      );
+    testWidgets(
+      'image document displays actual visual preview with contain fit and taps to details',
+      (tester) async {
+        final auth = _MockAuthService(contentBytes: samplePngBytes);
+        final doc = _makeImageDoc();
+        final docService = _TestDocumentService(
+          authService: auth,
+          documents: [doc],
+        );
 
-      const portfolioInfo = PortfolioInfo(
-        fullName: 'John Lloyd',
-        yearAndSection: '4BSIT-1',
-        schedule: 'Mon 8-10',
-        instructorName: 'Prof',
-        course: 'BSIT',
-        courseCode: 'IT101',
-        semesterAndYear: '2026',
-      );
+        const portfolioInfo = PortfolioInfo(
+          fullName: 'John Lloyd',
+          yearAndSection: '4BSIT-1',
+          schedule: 'Mon 8-10',
+          instructorName: 'Prof',
+          course: 'BSIT',
+          courseCode: 'IT101',
+          semesterAndYear: '2026',
+        );
 
-      await tester.pumpWidget(
-        _wrapWithScope(
-          documentService: docService,
-          child: const PortfolioPreviewScreen(portfolioInfo: portfolioInfo),
-        ),
-      );
-      await tester.pumpAndSettle();
+        await tester.pumpWidget(
+          _wrapWithScope(
+            documentService: docService,
+            child: const PortfolioPreviewScreen(portfolioInfo: portfolioInfo),
+          ),
+        );
+        await tester.pumpAndSettle();
 
-      // Document title and metadata visible
-      expect(find.text('Seminar Certificate'), findsOneWidget);
-      expect(find.text('certificate.png'), findsOneWidget);
+        // Document title and metadata visible
+        expect(find.text('Seminar Certificate'), findsOneWidget);
+        expect(find.text('certificate.png'), findsOneWidget);
 
-      // DocumentImagePreview is rendered
-      expect(find.byType(DocumentImagePreview), findsOneWidget);
+        // DocumentImagePreview is rendered
+        expect(find.byType(DocumentImagePreview), findsOneWidget);
 
-      // Path requested was primary content (Page 1)
-      expect(auth.requestedPaths, ['/api/v1/documents/doc-img-1/content']);
+        // Path requested was primary content (Page 1)
+        expect(auth.requestedPaths, ['/api/v1/documents/doc-img-1/content']);
 
-      // Tapping the document card opens full DocumentOcrScreen
-      final docCardFinder = find.byKey(const ValueKey('preview-document-doc-img-1'));
-      await tester.ensureVisible(docCardFinder);
-      await tester.tap(docCardFinder);
-      await tester.pumpAndSettle();
-      expect(find.byType(DocumentOcrScreen), findsOneWidget);
-    });
+        // Tapping the document card opens full DocumentOcrScreen
+        final docCardFinder = find.byKey(
+          const ValueKey('preview-document-doc-img-1'),
+        );
+        await tester.ensureVisible(docCardFinder);
+        await tester.tap(docCardFinder);
+        await tester.pumpAndSettle();
+        expect(find.byType(DocumentOcrScreen), findsOneWidget);
+      },
+    );
 
-    testWidgets('one failed image falls back gracefully without blocking preview', (
-      tester,
-    ) async {
-      final auth = _MockAuthService(throwOnGet: true);
-      final doc = _makeImageDoc();
-      final docService = _TestDocumentService(
-        authService: auth,
-        documents: [doc],
-      );
+    testWidgets(
+      'one failed image falls back gracefully without blocking preview',
+      (tester) async {
+        final auth = _MockAuthService(throwOnGet: true);
+        final doc = _makeImageDoc();
+        final docService = _TestDocumentService(
+          authService: auth,
+          documents: [doc],
+        );
 
-      const portfolioInfo = PortfolioInfo(
-        fullName: 'John Lloyd',
-        yearAndSection: '4BSIT-1',
-        schedule: 'Mon 8-10',
-        instructorName: 'Prof',
-        course: 'BSIT',
-        courseCode: 'IT101',
-        semesterAndYear: '2026',
-      );
+        const portfolioInfo = PortfolioInfo(
+          fullName: 'John Lloyd',
+          yearAndSection: '4BSIT-1',
+          schedule: 'Mon 8-10',
+          instructorName: 'Prof',
+          course: 'BSIT',
+          courseCode: 'IT101',
+          semesterAndYear: '2026',
+        );
 
-      await tester.pumpWidget(
-        _wrapWithScope(
-          documentService: docService,
-          child: const PortfolioPreviewScreen(portfolioInfo: portfolioInfo),
-        ),
-      );
-      await tester.pumpAndSettle();
+        await tester.pumpWidget(
+          _wrapWithScope(
+            documentService: docService,
+            child: const PortfolioPreviewScreen(portfolioInfo: portfolioInfo),
+          ),
+        );
+        await tester.pumpAndSettle();
 
-      // Preview sheet and student info still rendered
-      expect(find.text('John Lloyd'), findsOneWidget);
-      expect(find.text('Seminar Certificate'), findsOneWidget);
+        // Preview sheet and student info still rendered
+        expect(find.text('John Lloyd'), findsOneWidget);
+        expect(find.text('Seminar Certificate'), findsOneWidget);
 
-      // Broken image fallback rendered
-      expect(find.byIcon(Icons.broken_image_outlined), findsOneWidget);
-    });
+        // Broken image fallback rendered
+        expect(find.byIcon(Icons.broken_image_outlined), findsOneWidget);
+      },
+    );
 
-    testWidgets('PDF document renders page 1 thumbnail and navigates to details on tap', (
-      tester,
-    ) async {
-      final auth = _MockAuthService(contentBytes: Uint8List.fromList([1, 2, 3]));
-      final doc = _makePdfDoc();
-      final docService = _TestDocumentService(
-        authService: auth,
-        documents: [doc],
-      );
-      final mockRenderer = _MockPdfThumbnailRenderer(bytesToReturn: samplePngBytes);
-      docService.pdfThumbnailRenderer = mockRenderer;
+    testWidgets(
+      'PDF document renders page 1 thumbnail and opens actual source pages on tap',
+      (tester) async {
+        final auth = _MockAuthService(
+          contentBytes: Uint8List.fromList([1, 2, 3]),
+        );
+        final doc = _makePdfDoc();
+        final docService = _TestDocumentService(
+          authService: auth,
+          documents: [doc],
+        );
+        final mockRenderer = _MockPdfThumbnailRenderer(
+          bytesToReturn: samplePngBytes,
+        );
+        docService.pdfThumbnailRenderer = mockRenderer;
 
-      const portfolioInfo = PortfolioInfo(
-        fullName: 'John Lloyd',
-        yearAndSection: '4BSIT-1',
-        schedule: 'Mon 8-10',
-        instructorName: 'Prof',
-        course: 'BSIT',
-        courseCode: 'IT101',
-        semesterAndYear: '2026',
-      );
+        const portfolioInfo = PortfolioInfo(
+          fullName: 'John Lloyd',
+          yearAndSection: '4BSIT-1',
+          schedule: 'Mon 8-10',
+          instructorName: 'Prof',
+          course: 'BSIT',
+          courseCode: 'IT101',
+          semesterAndYear: '2026',
+        );
 
-      await tester.pumpWidget(
-        _wrapWithScope(
-          documentService: docService,
-          child: const PortfolioPreviewScreen(portfolioInfo: portfolioInfo),
-        ),
-      );
-      await tester.pumpAndSettle();
+        await tester.pumpWidget(
+          _wrapWithScope(
+            documentService: docService,
+            child: const PortfolioPreviewScreen(portfolioInfo: portfolioInfo),
+          ),
+        );
+        await tester.pumpAndSettle();
 
-      expect(find.text('PDF Document'), findsOneWidget);
-      expect(find.text('sample.pdf'), findsWidgets);
-      expect(find.byType(DocumentPdfPreview), findsOneWidget);
-      expect(find.text('Page 1 • PDF'), findsOneWidget);
-      expect(mockRenderer.renderCalls, 1);
-      expect(docService.getCachedThumbnail('doc-pdf-1'), isNotNull);
+        expect(find.text('PDF Document'), findsOneWidget);
+        expect(find.text('sample.pdf'), findsWidgets);
+        expect(find.byType(DocumentPdfPreview), findsOneWidget);
+        expect(find.text('Page 1 • PDF'), findsOneWidget);
+        expect(mockRenderer.renderCalls, 1);
+        expect(docService.getCachedThumbnail('doc-pdf-1'), isNotNull);
 
-      // Tapping opens DocumentOcrScreen
-      final docCardFinder = find.byKey(const ValueKey('preview-document-doc-pdf-1'));
-      await tester.ensureVisible(docCardFinder);
-      await tester.tap(docCardFinder);
-      await tester.pumpAndSettle();
-      expect(find.byType(DocumentOcrScreen), findsOneWidget);
-    });
+        // PDF source pages are primary; text review remains an explicit action.
+        final docCardFinder = find.byKey(
+          const ValueKey('preview-document-doc-pdf-1'),
+        );
+        await tester.ensureVisible(docCardFinder);
+        await tester.tap(docCardFinder);
+        await tester.pumpAndSettle();
+        expect(find.byType(DocumentPdfScreen), findsOneWidget);
+        expect(find.text('Page 1 of 1'), findsOneWidget);
+        expect(docService.loadOcrCalls, 0);
+        expect(docService.extractOcrCalls, 0);
+        await tester.tap(find.text('Review extracted text'));
+        await tester.pumpAndSettle();
+        expect(find.byType(DocumentOcrScreen), findsOneWidget);
+      },
+    );
 
-    testWidgets('PDF document raster error falls back to clean PDF placeholder without crashing', (
-      tester,
-    ) async {
-      final auth = _MockAuthService(contentBytes: Uint8List.fromList([1, 2, 3]));
-      final doc = _makePdfDoc();
-      final docService = _TestDocumentService(
-        authService: auth,
-        documents: [doc],
-      );
-      final mockRenderer = _MockPdfThumbnailRenderer(throwError: true);
-      docService.pdfThumbnailRenderer = mockRenderer;
+    testWidgets(
+      'PDF document raster error falls back to clean PDF placeholder without crashing',
+      (tester) async {
+        final auth = _MockAuthService(
+          contentBytes: Uint8List.fromList([1, 2, 3]),
+        );
+        final doc = _makePdfDoc();
+        final docService = _TestDocumentService(
+          authService: auth,
+          documents: [doc],
+        );
+        final mockRenderer = _MockPdfThumbnailRenderer(throwError: true);
+        docService.pdfThumbnailRenderer = mockRenderer;
 
-      const portfolioInfo = PortfolioInfo(
-        fullName: 'John Lloyd',
-        yearAndSection: '4BSIT-1',
-        schedule: 'Mon 8-10',
-        instructorName: 'Prof',
-        course: 'BSIT',
-        courseCode: 'IT101',
-        semesterAndYear: '2026',
-      );
+        const portfolioInfo = PortfolioInfo(
+          fullName: 'John Lloyd',
+          yearAndSection: '4BSIT-1',
+          schedule: 'Mon 8-10',
+          instructorName: 'Prof',
+          course: 'BSIT',
+          courseCode: 'IT101',
+          semesterAndYear: '2026',
+        );
 
-      await tester.pumpWidget(
-        _wrapWithScope(
-          documentService: docService,
-          child: const PortfolioPreviewScreen(portfolioInfo: portfolioInfo),
-        ),
-      );
-      await tester.pumpAndSettle();
+        await tester.pumpWidget(
+          _wrapWithScope(
+            documentService: docService,
+            child: const PortfolioPreviewScreen(portfolioInfo: portfolioInfo),
+          ),
+        );
+        await tester.pumpAndSettle();
 
-      expect(find.byType(DocumentPdfPreview), findsOneWidget);
-      expect(find.text('PDF Document • Tap to view'), findsOneWidget);
-      expect(find.byIcon(Icons.picture_as_pdf_rounded), findsWidgets);
+        expect(find.byType(DocumentPdfPreview), findsOneWidget);
+        expect(find.text('PDF Document • Tap to view'), findsOneWidget);
+        expect(find.byIcon(Icons.picture_as_pdf_rounded), findsWidgets);
 
-      // Tapping opens DocumentOcrScreen
-      final docCardFinder = find.byKey(const ValueKey('preview-document-doc-pdf-1'));
-      await tester.ensureVisible(docCardFinder);
-      await tester.tap(docCardFinder);
-      await tester.pumpAndSettle();
-      expect(find.byType(DocumentOcrScreen), findsOneWidget);
-    });
+        // A thumbnail failure does not prevent attempting full source viewing.
+        final docCardFinder = find.byKey(
+          const ValueKey('preview-document-doc-pdf-1'),
+        );
+        await tester.ensureVisible(docCardFinder);
+        await tester.tap(docCardFinder);
+        await tester.pumpAndSettle();
+        expect(find.byType(DocumentPdfScreen), findsOneWidget);
+        expect(find.text('Page 1 of 1'), findsOneWidget);
+        expect(docService.extractOcrCalls, 0);
+      },
+    );
 
-    testWidgets('unsupported format (DOCX) renders polished placeholder card and opens details on tap', (
-      tester,
-    ) async {
-      final auth = _MockAuthService();
-      final doc = _makeUnsupportedDoc(fileName: 'research_paper.docx');
-      final docService = _TestDocumentService(
-        authService: auth,
-        documents: [doc],
-      );
+    testWidgets(
+      'unsupported format (DOCX) renders polished placeholder card and opens details on tap',
+      (tester) async {
+        final auth = _MockAuthService();
+        final doc = _makeUnsupportedDoc(fileName: 'research_paper.docx');
+        final docService = _TestDocumentService(
+          authService: auth,
+          documents: [doc],
+        );
 
-      const portfolioInfo = PortfolioInfo(
-        fullName: 'John Lloyd',
-        yearAndSection: '4BSIT-1',
-        schedule: 'Mon 8-10',
-        instructorName: 'Prof',
-        course: 'BSIT',
-        courseCode: 'IT101',
-        semesterAndYear: '2026',
-      );
+        const portfolioInfo = PortfolioInfo(
+          fullName: 'John Lloyd',
+          yearAndSection: '4BSIT-1',
+          schedule: 'Mon 8-10',
+          instructorName: 'Prof',
+          course: 'BSIT',
+          courseCode: 'IT101',
+          semesterAndYear: '2026',
+        );
 
-      await tester.pumpWidget(
-        _wrapWithScope(
-          documentService: docService,
-          child: const PortfolioPreviewScreen(portfolioInfo: portfolioInfo),
-        ),
-      );
-      await tester.pumpAndSettle();
+        await tester.pumpWidget(
+          _wrapWithScope(
+            documentService: docService,
+            child: const PortfolioPreviewScreen(portfolioInfo: portfolioInfo),
+          ),
+        );
+        await tester.pumpAndSettle();
 
-      expect(find.byType(DocumentUnsupportedPreview), findsOneWidget);
-      expect(
-        find.descendant(
-          of: find.byType(DocumentUnsupportedPreview),
-          matching: find.text('research_paper.docx'),
-        ),
-        findsOneWidget,
-      );
-      expect(find.text('DOCX'), findsOneWidget);
-      expect(find.textContaining('Word Document'), findsOneWidget);
-      expect(find.text('Tap to view details'), findsOneWidget);
+        expect(find.byType(DocumentUnsupportedPreview), findsOneWidget);
+        expect(
+          find.descendant(
+            of: find.byType(DocumentUnsupportedPreview),
+            matching: find.text('research_paper.docx'),
+          ),
+          findsOneWidget,
+        );
+        expect(find.text('DOCX'), findsOneWidget);
+        expect(find.textContaining('Word Document'), findsOneWidget);
+        expect(find.text('Tap to view details'), findsOneWidget);
 
-      // Tapping opens DocumentOcrScreen
-      final docCardFinder = find.byKey(const ValueKey('preview-document-doc-docx-1'));
-      await tester.ensureVisible(docCardFinder);
-      await tester.tap(docCardFinder);
-      await tester.pumpAndSettle();
-      expect(find.byType(DocumentOcrScreen), findsOneWidget);
-    });
+        // Tapping opens DocumentOcrScreen
+        final docCardFinder = find.byKey(
+          const ValueKey('preview-document-doc-docx-1'),
+        );
+        await tester.ensureVisible(docCardFinder);
+        await tester.tap(docCardFinder);
+        await tester.pumpAndSettle();
+        expect(find.byType(DocumentOcrScreen), findsOneWidget);
+      },
+    );
 
-    testWidgets('unsupported format (XLSX) renders spreadsheet icon and badge', (
-      tester,
-    ) async {
-      final auth = _MockAuthService();
-      final doc = _makeUnsupportedDoc(
-        id: 'doc-xlsx-1',
-        fileName: 'grades.xlsx',
-        fileKind: 'sheet',
-        extension: 'xlsx',
-      );
-      final docService = _TestDocumentService(
-        authService: auth,
-        documents: [doc],
-      );
+    testWidgets(
+      'unsupported format (XLSX) renders spreadsheet icon and badge',
+      (tester) async {
+        final auth = _MockAuthService();
+        final doc = _makeUnsupportedDoc(
+          id: 'doc-xlsx-1',
+          fileName: 'grades.xlsx',
+          fileKind: 'sheet',
+          extension: 'xlsx',
+        );
+        final docService = _TestDocumentService(
+          authService: auth,
+          documents: [doc],
+        );
 
-      const portfolioInfo = PortfolioInfo(
-        fullName: 'John Lloyd',
-        yearAndSection: '4BSIT-1',
-        schedule: 'Mon 8-10',
-        instructorName: 'Prof',
-        course: 'BSIT',
-        courseCode: 'IT101',
-        semesterAndYear: '2026',
-      );
+        const portfolioInfo = PortfolioInfo(
+          fullName: 'John Lloyd',
+          yearAndSection: '4BSIT-1',
+          schedule: 'Mon 8-10',
+          instructorName: 'Prof',
+          course: 'BSIT',
+          courseCode: 'IT101',
+          semesterAndYear: '2026',
+        );
 
-      await tester.pumpWidget(
-        _wrapWithScope(
-          documentService: docService,
-          child: const PortfolioPreviewScreen(portfolioInfo: portfolioInfo),
-        ),
-      );
-      await tester.pumpAndSettle();
+        await tester.pumpWidget(
+          _wrapWithScope(
+            documentService: docService,
+            child: const PortfolioPreviewScreen(portfolioInfo: portfolioInfo),
+          ),
+        );
+        await tester.pumpAndSettle();
 
-      expect(find.byType(DocumentUnsupportedPreview), findsOneWidget);
-      expect(
-        find.descendant(
-          of: find.byType(DocumentUnsupportedPreview),
-          matching: find.text('grades.xlsx'),
-        ),
-        findsOneWidget,
-      );
-      expect(find.text('XLSX'), findsOneWidget);
-      expect(find.textContaining('Spreadsheet'), findsOneWidget);
-    });
+        expect(find.byType(DocumentUnsupportedPreview), findsOneWidget);
+        expect(
+          find.descendant(
+            of: find.byType(DocumentUnsupportedPreview),
+            matching: find.text('grades.xlsx'),
+          ),
+          findsOneWidget,
+        );
+        expect(find.text('XLSX'), findsOneWidget);
+        expect(find.textContaining('Spreadsheet'), findsOneWidget);
+      },
+    );
 
     test('thumbnail cache is bounded and independent of raw content cache', () {
       final auth = _MockAuthService();
@@ -530,32 +649,33 @@ void main() {
   });
 
   group('Goal 2: Files List Real Image Thumbnails', () {
-    testWidgets('image document in Files displays DocumentThumbnail with page 1 primary endpoint', (
-      tester,
-    ) async {
-      final auth = _MockAuthService(contentBytes: samplePngBytes);
-      final doc = _makeImageDoc();
-      final docService = _TestDocumentService(
-        authService: auth,
-        documents: [doc],
-      );
+    testWidgets(
+      'image document in Files displays DocumentThumbnail with page 1 primary endpoint',
+      (tester) async {
+        final auth = _MockAuthService(contentBytes: samplePngBytes);
+        final doc = _makeImageDoc();
+        final docService = _TestDocumentService(
+          authService: auth,
+          documents: [doc],
+        );
 
-      await tester.pumpWidget(
-        _wrapWithScope(
-          documentService: docService,
-          child: const ViewFilesScreen(
-            categoryKey: 'certificates',
-            categoryName: 'Certificates',
+        await tester.pumpWidget(
+          _wrapWithScope(
+            documentService: docService,
+            child: const ViewFilesScreen(
+              categoryKey: 'certificates',
+              categoryName: 'Certificates',
+            ),
           ),
-        ),
-      );
-      await tester.pumpAndSettle();
+        );
+        await tester.pumpAndSettle();
 
-      expect(find.text('certificate.png'), findsOneWidget);
-      expect(find.byType(DocumentThumbnail), findsOneWidget);
-      // Uses primary content endpoint without attachmentId
-      expect(auth.requestedPaths, ['/api/v1/documents/doc-img-1/content']);
-    });
+        expect(find.text('certificate.png'), findsOneWidget);
+        expect(find.byType(DocumentThumbnail), findsOneWidget);
+        // Uses primary content endpoint without attachmentId
+        expect(auth.requestedPaths, ['/api/v1/documents/doc-img-1/content']);
+      },
+    );
 
     testWidgets('failed thumbnail retrieval falls back safely to icon', (
       tester,
@@ -584,145 +704,154 @@ void main() {
       expect(find.byIcon(Icons.image_rounded), findsOneWidget);
     });
 
-    testWidgets('PDF document in Files displays PDF icon without image thumbnail', (
-      tester,
-    ) async {
-      final auth = _MockAuthService();
-      final doc = _makePdfDoc();
-      final docService = _TestDocumentService(
-        authService: auth,
-        documents: [doc],
-      );
+    testWidgets(
+      'PDF document in Files displays PDF icon without image thumbnail',
+      (tester) async {
+        final auth = _MockAuthService();
+        final doc = _makePdfDoc();
+        final docService = _TestDocumentService(
+          authService: auth,
+          documents: [doc],
+        );
 
-      await tester.pumpWidget(
-        _wrapWithScope(
-          documentService: docService,
-          child: const ViewFilesScreen(
-            categoryKey: 'certificates',
-            categoryName: 'Certificates',
+        await tester.pumpWidget(
+          _wrapWithScope(
+            documentService: docService,
+            child: const ViewFilesScreen(
+              categoryKey: 'certificates',
+              categoryName: 'Certificates',
+            ),
           ),
-        ),
-      );
-      await tester.pumpAndSettle();
+        );
+        await tester.pumpAndSettle();
 
-      expect(find.text('sample.pdf'), findsOneWidget);
-      expect(find.byType(DocumentThumbnail), findsNothing);
-      expect(find.byIcon(Icons.picture_as_pdf_rounded), findsOneWidget);
-    });
+        expect(find.text('sample.pdf'), findsOneWidget);
+        expect(find.byType(DocumentThumbnail), findsNothing);
+        expect(find.byIcon(Icons.picture_as_pdf_rounded), findsOneWidget);
+      },
+    );
   });
 
   group('Goal 3: Document Detail Displays Image Immediately & Handles Stored OCR', () {
-    testWidgets('opening image document displays actual image immediately without tapping Extract', (
-      tester,
-    ) async {
-      final auth = _MockAuthService(contentBytes: samplePngBytes);
-      final doc = _makeImageDoc();
-      final docService = _TestDocumentService(
-        authService: auth,
-        documents: [doc],
-        ocrResult: const DocumentOcrResult(status: DocumentOcrStatus.notProcessed),
-      );
+    testWidgets(
+      'opening image document displays actual image immediately without tapping Extract',
+      (tester) async {
+        final auth = _MockAuthService(contentBytes: samplePngBytes);
+        final doc = _makeImageDoc();
+        final docService = _TestDocumentService(
+          authService: auth,
+          documents: [doc],
+          ocrResult: const DocumentOcrResult(
+            status: DocumentOcrStatus.notProcessed,
+          ),
+        );
 
-      await tester.pumpWidget(
-        _wrapWithScope(
-          documentService: docService,
-          child: DocumentOcrScreen(document: doc),
-        ),
-      );
-      await tester.pumpAndSettle();
+        await tester.pumpWidget(
+          _wrapWithScope(
+            documentService: docService,
+            child: DocumentOcrScreen(document: doc),
+          ),
+        );
+        await tester.pumpAndSettle();
 
-      // Actual image preview is rendered immediately
-      expect(find.byType(DocumentImagePreview), findsOneWidget);
-      expect(find.text('Seminar Certificate'), findsOneWidget);
-      expect(find.text('certificate.png'), findsOneWidget);
+        // Actual image preview is rendered immediately
+        expect(find.byType(DocumentImagePreview), findsOneWidget);
+        expect(find.text('Seminar Certificate'), findsOneWidget);
+        expect(find.text('certificate.png'), findsOneWidget);
 
-      // Section header is present
-      expect(find.text('Extracted Text'), findsOneWidget);
-      // No OCR text yet state
-      expect(find.text('No extracted text yet.'), findsOneWidget);
-      expect(find.text('Extract Text'), findsOneWidget);
+        // Section header is present
+        expect(find.text('Extracted Text'), findsOneWidget);
+        // No OCR text yet state
+        expect(find.text('No extracted text yet.'), findsOneWidget);
+        expect(find.text('Extract Text'), findsOneWidget);
 
-      // 0 extraction calls made
-      expect(docService.extractOcrCalls, 0);
-    });
+        // 0 extraction calls made
+        expect(docService.extractOcrCalls, 0);
+      },
+    );
 
-    testWidgets('saved OCR text displays automatically with zero extraction requests', (
-      tester,
-    ) async {
-      final auth = _MockAuthService(contentBytes: samplePngBytes);
-      final doc = _makeImageDoc();
-      final docService = _TestDocumentService(
-        authService: auth,
-        documents: [doc],
-        ocrResult: const DocumentOcrResult(
-          status: DocumentOcrStatus.ready,
-          reviewedText: 'Persisted certificate transcript text',
-        ),
-      );
+    testWidgets(
+      'saved OCR text displays automatically with zero extraction requests',
+      (tester) async {
+        final auth = _MockAuthService(contentBytes: samplePngBytes);
+        final doc = _makeImageDoc();
+        final docService = _TestDocumentService(
+          authService: auth,
+          documents: [doc],
+          ocrResult: const DocumentOcrResult(
+            status: DocumentOcrStatus.ready,
+            reviewedText: 'Persisted certificate transcript text',
+          ),
+        );
 
-      await tester.pumpWidget(
-        _wrapWithScope(
-          documentService: docService,
-          child: DocumentOcrScreen(document: doc),
-        ),
-      );
-      await tester.pumpAndSettle();
+        await tester.pumpWidget(
+          _wrapWithScope(
+            documentService: docService,
+            child: DocumentOcrScreen(document: doc),
+          ),
+        );
+        await tester.pumpAndSettle();
 
-      // Image is visible
-      expect(find.byType(DocumentImagePreview), findsOneWidget);
+        // Image is visible
+        expect(find.byType(DocumentImagePreview), findsOneWidget);
 
-      // Saved text is displayed automatically
-      expect(find.text('Persisted certificate transcript text'), findsOneWidget);
-      expect(find.text('Save Changes'), findsOneWidget);
-      expect(find.text('Extract Again'), findsOneWidget);
+        // Saved text is displayed automatically
+        expect(
+          find.text('Persisted certificate transcript text'),
+          findsOneWidget,
+        );
+        expect(find.text('Save Changes'), findsOneWidget);
+        expect(find.text('Extract Again'), findsOneWidget);
 
-      // Extract Text is NOT visible because OCR is already ready
-      expect(find.text('Extract Text'), findsNothing);
+        // Extract Text is NOT visible because OCR is already ready
+        expect(find.text('Extract Text'), findsNothing);
 
-      // Zero new extraction requests triggered
-      expect(docService.extractOcrCalls, 0);
-      // loadOcr called once to retrieve database record
-      expect(docService.loadOcrCalls, 1);
-    });
+        // Zero new extraction requests triggered
+        expect(docService.extractOcrCalls, 0);
+        // loadOcr called once to retrieve database record
+        expect(docService.loadOcrCalls, 1);
+      },
+    );
 
-    testWidgets('Extract Again prompts and runs extraction only upon explicit tap', (
-      tester,
-    ) async {
-      final auth = _MockAuthService(contentBytes: samplePngBytes);
-      final doc = _makeImageDoc();
-      final docService = _TestDocumentService(
-        authService: auth,
-        documents: [doc],
-        ocrResult: const DocumentOcrResult(
-          status: DocumentOcrStatus.ready,
-          reviewedText: 'Existing text',
-        ),
-      );
+    testWidgets(
+      'Extract Again prompts and runs extraction only upon explicit tap',
+      (tester) async {
+        final auth = _MockAuthService(contentBytes: samplePngBytes);
+        final doc = _makeImageDoc();
+        final docService = _TestDocumentService(
+          authService: auth,
+          documents: [doc],
+          ocrResult: const DocumentOcrResult(
+            status: DocumentOcrStatus.ready,
+            reviewedText: 'Existing text',
+          ),
+        );
 
-      await tester.pumpWidget(
-        _wrapWithScope(
-          documentService: docService,
-          child: DocumentOcrScreen(document: doc),
-        ),
-      );
-      await tester.pumpAndSettle();
+        await tester.pumpWidget(
+          _wrapWithScope(
+            documentService: docService,
+            child: DocumentOcrScreen(document: doc),
+          ),
+        );
+        await tester.pumpAndSettle();
 
-      // Tap Extract Again
-      await tester.ensureVisible(find.text('Extract Again'));
-      await tester.tap(find.text('Extract Again'));
-      await tester.pumpAndSettle();
+        // Tap Extract Again
+        await tester.ensureVisible(find.text('Extract Again'));
+        await tester.tap(find.text('Extract Again'));
+        await tester.pumpAndSettle();
 
-      // Dialog opens
-      expect(find.text('Extract text again?'), findsOneWidget);
+        // Dialog opens
+        expect(find.text('Extract text again?'), findsOneWidget);
 
-      // Confirm extraction
-      await tester.tap(find.text('Extract Again').last);
-      await tester.pumpAndSettle();
+        // Confirm extraction
+        await tester.tap(find.text('Extract Again').last);
+        await tester.pumpAndSettle();
 
-      // Explicit rerun occurred
-      expect(docService.extractOcrCalls, 1);
-      expect(find.text('Newly extracted text'), findsOneWidget);
-    });
+        // Explicit rerun occurred
+        expect(docService.extractOcrCalls, 1);
+        expect(find.text('Newly extracted text'), findsOneWidget);
+      },
+    );
 
     testWidgets('Extract Again dialog cancel does not trigger extraction', (
       tester,
@@ -762,354 +891,384 @@ void main() {
       expect(find.text('Existing text'), findsOneWidget);
     });
 
-    testWidgets('Extract Again displays extracting state with spinner and prevents duplicate taps', (
-      tester,
-    ) async {
-      final auth = _MockAuthService(contentBytes: samplePngBytes);
-      final doc = _makeImageDoc();
-      final completer = Completer<DocumentOcrResult>();
-      final docService = _TestDocumentService(
-        authService: auth,
-        documents: [doc],
-        ocrResult: const DocumentOcrResult(
-          status: DocumentOcrStatus.ready,
-          reviewedText: 'Existing text',
-        ),
-      );
-      docService.onExtractText = (_) => completer.future;
+    testWidgets(
+      'Extract Again displays extracting state with spinner and prevents duplicate taps',
+      (tester) async {
+        final auth = _MockAuthService(contentBytes: samplePngBytes);
+        final doc = _makeImageDoc();
+        final completer = Completer<DocumentOcrResult>();
+        final docService = _TestDocumentService(
+          authService: auth,
+          documents: [doc],
+          ocrResult: const DocumentOcrResult(
+            status: DocumentOcrStatus.ready,
+            reviewedText: 'Existing text',
+          ),
+        );
+        docService.onExtractText = (_) => completer.future;
 
-      await tester.pumpWidget(
-        _wrapWithScope(
-          documentService: docService,
-          child: DocumentOcrScreen(document: doc),
-        ),
-      );
-      await tester.pumpAndSettle();
+        await tester.pumpWidget(
+          _wrapWithScope(
+            documentService: docService,
+            child: DocumentOcrScreen(document: doc),
+          ),
+        );
+        await tester.pumpAndSettle();
 
-      await tester.ensureVisible(find.text('Extract Again'));
-      await tester.tap(find.text('Extract Again'));
-      await tester.pumpAndSettle();
+        await tester.ensureVisible(find.text('Extract Again'));
+        await tester.tap(find.text('Extract Again'));
+        await tester.pumpAndSettle();
 
-      // Confirm extraction
-      await tester.tap(find.text('Extract Again').last);
-      // Pump one frame to start extraction without completing the future
-      await tester.pump();
+        // Confirm extraction
+        await tester.tap(find.text('Extract Again').last);
+        // Pump one frame to start extraction without completing the future
+        await tester.pump();
 
-      // In-flight state: Extracting... with spinner
-      expect(find.text('Extracting...'), findsOneWidget);
-      expect(find.byType(CircularProgressIndicator), findsOneWidget);
-      expect(docService.extractOcrCalls, 1);
+        // In-flight state: Extracting... with spinner
+        expect(find.text('Extracting...'), findsOneWidget);
+        expect(find.byType(CircularProgressIndicator), findsOneWidget);
+        expect(docService.extractOcrCalls, 1);
 
-      // Attempt repeated tap while processing
-      await tester.tap(find.text('Extracting...'));
-      await tester.pump();
-      // Should NOT trigger duplicate calls
-      expect(docService.extractOcrCalls, 1);
+        // Attempt repeated tap while processing
+        await tester.tap(find.text('Extracting...'));
+        await tester.pump();
+        // Should NOT trigger duplicate calls
+        expect(docService.extractOcrCalls, 1);
 
-      // Complete extraction
-      completer.complete(
-        const DocumentOcrResult(
-          status: DocumentOcrStatus.ready,
-          rawText: 'Brand new text',
-          reviewedText: 'Brand new text',
-        ),
-      );
-      await tester.pumpAndSettle();
+        // Complete extraction
+        completer.complete(
+          const DocumentOcrResult(
+            status: DocumentOcrStatus.ready,
+            rawText: 'Brand new text',
+            reviewedText: 'Brand new text',
+          ),
+        );
+        await tester.pumpAndSettle();
 
-      // Finished: shows normal button and new text
-      expect(find.text('Extract Again'), findsOneWidget);
-      expect(find.text('Brand new text'), findsOneWidget);
-    });
+        // Finished: shows normal button and new text
+        expect(find.text('Extract Again'), findsOneWidget);
+        expect(find.text('Brand new text'), findsOneWidget);
+      },
+    );
 
-    testWidgets('Extract Again failure preserves user-edited text in controller and displays error', (
-      tester,
-    ) async {
-      final auth = _MockAuthService(contentBytes: samplePngBytes);
-      final doc = _makeImageDoc();
-      final docService = _TestDocumentService(
-        authService: auth,
-        documents: [doc],
-        ocrResult: const DocumentOcrResult(
-          status: DocumentOcrStatus.ready,
-          reviewedText: 'Initial text',
-        ),
-      );
-      docService.onExtractText = (_) => throw const ApiException(
-            code: 'OCR_TIMEOUT',
-            message: 'Text extraction timed out. Please try again.',
-          );
+    testWidgets(
+      'Extract Again failure preserves user-edited text in controller and displays error',
+      (tester) async {
+        final auth = _MockAuthService(contentBytes: samplePngBytes);
+        final doc = _makeImageDoc();
+        final docService = _TestDocumentService(
+          authService: auth,
+          documents: [doc],
+          ocrResult: const DocumentOcrResult(
+            status: DocumentOcrStatus.ready,
+            reviewedText: 'Initial text',
+          ),
+        );
+        docService.onExtractText = (_) => throw const ApiException(
+          code: 'OCR_TIMEOUT',
+          message: 'Text extraction timed out. Please try again.',
+        );
 
-      await tester.pumpWidget(
-        _wrapWithScope(
-          documentService: docService,
-          child: DocumentOcrScreen(document: doc),
-        ),
-      );
-      await tester.pumpAndSettle();
+        await tester.pumpWidget(
+          _wrapWithScope(
+            documentService: docService,
+            child: DocumentOcrScreen(document: doc),
+          ),
+        );
+        await tester.pumpAndSettle();
 
-      // User modifies text locally in the text field
-      final textFieldFinder = find.byType(TextField);
-      expect(textFieldFinder, findsOneWidget);
-      await tester.enterText(textFieldFinder, 'User draft before failed re-extraction');
-      await tester.pumpAndSettle();
+        // User modifies text locally in the text field
+        final textFieldFinder = find.byType(TextField);
+        expect(textFieldFinder, findsOneWidget);
+        await tester.enterText(
+          textFieldFinder,
+          'User draft before failed re-extraction',
+        );
+        await tester.pumpAndSettle();
 
-      // Tap Extract Again and confirm
-      await tester.ensureVisible(find.text('Extract Again'));
-      await tester.tap(find.text('Extract Again'));
-      await tester.pumpAndSettle();
+        // Tap Extract Again and confirm
+        await tester.ensureVisible(find.text('Extract Again'));
+        await tester.tap(find.text('Extract Again'));
+        await tester.pumpAndSettle();
 
-      await tester.tap(find.text('Extract Again').last);
-      await tester.pumpAndSettle();
+        await tester.tap(find.text('Extract Again').last);
+        await tester.pumpAndSettle();
 
-      // Verify error feedback is displayed
-      expect(find.text('Text extraction timed out. Please try again.'), findsOneWidget);
+        // Verify error feedback is displayed
+        expect(
+          find.text('Text extraction timed out. Please try again.'),
+          findsOneWidget,
+        );
 
-      // CRITICAL: User-edited text must NOT be erased or overwritten with initial text
-      expect(find.text('User draft before failed re-extraction'), findsOneWidget);
-      expect(find.text('Initial text'), findsNothing);
+        // CRITICAL: User-edited text must NOT be erased or overwritten with initial text
+        expect(
+          find.text('User draft before failed re-extraction'),
+          findsOneWidget,
+        );
+        expect(find.text('Initial text'), findsNothing);
 
-      // Button is enabled again
-      expect(find.text('Extract Again'), findsOneWidget);
-    });
+        // Button is enabled again
+        expect(find.text('Extract Again'), findsOneWidget);
+      },
+    );
 
-    testWidgets('Extract Again receives OCR_BUSY: preserves text, shows retry message, and keeps retry action enabled', (
-      tester,
-    ) async {
-      final auth = _MockAuthService(contentBytes: samplePngBytes);
-      final doc = _makeImageDoc();
-      final docService = _TestDocumentService(
-        authService: auth,
-        documents: [doc],
-        ocrResult: const DocumentOcrResult(
-          status: DocumentOcrStatus.ready,
-          rawText: 'Original extracted text',
-          reviewedText: 'Original reviewed text',
-        ),
-      );
+    testWidgets(
+      'Extract Again receives OCR_BUSY: preserves text, shows retry message, and keeps retry action enabled',
+      (tester) async {
+        final auth = _MockAuthService(contentBytes: samplePngBytes);
+        final doc = _makeImageDoc();
+        final docService = _TestDocumentService(
+          authService: auth,
+          documents: [doc],
+          ocrResult: const DocumentOcrResult(
+            status: DocumentOcrStatus.ready,
+            rawText: 'Original extracted text',
+            reviewedText: 'Original reviewed text',
+          ),
+        );
 
-      docService.onExtractText = (_) => throw const ApiException(
-            statusCode: 503,
-            code: 'OCR_BUSY',
-            message: 'The server is busy processing another document. Please try again in a few moments.',
-          );
+        docService.onExtractText = (_) => throw const ApiException(
+          statusCode: 503,
+          code: 'OCR_BUSY',
+          message:
+              'The server is busy processing another document. Please try again in a few moments.',
+        );
 
-      await tester.pumpWidget(
-        _wrapWithScope(
-          documentService: docService,
-          child: DocumentOcrScreen(document: doc),
-        ),
-      );
-      await tester.pumpAndSettle();
+        await tester.pumpWidget(
+          _wrapWithScope(
+            documentService: docService,
+            child: DocumentOcrScreen(document: doc),
+          ),
+        );
+        await tester.pumpAndSettle();
 
-      expect(find.text('Original reviewed text'), findsOneWidget);
+        expect(find.text('Original reviewed text'), findsOneWidget);
 
-      await tester.ensureVisible(find.text('Extract Again'));
-      await tester.tap(find.text('Extract Again'));
-      await tester.pumpAndSettle();
+        await tester.ensureVisible(find.text('Extract Again'));
+        await tester.tap(find.text('Extract Again'));
+        await tester.pumpAndSettle();
 
-      await tester.tap(find.text('Extract Again').last);
-      await tester.pumpAndSettle();
+        await tester.tap(find.text('Extract Again').last);
+        await tester.pumpAndSettle();
 
-      expect(
-        find.text('The server is busy processing another document. Please try again in a few moments.'),
-        findsOneWidget,
-      );
+        expect(
+          find.text(
+            'The server is busy processing another document. Please try again in a few moments.',
+          ),
+          findsOneWidget,
+        );
 
-      expect(find.text('Original reviewed text'), findsOneWidget);
-      expect(find.text('Extract Again'), findsOneWidget);
-    });
+        expect(find.text('Original reviewed text'), findsOneWidget);
+        expect(find.text('Extract Again'), findsOneWidget);
+      },
+    );
   });
 
   group('Goal 4: Multi-Page Document Viewing', () {
-    testWidgets('multi-page document displays Page 1 primary content and Page 2+ attachments in order', (
-      tester,
-    ) async {
-      final auth = _MockAuthService(contentBytes: samplePngBytes);
-      final attachments = [
-        const DocumentAttachmentRecord(
-          id: 'att-1',
-          originalFileName: 'page1.png',
-          mimeType: 'image/png',
-          fileKind: 'image',
-          extension: 'png',
-          sizeBytes: 1024,
-          order: 0,
-        ),
-        const DocumentAttachmentRecord(
-          id: 'att-2',
-          originalFileName: 'page2.png',
-          mimeType: 'image/png',
-          fileKind: 'image',
-          extension: 'png',
-          sizeBytes: 1024,
-          order: 1,
-        ),
-      ];
+    testWidgets(
+      'multi-page document displays Page 1 primary content and Page 2+ attachments in order',
+      (tester) async {
+        final auth = _MockAuthService(contentBytes: samplePngBytes);
+        final attachments = [
+          const DocumentAttachmentRecord(
+            id: 'att-1',
+            originalFileName: 'page1.png',
+            mimeType: 'image/png',
+            fileKind: 'image',
+            extension: 'png',
+            sizeBytes: 1024,
+            order: 0,
+          ),
+          const DocumentAttachmentRecord(
+            id: 'att-2',
+            originalFileName: 'page2.png',
+            mimeType: 'image/png',
+            fileKind: 'image',
+            extension: 'png',
+            sizeBytes: 1024,
+            order: 1,
+          ),
+        ];
 
-      final doc = _makeImageDoc(attachments: attachments);
-      final docService = _TestDocumentService(
-        authService: auth,
-        documents: [doc],
-      );
+        final doc = _makeImageDoc(attachments: attachments);
+        final docService = _TestDocumentService(
+          authService: auth,
+          documents: [doc],
+        );
 
-      await tester.pumpWidget(
-        _wrapWithScope(
-          documentService: docService,
-          child: DocumentOcrScreen(document: doc),
-        ),
-      );
-      await tester.pumpAndSettle();
+        await tester.pumpWidget(
+          _wrapWithScope(
+            documentService: docService,
+            child: DocumentOcrScreen(document: doc),
+          ),
+        );
+        await tester.pumpAndSettle();
 
-      // Page indicator displays "Page 1 of 2"
-      expect(find.text('Page 1 of 2'), findsOneWidget);
+        // Page indicator displays "Page 1 of 2"
+        expect(find.text('Page 1 of 2'), findsOneWidget);
 
-      // Primary document content requested first
-      expect(auth.requestedPaths.contains('/api/v1/documents/doc-img-1/content'), isTrue);
+        // Primary document content requested first
+        expect(
+          auth.requestedPaths.contains('/api/v1/documents/doc-img-1/content'),
+          isTrue,
+        );
 
-      // Navigate to page 2
-      await tester.tap(find.byTooltip('Next page'));
-      await tester.pumpAndSettle();
+        // Navigate to page 2
+        await tester.tap(find.byTooltip('Next page'));
+        await tester.pumpAndSettle();
 
-      expect(find.text('Page 2 of 2'), findsOneWidget);
-      // Attachment content requested for page 2
-      expect(
-        auth.requestedPaths.contains('/api/v1/documents/doc-img-1/attachments/att-2/content'),
-        isTrue,
-      );
-    });
+        expect(find.text('Page 2 of 2'), findsOneWidget);
+        // Attachment content requested for page 2
+        expect(
+          auth.requestedPaths.contains(
+            '/api/v1/documents/doc-img-1/attachments/att-2/content',
+          ),
+          isTrue,
+        );
+      },
+    );
   });
 
   group('Goal 5: Login Screen Title & Subtitle Alignment', () {
-    testWidgets('Login screen displays centered "Log In", does NOT display "Welcome Back!" or old subtitle', (
-      tester,
-    ) async {
-      final auth = _MockAuthService();
+    testWidgets(
+      'Login screen displays centered "Log In", does NOT display "Welcome Back!" or old subtitle',
+      (tester) async {
+        final auth = _MockAuthService();
 
-      await tester.pumpWidget(
-        MaterialApp(
-          home: AuthScope(
-            authService: auth,
-            child: const LoginScreen(),
+        await tester.pumpWidget(
+          MaterialApp(
+            home: AuthScope(authService: auth, child: const LoginScreen()),
           ),
-        ),
-      );
-      await tester.pumpAndSettle();
+        );
+        await tester.pumpAndSettle();
 
-      // "Log In" appears for title and button
-      expect(find.text('Log In'), findsNWidgets(2));
-      // "Welcome Back!" is NOT visible
-      expect(find.text('Welcome Back!'), findsNothing);
+        // "Log In" appears for title and button
+        expect(find.text('Log In'), findsNWidgets(2));
+        // "Welcome Back!" is NOT visible
+        expect(find.text('Welcome Back!'), findsNothing);
 
-      // Old subtitle is removed
-      expect(find.text('Sign in to continue your journey.'), findsNothing);
+        // Old subtitle is removed
+        expect(find.text('Sign in to continue your journey.'), findsNothing);
 
-      // Verify centered title alignment
-      final titleWidget = tester.widget<Text>(find.text('Log In').first);
-      expect(titleWidget.textAlign, TextAlign.center);
+        // Verify centered title alignment
+        final titleWidget = tester.widget<Text>(find.text('Log In').first);
+        expect(titleWidget.textAlign, TextAlign.center);
 
-      // Essential login components remain present
-      expect(find.byType(TextField), findsNWidgets(2)); // Email & Password
-      expect(find.byKey(const Key('loginButton')), findsOneWidget);
-      expect(find.text('Forgot password?'), findsOneWidget);
-      expect(find.text('Sign Up'), findsOneWidget);
-    });
+        // Essential login components remain present
+        expect(find.byType(TextField), findsNWidgets(2)); // Email & Password
+        expect(find.byKey(const Key('loginButton')), findsOneWidget);
+        expect(find.text('Forgot password?'), findsOneWidget);
+        expect(find.text('Sign Up'), findsOneWidget);
+      },
+    );
   });
 
   group('Content Caching & Eviction Tests (Correction 4 & 6)', () {
-    testWidgets('repeated widget rebuilds do not re-request bytes when cache is valid', (
-      tester,
-    ) async {
-      final auth = _MockAuthService(contentBytes: samplePngBytes);
-      final doc = _makeImageDoc();
-      final docService = _TestDocumentService(
-        authService: auth,
-        documents: [doc],
-      );
+    testWidgets(
+      'repeated widget rebuilds do not re-request bytes when cache is valid',
+      (tester) async {
+        final auth = _MockAuthService(contentBytes: samplePngBytes);
+        final doc = _makeImageDoc();
+        final docService = _TestDocumentService(
+          authService: auth,
+          documents: [doc],
+        );
 
-      await tester.pumpWidget(
-        _wrapWithScope(
-          documentService: docService,
-          child: DocumentImagePreview(documentId: doc.id),
-        ),
-      );
-      await tester.pumpAndSettle();
+        await tester.pumpWidget(
+          _wrapWithScope(
+            documentService: docService,
+            child: DocumentImagePreview(documentId: doc.id),
+          ),
+        );
+        await tester.pumpAndSettle();
 
-      expect(auth.requestedPaths.length, 1);
+        expect(auth.requestedPaths.length, 1);
 
-      // Rebuild with same documentId
-      await tester.pumpWidget(
-        _wrapWithScope(
-          documentService: docService,
-          child: DocumentImagePreview(documentId: doc.id),
-        ),
-      );
-      await tester.pumpAndSettle();
+        // Rebuild with same documentId
+        await tester.pumpWidget(
+          _wrapWithScope(
+            documentService: docService,
+            child: DocumentImagePreview(documentId: doc.id),
+          ),
+        );
+        await tester.pumpAndSettle();
 
-      // No second network request made!
-      expect(auth.requestedPaths.length, 1);
-    });
+        // No second network request made!
+        expect(auth.requestedPaths.length, 1);
+      },
+    );
 
-    test('deterministic eviction occurs when cache limit exceeds maxCachedDocuments (30)', () async {
-      final auth = _MockAuthService(contentBytes: samplePngBytes);
-      final docService = DocumentService(authService: auth);
+    test(
+      'deterministic eviction occurs when cache limit exceeds maxCachedDocuments (30)',
+      () async {
+        final auth = _MockAuthService(contentBytes: samplePngBytes);
+        final docService = DocumentService(authService: auth);
 
-      // Fill 30 entries
-      for (int i = 1; i <= 30; i++) {
-        docService.setCachedContent('doc-$i', samplePngBytes);
-      }
-      expect(docService.getCachedContent('doc-1'), isNotNull);
-      expect(docService.getCachedContent('doc-30'), isNotNull);
+        // Fill 30 entries
+        for (int i = 1; i <= 30; i++) {
+          docService.setCachedContent('doc-$i', samplePngBytes);
+        }
+        expect(docService.getCachedContent('doc-1'), isNotNull);
+        expect(docService.getCachedContent('doc-30'), isNotNull);
 
-      // Add 31st entry -> should evict doc-1 (oldest)
-      docService.setCachedContent('doc-31', samplePngBytes);
-      expect(docService.getCachedContent('doc-1'), isNull);
-      expect(docService.getCachedContent('doc-31'), isNotNull);
-    });
+        // Add 31st entry -> should evict doc-1 (oldest)
+        docService.setCachedContent('doc-31', samplePngBytes);
+        expect(docService.getCachedContent('doc-1'), isNull);
+        expect(docService.getCachedContent('doc-31'), isNotNull);
+      },
+    );
 
-    test('deterministic byte ceiling eviction occurs when total bytes exceed maxCachedBytes (30 MiB)', () async {
-      final auth = _MockAuthService();
-      final docService = DocumentService(authService: auth);
+    test(
+      'deterministic byte ceiling eviction occurs when total bytes exceed maxCachedBytes (30 MiB)',
+      () async {
+        final auth = _MockAuthService();
+        final docService = DocumentService(authService: auth);
 
-      // 16 MiB payload (16 * 1024 * 1024 bytes)
-      final large1 = Uint8List(16 * 1024 * 1024);
-      final large2 = Uint8List(16 * 1024 * 1024);
+        // 16 MiB payload (16 * 1024 * 1024 bytes)
+        final large1 = Uint8List(16 * 1024 * 1024);
+        final large2 = Uint8List(16 * 1024 * 1024);
 
-      docService.setCachedContent('large-1', large1);
-      expect(docService.getCachedContent('large-1'), isNotNull);
-      expect(docService.currentCachedBytes, 16 * 1024 * 1024);
+        docService.setCachedContent('large-1', large1);
+        expect(docService.getCachedContent('large-1'), isNotNull);
+        expect(docService.currentCachedBytes, 16 * 1024 * 1024);
 
-      // Adding large2 brings requested total to 32 MiB > 30 MiB ceiling
-      // large-1 must be evicted to stay under 30 MiB
-      docService.setCachedContent('large-2', large2);
-      expect(docService.getCachedContent('large-1'), isNull);
-      expect(docService.getCachedContent('large-2'), isNotNull);
-      expect(docService.currentCachedBytes, 16 * 1024 * 1024);
-      expect(docService.currentCachedBytes <= DocumentService.maxCachedBytes, isTrue);
-    });
+        // Adding large2 brings requested total to 32 MiB > 30 MiB ceiling
+        // large-1 must be evicted to stay under 30 MiB
+        docService.setCachedContent('large-2', large2);
+        expect(docService.getCachedContent('large-1'), isNull);
+        expect(docService.getCachedContent('large-2'), isNotNull);
+        expect(docService.currentCachedBytes, 16 * 1024 * 1024);
+        expect(
+          docService.currentCachedBytes <= DocumentService.maxCachedBytes,
+          isTrue,
+        );
+      },
+    );
 
-    testWidgets('DocumentThumbnail passes safe decode cacheWidth (140) to DocumentImagePreview', (
-      tester,
-    ) async {
-      final auth = _MockAuthService(contentBytes: samplePngBytes);
-      final doc = _makeImageDoc();
-      final docService = _TestDocumentService(
-        authService: auth,
-        documents: [doc],
-      );
+    testWidgets(
+      'DocumentThumbnail passes safe decode cacheWidth (140) to DocumentImagePreview',
+      (tester) async {
+        final auth = _MockAuthService(contentBytes: samplePngBytes);
+        final doc = _makeImageDoc();
+        final docService = _TestDocumentService(
+          authService: auth,
+          documents: [doc],
+        );
 
-      await tester.pumpWidget(
-        _wrapWithScope(
-          documentService: docService,
-          child: DocumentThumbnail(documentId: doc.id),
-        ),
-      );
-      await tester.pumpAndSettle();
+        await tester.pumpWidget(
+          _wrapWithScope(
+            documentService: docService,
+            child: DocumentThumbnail(documentId: doc.id),
+          ),
+        );
+        await tester.pumpAndSettle();
 
-      final previewWidget = tester.widget<DocumentImagePreview>(
-        find.byType(DocumentImagePreview),
-      );
-      expect(previewWidget.cacheWidth, 140);
-      expect(previewWidget.cacheHeight, isNull); // Preserves aspect ratio!
-    });
+        final previewWidget = tester.widget<DocumentImagePreview>(
+          find.byType(DocumentImagePreview),
+        );
+        expect(previewWidget.cacheWidth, 140);
+        expect(previewWidget.cacheHeight, isNull); // Preserves aspect ratio!
+      },
+    );
   });
 }

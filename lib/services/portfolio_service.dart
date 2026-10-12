@@ -50,9 +50,10 @@ class PortfolioService extends ChangeNotifier {
   }
 
   Future<PortfolioRecord> createPortfolio(PortfolioInfo info) async {
+    _validate(info);
     final response = await _authService.authenticatedPostJson(
       _portfoliosPath,
-      body: info.toMap(),
+      body: info.normalizedMap,
     );
     final portfolio = _parsePortfolio(_dataOf(response)['portfolio']);
     _portfolios = [
@@ -68,9 +69,10 @@ class PortfolioService extends ChangeNotifier {
     String portfolioId,
     PortfolioInfo info,
   ) async {
+    _validate(info);
     final response = await _authService.authenticatedPatchJson(
       '$_portfoliosPath/$portfolioId',
-      body: info.toMap(),
+      body: info.normalizedMap,
     );
     return _upsert(_parsePortfolio(_dataOf(response)['portfolio']));
   }
@@ -82,6 +84,19 @@ class PortfolioService extends ChangeNotifier {
         .toList(growable: false);
     _hasLoaded = true;
     notifyListeners();
+  }
+
+  static void _validate(PortfolioInfo info) {
+    final errors = info.validationErrors;
+    if (errors.isNotEmpty) {
+      throw ApiException(
+        code: 'VALIDATION_ERROR',
+        message: errors.values.first,
+        fields: {
+          for (final entry in errors.entries) entry.key: [entry.value],
+        },
+      );
+    }
   }
 
   PortfolioRecord _upsert(PortfolioRecord portfolio) {

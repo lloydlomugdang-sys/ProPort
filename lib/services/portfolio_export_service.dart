@@ -55,6 +55,11 @@ class PortfolioExportContent {
     PortfolioInfo info,
     DocumentService service,
   ) {
+    if (info.validationErrors.isNotEmpty) {
+      throw PortfolioExportException(
+        'Please edit the portfolio title page. ${info.validationErrors.values.first}',
+      );
+    }
     if (service.isLoading ||
         !service.hasLoadedDocuments ||
         !service.hasLoadedCategories ||
@@ -167,6 +172,20 @@ class DevicePortfolioExporter implements PortfolioExporter {
     ExportFormat format,
   ) async {
     final Uint8List bytes;
+    final titleInfo = PortfolioInfo(
+      fullName: content.titleFields['Full Name'] ?? '',
+      yearAndSection: content.titleFields['Year & Section'] ?? '',
+      schedule: content.titleFields['Schedule'] ?? '',
+      instructorName: content.titleFields["Instructor's Name"] ?? '',
+      course: content.titleFields['Course'] ?? '',
+      courseCode: content.titleFields['Course Code'] ?? '',
+      semesterAndYear: content.titleFields['Semester & Academic Year'] ?? '',
+    );
+    if (titleInfo.validationErrors.isNotEmpty) {
+      throw PortfolioExportException(
+        'Please edit the portfolio title page. ${titleInfo.validationErrors.values.first}',
+      );
+    }
     if (format == ExportFormat.pdf) {
       if (authService == null) {
         throw const PortfolioExportException(
@@ -176,16 +195,7 @@ class DevicePortfolioExporter implements PortfolioExporter {
       try {
         bytes = await authService!.authenticatedPostBytes(
           '/api/v1/portfolios/export/pdf',
-          body: {
-            'fullName': content.titleFields['Full Name'] ?? '',
-            'yearAndSection': content.titleFields['Year & Section'] ?? '',
-            'schedule': content.titleFields['Schedule'] ?? '',
-            'instructorName': content.titleFields["Instructor's Name"] ?? '',
-            'course': content.titleFields['Course'] ?? '',
-            'courseCode': content.titleFields['Course Code'] ?? '',
-            'semesterAndYear':
-                content.titleFields['Semester & Academic Year'] ?? '',
-          },
+          body: titleInfo.normalizedMap,
           requestTimeout: const Duration(seconds: 90),
         );
       } on ApiException catch (error) {

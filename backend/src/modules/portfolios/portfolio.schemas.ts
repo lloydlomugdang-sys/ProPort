@@ -8,6 +8,14 @@ const portfolioProperties = {
   semesterAndYear: { type: 'string', maxLength: 100 },
 } as const;
 
+// Keep response projection compatible with existing incomplete saved records.
+const portfolioInputProperties = {
+  ...portfolioProperties,
+  course: { ...portfolioProperties.course, minLength: 1 },
+  courseCode: { ...portfolioProperties.courseCode, minLength: 1 },
+  semesterAndYear: { ...portfolioProperties.semesterAndYear, minLength: 1 },
+} as const;
+
 export const portfolioCreateBodySchema = {
   type: 'object',
   additionalProperties: false,
@@ -20,14 +28,14 @@ export const portfolioCreateBodySchema = {
     'courseCode',
     'semesterAndYear',
   ],
-  properties: portfolioProperties,
+  properties: portfolioInputProperties,
 } as const;
 
 export const portfolioPatchBodySchema = {
   type: 'object',
   additionalProperties: false,
   minProperties: 1,
-  properties: portfolioProperties,
+  properties: portfolioInputProperties,
 } as const;
 
 export const portfolioPathParamsSchema = {

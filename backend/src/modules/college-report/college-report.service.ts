@@ -74,7 +74,7 @@ export class CollegeReportService {
     try {
       const repositories = this.repositories();
       const template = await repositories.reportTemplates.findByKeyVersion(OFFICIAL_COLLEGE_REPORT.key, OFFICIAL_COLLEGE_REPORT.version);
-      if (!template) throw new AppError(503, 'COLLEGE_REPORT_UNAVAILABLE', 'The official questionnaire has not been initialized. Please contact support.');
+      if (!template) throw new AppError(503, 'COLLEGE_REPORT_NOT_CONFIGURED', 'The official questionnaire has not been initialized. Please contact support.');
       const previous = merge ? (await this.current(ownerId)).report : null;
       const answers = new Map(previous?.answers.map((answer) => [answer.questionKey, answer.value]) ?? []);
       for (const answer of validated) answers.set(answer.questionKey, answer.value);

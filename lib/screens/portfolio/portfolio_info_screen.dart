@@ -28,6 +28,16 @@ class _PortfolioInfoScreenState extends State<PortfolioInfoScreen>
     with SingleTickerProviderStateMixin {
   bool _isSaving = false;
   PortfolioRecord? _createdPortfolio;
+  Map<String, String> _errors = {};
+  final _fieldKeys = {
+    for (final key in PortfolioInfo.fieldLabels.keys) key: GlobalKey(),
+  };
+  final _focusNodes = {
+    for (final key in PortfolioInfo.fieldLabels.keys.where(
+      (key) => key != 'schedule',
+    ))
+      key: FocusNode(),
+  };
   // ─── Controllers ─────────────────────────────────────────────────────────────
   final _fullNameCtrl = TextEditingController();
   final _yearSectionCtrl = TextEditingController();
@@ -87,6 +97,9 @@ class _PortfolioInfoScreenState extends State<PortfolioInfoScreen>
 
   @override
   void dispose() {
+    for (final node in _focusNodes.values) {
+      node.dispose();
+    }
     _fullNameCtrl.dispose();
     _yearSectionCtrl.dispose();
     _instructorCtrl.dispose();
@@ -100,51 +113,57 @@ class _PortfolioInfoScreenState extends State<PortfolioInfoScreen>
   // ─── Validation & navigation ──────────────────────────────────────────────────
   Future<void> _onNext() async {
     if (_isSaving) return;
-    // Validate required fields only
-    if (_fullNameCtrl.text.trim().isEmpty) {
-      _showError('Full Name is required.');
-      return;
-    }
-    if (_yearSectionCtrl.text.trim().isEmpty) {
-      _showError('Year & Section is required.');
-      return;
-    }
-    if (_scheduleDay == null) {
-      _showError('Please select a schedule day.');
-      return;
-    }
-    if (_scheduleStartTime == null) {
-      _showError('Please select a start time.');
-      return;
-    }
-    if (_scheduleEndTime == null) {
-      _showError('Please select an end time.');
-      return;
-    }
-    final schedule = PortfolioSchedule(
-      day: _scheduleDay!,
-      startTime: _scheduleStartTime!,
-      endTime: _scheduleEndTime!,
-    );
-    if (!schedule.hasValidRange) {
-      _showError('End time must be later than start time.');
-      return;
-    }
-    if (_instructorCtrl.text.trim().isEmpty) {
-      _showError("Instructor's Name is required.");
-      return;
-    }
-
+    final schedule =
+        _scheduleDay == null ||
+            _scheduleStartTime == null ||
+            _scheduleEndTime == null
+        ? null
+        : PortfolioSchedule(
+            day: _scheduleDay!,
+            startTime: _scheduleStartTime!,
+            endTime: _scheduleEndTime!,
+          );
     final info = PortfolioInfo(
       fullName: _fullNameCtrl.text.trim(),
       yearAndSection: _yearSectionCtrl.text.trim(),
-      schedule: schedule.formatted,
+      schedule: schedule?.formatted ?? '',
       instructorName: _instructorCtrl.text.trim(),
       course: _courseCtrl.text.trim(),
       courseCode: _courseCodeCtrl.text.trim(),
       semesterAndYear: _semesterYearCtrl.text.trim(),
     );
 
+    final errors = info.validationErrors;
+    final scheduleError = _scheduleDay == null
+        ? 'Please select a schedule day.'
+        : _scheduleStartTime == null
+        ? 'Please select a start time.'
+        : _scheduleEndTime == null
+        ? 'Please select an end time.'
+        : !schedule!.hasValidRange
+        ? 'End time must be later than start time.'
+        : null;
+    if (scheduleError != null) errors['schedule'] = scheduleError;
+    setState(() => _errors = errors);
+    if (errors.isNotEmpty) {
+      final first = PortfolioInfo.fieldLabels.keys.firstWhere(
+        errors.containsKey,
+      );
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        _focusNodes[first]?.requestFocus();
+        final fieldContext = _fieldKeys[first]?.currentContext;
+        if (fieldContext != null) {
+          Scrollable.ensureVisible(
+            fieldContext,
+            alignment: 0.05,
+            duration: const Duration(milliseconds: 200),
+          );
+        }
+      });
+      return;
+    }
+    FocusScope.of(context).unfocus();
     setState(() => _isSaving = true);
     try {
       final service = PortfolioScope.of(context);
@@ -239,6 +258,11 @@ class _PortfolioInfoScreenState extends State<PortfolioInfoScreen>
                       // ── Full Name* ─────────────────────────────────
                       PortfolioTextField(
                         controller: _fullNameCtrl,
+                        key: _fieldKeys['fullName'],
+                        focusNode: _focusNodes['fullName'],
+                        errorText: _errors['fullName'],
+                        onChanged: (_) =>
+                            setState(() => _errors.remove('fullName')),
                         label: 'Full Name',
                         hint: 'Dela Cruz, John',
                         required: true,
@@ -250,6 +274,11 @@ class _PortfolioInfoScreenState extends State<PortfolioInfoScreen>
                       // ── Year & Section* ────────────────────────────
                       PortfolioTextField(
                         controller: _yearSectionCtrl,
+                        key: _fieldKeys['yearAndSection'],
+                        focusNode: _focusNodes['yearAndSection'],
+                        errorText: _errors['yearAndSection'],
+                        onChanged: (_) =>
+                            setState(() => _errors.remove('yearAndSection')),
                         label: 'Year & Section',
                         hint: 'e.g. 4BSIT-1',
                         required: true,
@@ -259,6 +288,7 @@ class _PortfolioInfoScreenState extends State<PortfolioInfoScreen>
 
                       // ── Schedule* ──────────────────────────────────
                       PortfolioSchedulePicker(
+                        key: _fieldKeys['schedule'],
                         day: _scheduleDay,
                         startTime: _scheduleStartTime,
                         endTime: _scheduleEndTime,
@@ -276,11 +306,24 @@ class _PortfolioInfoScreenState extends State<PortfolioInfoScreen>
                           _legacySchedule = null;
                         }),
                       ),
+                      if (_errors['schedule'] != null)
+                        Text(
+                          _errors['schedule']!,
+                          style: const TextStyle(
+                            color: AppColors.danger,
+                            fontSize: 12,
+                          ),
+                        ),
                       const SizedBox(height: 14),
 
                       // ── Instructor's Name* ─────────────────────────
                       PortfolioTextField(
                         controller: _instructorCtrl,
+                        key: _fieldKeys['instructorName'],
+                        focusNode: _focusNodes['instructorName'],
+                        errorText: _errors['instructorName'],
+                        onChanged: (_) =>
+                            setState(() => _errors.remove('instructorName')),
                         label: "Instructor's Name",
                         hint: 'First Name, Middle Initial, Last name',
                         required: true,
@@ -292,6 +335,12 @@ class _PortfolioInfoScreenState extends State<PortfolioInfoScreen>
                       // ── Course ─────────────────────────────────────
                       PortfolioTextField(
                         controller: _courseCtrl,
+                        key: _fieldKeys['course'],
+                        focusNode: _focusNodes['course'],
+                        errorText: _errors['course'],
+                        onChanged: (_) =>
+                            setState(() => _errors.remove('course')),
+                        required: true,
                         label: 'Course',
                         hint: 'Free Elective',
                         textInputAction: TextInputAction.next,
@@ -301,6 +350,12 @@ class _PortfolioInfoScreenState extends State<PortfolioInfoScreen>
                       // ── Course Code ────────────────────────────────
                       PortfolioTextField(
                         controller: _courseCodeCtrl,
+                        key: _fieldKeys['courseCode'],
+                        focusNode: _focusNodes['courseCode'],
+                        errorText: _errors['courseCode'],
+                        onChanged: (_) =>
+                            setState(() => _errors.remove('courseCode')),
+                        required: true,
                         label: 'Course Code',
                         hint: 'e.g. CCSFE4-18',
                         textInputAction: TextInputAction.next,
@@ -310,6 +365,12 @@ class _PortfolioInfoScreenState extends State<PortfolioInfoScreen>
                       // ── Semester & Academic Year ───────────────────
                       PortfolioTextField(
                         controller: _semesterYearCtrl,
+                        key: _fieldKeys['semesterAndYear'],
+                        focusNode: _focusNodes['semesterAndYear'],
+                        errorText: _errors['semesterAndYear'],
+                        onChanged: (_) =>
+                            setState(() => _errors.remove('semesterAndYear')),
+                        required: true,
                         label: 'Semester & Academic Year',
                         hint: 'e.g. 2nd Semester, A.Y. 2025-2026',
                         textInputAction: TextInputAction.done,

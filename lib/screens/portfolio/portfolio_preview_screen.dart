@@ -17,6 +17,7 @@ import '../../widgets/document_image_preview.dart';
 import '../../widgets/document_pdf_preview.dart';
 import '../../widgets/document_unsupported_preview.dart';
 import '../files/document_ocr_screen.dart';
+import '../files/document_pdf_screen.dart';
 import 'models/portfolio_models.dart';
 import 'models/portfolio_document_order.dart';
 import 'portfolio_list_screen.dart';
@@ -420,23 +421,9 @@ class _PortfolioPreviewScreenState extends State<PortfolioPreviewScreen> {
               ),
             ),
             const SizedBox(height: 10),
-            Row(
-              children: [
-                Expanded(
-                  child: SecondaryButton(
-                    label: 'Back',
-                    onPressed: () => Navigator.pop(context),
-                  ),
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  flex: 2,
-                  child: PrimaryButton(
-                    label: 'My Portfolios',
-                    onPressed: () => PortfolioListScreen.returnToList(context),
-                  ),
-                ),
-              ],
+            PrimaryButton(
+              label: 'My Portfolios',
+              onPressed: () => PortfolioListScreen.returnToList(context),
             ),
           ],
         ),
@@ -727,7 +714,9 @@ class _PreviewSheet extends StatelessWidget {
       Navigator.push(
         context,
         MaterialPageRoute<void>(
-          builder: (_) => DocumentOcrScreen(document: document),
+          builder: (_) => isPdf
+              ? DocumentPdfScreen(document: document)
+              : DocumentOcrScreen(document: document),
         ),
       );
     }
@@ -851,7 +840,7 @@ class _PreviewSheet extends StatelessWidget {
                     child: DocumentPdfPreview(
                       documentId: document.id,
                       fileName: document.originalFileName,
-                      pageCount: document.pageCount,
+                      // Attachment count is not the source PDF's page count.
                       fit: BoxFit.contain,
                       maxHeight: 260,
                       borderRadius: BorderRadius.circular(8),
