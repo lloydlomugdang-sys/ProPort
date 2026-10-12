@@ -1,3 +1,4 @@
+import { normalizePdfLigatures } from '../../infrastructure/ocr/local-ocr-engine.js';
 import type { PublicDocumentCategory } from './document.service.js';
 
 export const CANONICAL_SECTION_KEYS = [
@@ -232,12 +233,65 @@ interface OcrText {
 
 const MONTHS = ['jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec'];
 const MONTH_PATTERN = '(January|February|March|April|May|June|July|August|September|October|November|December|Jan|Feb|Mar|Apr|Jun|Jul|Aug|Sept?|Oct|Nov|Dec)';
-const CERTIFICATE = /\bcertificate\s+of\s+(completion|participation|attendance|recognition)\b/i;
-const SUBJECT = /(?:\b(?:successfully\s+)?completing\s+(?:the\s+)?(?:course|training|seminar|workshop)?\s*|\bparticipated\s+in\s+(?:the\s+)?(?:(?:course|training|seminar|webinar|workshop)\b\s*)?|\b(?:course|event|activity|seminar|training|workshop|title|subject)\s*:\s*)/i;
+const CERTIFICATE = /\bcertificate\s+of\s+(completion|participation|attendance|recognition|appreciation)\b/i;
+const SUBJECT = /(?:\b(?:successfully\s+)?completing\s+(?:the\s+)?(?:course|training|seminar|workshop)?\s*|\bparticipated\s+in\s+(?:the\s+)?(?:(?:course|training|seminar|webinar|workshop)\b\s*)?|\b(?:course|event|activity|seminar|training|workshop|title|subject|topic)\s*:\s*)/i;
 const BOUNDARY = /\b(?:conducted\s+(?:by|on)|organized\s+by|issued\s+(?:by|on)|awarded\s+on|dated|presented\s+to|awarded\s+to|certificate\s+(?:no|number))\b|\bon\s+(?=\d|jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)/i;
 
+export function countResumeSectionSignals(rawText: string): number {
+  const text = normalizePdfLigatures(rawText);
+  let signals = 0;
+  if (/\b(?:career\s+objectives?|professional\s+summary|profile\s+summary|career\s+profile)\b/i.test(text)) {
+    signals += 1;
+  }
+  if (
+    /\b(?:(?:work|professional|system\s+development|development|employment|project|internship|technical)\s+experience|employment\s+history)\b/i.test(
+      text,
+    )
+  ) {
+    signals += 1;
+  }
+  if (/\b(?:education|educational\s+background|educational\s+attainment|academic\s+background)\b/i.test(text)) {
+    signals += 1;
+  }
+  if (/\b(?:personal\s+information|personal\s+data|personal\s+details)\b/i.test(text)) {
+    signals += 1;
+  }
+  const biodataFieldMatches = [
+    /\bdate\s+of\s+birth\b/i.test(text),
+    /\bplace\s+of\s+birth\b/i.test(text),
+    /\bcivil\s+status\b/i.test(text),
+    /\bcitizenship\b/i.test(text),
+  ].filter(Boolean).length;
+  if (biodataFieldMatches >= 2) {
+    signals += 1;
+  }
+  if (
+    /\b(?:technical\s+skills|programming\s+&\s+scripting|tools\s+&\s+platforms|core\s+competencies|skills\s+and\s+competencies)\b/i.test(
+      text,
+    )
+  ) {
+    signals += 1;
+  }
+  return signals;
+}
+
+export function isHeaderlessOrExplicitCv(rawText: string): boolean {
+  const text = normalizePdfLigatures(rawText);
+  if (/\b(?:curriculum\s+vitae|\bresume\b|\bbio-?data\b)/i.test(text)) {
+    return true;
+  }
+  if (
+    /\b(?:work\s+experience|employment\s+history|professional\s+experience|system\s+development\s+experience)\b/i.test(text) &&
+    /\b(?:education|academic\s+background)\b/i.test(text) &&
+    /\b(?:skills|competencies|career\s+objectives?)\b/i.test(text)
+  ) {
+    return true;
+  }
+  return countResumeSectionSignals(text) >= 2;
+}
+
 function linesOf(text: string): string[] {
-  return text.normalize('NFKC').replace(/\r\n?/g, '\n').split('\n')
+  return normalizePdfLigatures(text).normalize('NFKC').replace(/\r\n?/g, '\n').split('\n')
     .map((line) => line.replace(/[^\S\n]+/g, ' ').replace(/^[\s|*_=~•-]+|[\s|*_=~•-]+$/g, '').trim())
     .filter((line) => /[\p{L}\d]/u.test(line));
 }
@@ -247,7 +301,7 @@ function meaningful(value: string): boolean {
   return value.length >= 6 && value.length <= 250 && letters / value.length >= 0.6 &&
     value.split(' ').filter((word) => /\p{L}{2}/u.test(word)).length >= 2 &&
     !/(.)\1{4}/.test(value) && !CERTIFICATE.test(value) &&
-    !/^(?:this certificate|presented to|awarded to|for |on |conducted|issued|program director|project lead|certificate no)/i.test(value);
+    !/^(?:this certificate|presented to|awarded to|for |on |conducted|issued|program director|project lead|certificate no|click here)/i.test(value);
 }
 
 function subjectOf(lines: readonly string[]): string | undefined {
@@ -358,14 +412,17 @@ export function suggestDocumentMetadata(
 
   // 2. Certificates
   const certificate = CERTIFICATE.exec(text);
-  const isCertificate = certificate !== null || (
+  const isSeminarCertificateSheet =
+    /\bseminar\s+certificates?\b/i.test(text) &&
+    /\b(?:topic\s*:|topic\s+outline|reflection\s+paper|webinar)\b/i.test(text);
+  const isCertificate = certificate !== null || isSeminarCertificateSheet || (
     /\b(?:presented to|awarded to)\b/i.test(text) &&
     /\b(?:successfully completing|participated in)\b/i.test(text)
   );
 
   if (isCertificate) {
     const category = categories.find((value) => value.key === 'certificates');
-    const folderKey = /\b(?:training|trainings|course|workshop)\b/i.test(text) ? 'trainings'
+    const folderKey = /\b(?:training|trainings|course|workshop)\b/i.test(text) && !isSeminarCertificateSheet ? 'trainings'
       : /\b(?:seminar|seminars|webinar)\b/i.test(text) ? 'seminars' : undefined;
     const folder = category?.folders.find((value) => value.key === folderKey);
     const title = subjectOf(lines);
@@ -385,12 +442,8 @@ export function suggestDocumentMetadata(
     };
   }
 
-  // 2. Curriculum Vitae (CV / Resume / Biodata)
-  const isCv = /\b(?:curriculum\s+vitae|resume|biodata)\b/i.test(text) || (
-    /\b(?:work\s+experience|employment\s+history|professional\s+experience)\b/i.test(text) &&
-    /\b(?:education|academic\s+background)\b/i.test(text) &&
-    /\b(?:skills|competencies)\b/i.test(text)
-  );
+  // 3. Curriculum Vitae (CV / Resume / Biodata / Multi-section headerless resume)
+  const isCv = isHeaderlessOrExplicitCv(text);
   if (isCv) {
     const category = categories.find((value) => value.key === 'curriculum-vitae');
     const folder = category?.folders.find((value) => value.key === 'curriculum-vitae');

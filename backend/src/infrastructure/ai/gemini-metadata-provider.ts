@@ -31,18 +31,21 @@ Identify individual, distinct academic documents contained within the portfolio.
 For each document found, determine:
 - startPage: 1-indexed start page number
 - endPage: 1-indexed end page number (>= startPage)
-- categoryKey: canonical key from categories (curriculum-vitae, scholastic-record, certificates, accomplishments, other-achievements, college-report)
-- folderKey: canonical folder key belonging to the selected category (curriculum-vitae, seminars, trainings, other-seminars, thesis-capstone, case-studies, projects, assessments, unofficial-tor-with-reflections, college-report, creative-title)
+- categoryKey: canonical key from categories (curriculum-vitae, scholastic-record, certificates, accomplishments, other-achievements, college-report), or null if ambiguous
+- folderKey: canonical folder key belonging to the selected category (curriculum-vitae, seminars, trainings, other-seminars, thesis-capstone, case-studies, projects, assessments, unofficial-tor-with-reflections, college-report, creative-title), or null if ambiguous
 - title: concise title naming the event/course/project/document (never the student/recipient name)
 - documentDate: ISO YYYY-MM-DD date if unambiguous document/event date is found, or null
 - confidence: number between 0.0 and 1.0
 
 Rules:
 - Cover EVERY numbered source page exactly once with contiguous, ascending ranges; no omitted, repeated, or overlapping pages.
-- Repeated CV headings and sparse continuation pages do not create a new CV. Keep a multi-page CV together. Separate independent certificates.
+- Repeated CV headings and personal-information/skills continuation pages do not create a new CV. Keep a multi-page CV together.
+- Keep academic coursework/module exercise pages together with their subsequent output screenshot continuation pages. Do not force general coursework into thesis-capstone; if Projects vs Assessments is ambiguous, set folderKey to null and lower confidence.
+- Keep seminar certificate pages together with their attached Topic Outline and Reflection Paper continuation pages. Separate independent certificates.
+- A change in student or recipient name across pages signals a boundary between separate documents.
 - Multiple documents on one physical page cannot be split into regions; keep that page whole and set low confidence.
 - startPage must be <= endPage.
-- Do not invent categories or folders; use only the provided keys.
+- Do not invent categories or folders; use only the provided keys or null when uncertain.
 - Return only the JSON schema, with no extra fields.`;
 
 function record(value: unknown): value is Record<string, unknown> {

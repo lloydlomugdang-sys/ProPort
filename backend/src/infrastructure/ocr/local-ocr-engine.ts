@@ -879,8 +879,27 @@ function checkedText(
   return { rawText: normalized, engine };
 }
 
-function normalizeText(value: string): string {
+export function normalizePdfLigatures(value: string): string {
   return value
+    // Repair common words where a leading ligature was separated by pdfjs text runs (e.g., "fi delity", "fi eld")
+    .replace(
+      /(?<![\p{L}])([Ff](?:fi|fl|f|i|l))[\t ]+(delit(?:y|ies)|elds?|les?|lenames?|rst|nal(?:ly|ize|ized)?|nanc(?:e|es|ial)|nd(?:ings?|s)?|gur(?:e|es|ed|ing)|lters?|nish(?:ed|ing)?)\b/gu,
+      '$1$2',
+    )
+    // Repair words where an internal ligature was split on both sides (e.g., "Certi fi cates", "Re fl ection", "con fi guring")
+    .replace(
+      /\b(?!(?:in|on|at|to|of|or|as|be|by|do|go|he|if|is|it|me|my|no|so|up|us|we|an|the|and|for|not|but|are|was|has|had|can|all|one|out|who|his|her|its|our|two|new|now|old|see|way|may|day|get|use|wi|sci|hi|lo)\b)([\p{L}]{2,})[\t ]+(ffi|ffl|ff|fi|fl)[\t ]+([\p{Ll}]{2,})\b/gu,
+      '$1$2$3',
+    )
+    // Repair 'o'/'e' prefixes split on both sides before a ligature + suffix (e.g., "o ffi cial", "e ff ective")
+    .replace(
+      /\b([OoEe])[\t ]+(ffi|ffl|ff|fi|fl)[\t ]+(ective(?:ly)?|orts?|ects?|icial(?:ly)?|ices?|icers?|er(?:ed|ing|s)?)\b/gu,
+      '$1$2$3',
+    );
+}
+
+function normalizeText(value: string): string {
+  return normalizePdfLigatures(value)
     .replaceAll('\r\n', '\n')
     .replaceAll('\r', '\n')
     .split('\n')

@@ -399,10 +399,11 @@ class _AddFileScreenState extends State<AddFileScreen>
       });
       final canNavigateAutomatically =
           _manualFields.isEmpty && _reflectionCtrl.text.trim().isEmpty;
+      final isMultiDocument =
+          analysis.documents.length > 1 || analysis.detection == 'multiple';
       if (forceReview ||
           (canNavigateAutomatically &&
-              (analysis.detection == 'multiple' ||
-                  analysis.hasUnresolvedPages))) {
+              (isMultiDocument || analysis.hasUnresolvedPages))) {
         await service.load();
         if (!mounted || operation != _previewOperation) return;
         // Categories may finish loading after the user starts editing.
@@ -445,7 +446,7 @@ class _AddFileScreenState extends State<AddFileScreen>
       setState(() {
         _suggestionMessage = analysis!.hasUnresolvedPages
             ? 'Some pages are unreadable. Use Separate to review and retry.'
-            : analysis.detection == 'multiple'
+            : isMultiDocument
             ? 'Multiple documents detected. Your edits are preserved; use Separate to review.'
             : 'PDF pages analyzed. Review the suggested details before saving.';
         if (proposal != null) {
@@ -661,10 +662,16 @@ class _AddFileScreenState extends State<AddFileScreen>
   }
 
   String _readingFailure(ApiException error) => switch (error.code) {
-    'NETWORK_ERROR' =>
+    'NETWORK_ERROR' || 'NETWORK_OFFLINE' =>
       'No connection for automatic reading. You can still enter the details manually.',
     'NETWORK_TIMEOUT' =>
       'Automatic reading took too long. You can still enter the details manually.',
+    'COLD_START_TIMEOUT' =>
+      'The server is waking up and took too long to respond. Please retry in a moment, or enter the details manually.',
+    'OCR_TIMEOUT' =>
+      'Automatic reading timed out while processing this file. Please retry, or enter the details manually.',
+    'OCR_BUSY' =>
+      'The server is busy processing another document. Please retry shortly, or enter the details manually.',
     'RATE_LIMITED' =>
       'Too many reading requests. Please wait before retrying, or enter the details manually.',
     _ =>

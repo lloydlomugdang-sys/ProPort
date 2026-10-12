@@ -485,6 +485,8 @@ class CompiledDocumentProposal {
     required this.title,
     this.documentDate,
     this.confidence = 0.8,
+    this.rationale,
+    this.warning,
   });
 
   final int startPage;
@@ -494,6 +496,8 @@ class CompiledDocumentProposal {
   final String title;
   final DateTime? documentDate;
   final double confidence;
+  final String? rationale;
+  final String? warning;
 
   factory CompiledDocumentProposal.fromJson(Map<String, dynamic> json) {
     final start = json['startPage'];
@@ -521,6 +525,8 @@ class CompiledDocumentProposal {
       title: _requiredString(json, 'title'),
       documentDate: parsedDate,
       confidence: conf,
+      rationale: _optionalString(json, 'rationale'),
+      warning: _optionalString(json, 'warning'),
     );
   }
 
@@ -532,6 +538,8 @@ class CompiledDocumentProposal {
     String? title,
     DateTime? documentDate,
     double? confidence,
+    String? rationale,
+    String? warning,
   }) {
     return CompiledDocumentProposal(
       startPage: startPage ?? this.startPage,
@@ -541,6 +549,8 @@ class CompiledDocumentProposal {
       title: title ?? this.title,
       documentDate: documentDate ?? this.documentDate,
       confidence: confidence ?? this.confidence,
+      rationale: rationale ?? this.rationale,
+      warning: warning ?? this.warning,
     );
   }
 }

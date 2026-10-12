@@ -24,6 +24,8 @@ class _EditableSegment {
     String? description,
     String? reflection,
     this.confidence = 0.8,
+    this.rationale,
+    this.warning,
   }) : titleCtrl = TextEditingController(text: title),
        descCtrl = TextEditingController(text: description ?? ''),
        reflCtrl = TextEditingController(text: reflection ?? '');
@@ -34,10 +36,13 @@ class _EditableSegment {
   String? folderKey;
   DateTime? documentDate;
   final double confidence;
+  final String? rationale;
+  final String? warning;
   final TextEditingController titleCtrl;
   final TextEditingController descCtrl;
   final TextEditingController reflCtrl;
   bool showDetails = false;
+  bool confirmedUnresolved = false;
 
   void dispose() {
     titleCtrl.dispose();
@@ -84,6 +89,8 @@ class _CompiledReviewScreenState extends State<CompiledReviewScreen> {
           title: doc.title,
           documentDate: doc.documentDate,
           confidence: doc.confidence,
+          rationale: doc.rationale,
+          warning: doc.warning,
         ),
       );
     }
@@ -239,13 +246,45 @@ class _CompiledReviewScreenState extends State<CompiledReviewScreen> {
     }
   }
 
+  bool _segmentHasUnresolvedPages(_EditableSegment seg) {
+    return _analysis.pages.any(
+      (page) =>
+          page.pageNumber >= seg.startPage &&
+          page.pageNumber <= seg.endPage &&
+          page.isUnresolved,
+    );
+  }
+
+  bool _segmentHasUsableText(_EditableSegment seg) {
+    final text = _analysis.pages
+        .where(
+          (page) =>
+              page.pageNumber >= seg.startPage &&
+              page.pageNumber <= seg.endPage &&
+              !page.isUnresolved,
+        )
+        .map((page) => page.text.trim())
+        .where((value) => value.isNotEmpty)
+        .join('\n');
+    return text.length >= 25;
+  }
+
   Future<void> _handleSplitAndSave() async {
     if (_isSubmitting) return;
     if (_analysis.hasUnresolvedPages) {
-      _showSnack(
-        'Unreadable pages must be retried before separation. You can cancel and handle the PDF manually.',
+      final hasUnconfirmedUnresolved = _segments.any(
+        (seg) =>
+            _segmentHasUnresolvedPages(seg) &&
+            (!seg.confirmedUnresolved ||
+                (!_segmentHasUsableText(seg) &&
+                    seg.descCtrl.text.trim().isEmpty)),
       );
-      return;
+      if (hasUnconfirmedUnresolved) {
+        _showSnack(
+          'Unreadable pages must be retried or explicitly confirmed before separation.',
+        );
+        return;
+      }
     }
     final totalPages = widget.analysis.totalPages;
     final categories = DocumentScope.of(context).categories;
@@ -620,6 +659,77 @@ class _CompiledReviewScreenState extends State<CompiledReviewScreen> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
+                if (seg.warning != null && seg.warning!.trim().isNotEmpty) ...[
+                  Container(
+                    width: double.infinity,
+                    margin: const EdgeInsets.only(bottom: 12),
+                    padding: const EdgeInsets.all(10),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFFFF8E1),
+                      borderRadius: BorderRadius.circular(10),
+                      border: Border.all(color: const Color(0xFFFFB300)),
+                    ),
+                    child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Icon(
+                          Icons.warning_amber_rounded,
+                          size: 18,
+                          color: Color(0xFFE65100),
+                        ),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            seg.warning!,
+                            style: GoogleFonts.poppins(
+                              fontSize: 11.5,
+                              fontWeight: FontWeight.w500,
+                              color: const Color(0xFFE65100),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ] else if (seg.rationale != null &&
+                    seg.rationale!.trim().isNotEmpty) ...[
+                  Container(
+                    width: double.infinity,
+                    margin: const EdgeInsets.only(bottom: 12),
+                    padding: const EdgeInsets.all(10),
+                    decoration: BoxDecoration(
+                      color: AppColors.primary.withValues(alpha: 0.06),
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    child: Text(
+                      seg.rationale!,
+                      style: GoogleFonts.poppins(
+                        fontSize: 11.5,
+                        color: AppColors.textSecondary,
+                      ),
+                    ),
+                  ),
+                ],
+                if (_segmentHasUnresolvedPages(seg)) ...[
+                  CheckboxListTile(
+                    value: seg.confirmedUnresolved,
+                    dense: true,
+                    contentPadding: EdgeInsets.zero,
+                    controlAffinity: ListTileControlAffinity.leading,
+                    title: Text(
+                      'Confirm reviewed details for unreadable page(s)',
+                      style: GoogleFonts.poppins(
+                        fontSize: 11.5,
+                        fontWeight: FontWeight.w500,
+                        color: AppColors.textPrimary,
+                      ),
+                    ),
+                    onChanged: (val) {
+                      setState(() => seg.confirmedUnresolved = val ?? false);
+                    },
+                  ),
+                  const SizedBox(height: 6),
+                ],
                 // Page range selectors
                 Row(
                   children: [

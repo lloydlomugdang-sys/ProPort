@@ -572,7 +572,7 @@ void main() {
     await tester.pumpAndSettle();
     expect(
       find.text(
-        "We couldn't automatically read this file. You can still enter the details manually.",
+        'Automatic reading timed out while processing this file. Please retry, or enter the details manually.',
       ),
       findsOneWidget,
     );

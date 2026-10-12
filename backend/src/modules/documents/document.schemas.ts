@@ -302,6 +302,8 @@ export const compiledAnalyzeResponseSchema = {
               title: { type: 'string' },
               documentDate: { type: ['string', 'null'] },
               confidence: { type: 'number' },
+              rationale: { type: ['string', 'null'] },
+              warning: { type: ['string', 'null'] },
             },
           },
         },

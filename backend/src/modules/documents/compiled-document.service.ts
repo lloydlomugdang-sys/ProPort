@@ -7,10 +7,16 @@ import { AppError } from '../../common/errors/app-error.js';
 import type { DatabaseConnection } from '../../infrastructure/database/database-connection.js';
 import { createRepositories } from '../../database/repositories/index.js';
 import type { ObjectStorage } from '../../infrastructure/storage/object-storage.js';
+import { hasUsableDigitalText, normalizePdfLigatures } from '../../infrastructure/ocr/local-ocr-engine.js';
 import { OcrEngineError, type OcrEngine, type OcrPageText } from '../../infrastructure/ocr/ocr-engine.js';
 import { COLLECTION_NAMES } from '../../database/collection-names.js';
 import type { AiMetadataService, MetadataAnalysis } from './ai-metadata.service.js';
-import { suggestDocumentMetadata, type MetadataSuggestions } from './metadata-suggestion.service.js';
+import {
+  isHeaderlessOrExplicitCv,
+  resolveCanonicalTaxonomy,
+  suggestDocumentMetadata,
+  type MetadataSuggestions,
+} from './metadata-suggestion.service.js';
 import {
   MAX_DOCUMENT_FILE_SIZE_BYTES,
   type DocumentFileInput,
@@ -26,6 +32,8 @@ export interface CompiledDocumentProposal {
   readonly title: string;
   readonly documentDate: string | null;
   readonly confidence: number;
+  readonly rationale?: string | null;
+  readonly warning?: string | null;
 }
 
 export interface CompiledAnalysisResult {
@@ -279,6 +287,7 @@ export class CompiledDocumentService {
       // AI Separation & Validation
       let proposals: CompiledDocumentProposal[] = [];
       const unresolved = pages.some((page) => page.status === 'unresolved');
+      const hasReadablePages = pages.some((page) => page.status !== 'unresolved' && page.text.trim().length > 0);
       let singleMetadata: { metadataSuggestions: MetadataSuggestions; metadataAnalysis: MetadataAnalysis } | undefined;
       let aiAccepted = false;
       let aiStatus: MetadataAnalysis['aiStatus'] = 'disabled';
@@ -291,7 +300,7 @@ export class CompiledDocumentService {
           folderKey: metadata.folderKey ?? '', title: metadata.title ?? 'Document — review category',
           documentDate: metadata.documentDate ?? null,
           confidence: metadata.confidence === 'high' ? 0.9 : metadata.confidence === 'medium' ? 0.8 : 0 }];
-      } else if (!unresolved && this.metadata?.separateCompiled) {
+      } else if (hasReadablePages && this.metadata?.separateCompiled) {
         try {
           const rawAiResult = await this.metadata.separateCompiled(pages, categories);
           if (rawAiResult) {
@@ -309,6 +318,8 @@ export class CompiledDocumentService {
       if (proposals.length === 0) {
         proposals = this.heuristicSplit(pages, totalPages, categories);
       }
+      proposals = attachStudentNameWarnings(proposals, pages);
+
       if (!singleMetadata && !unresolved && proposals.length === 1) {
         const proposal = proposals[0]!;
         const rules = suggestDocumentMetadata({ rawText: extracted.rawText }, categories);
@@ -325,7 +336,15 @@ export class CompiledDocumentService {
       }
 
       await this.sessions().updateOne({ sessionId }, { $set: { proposals, state: 'ready' } });
-      const confident = !unresolved && proposals.every((proposal) => proposal.confidence >= 0.75 && proposal.categoryKey && proposal.folderKey);
+      const confident =
+        !unresolved &&
+        proposals.every(
+          (proposal) =>
+            proposal.confidence >= 0.75 &&
+            Boolean(proposal.categoryKey) &&
+            Boolean(proposal.folderKey) &&
+            !proposal.warning,
+        );
 
       return {
         sessionId,
@@ -369,11 +388,39 @@ export class CompiledDocumentService {
     }
     if (session.state === 'complete' || session.completedDocuments) throw new AppError(409, 'SESSION_ALREADY_SPLIT', 'This PDF has already been separated. Open the saved documents.');
     if (session.state === 'failed') throw new AppError(503, 'SPLIT_RECOVERY_REQUIRED', 'This split needs cleanup before it can be retried. No new documents were created by this request.');
-    if (session.pageTexts.some((page) => page.status === 'unresolved' || page.source === 'failed')) {
-      throw new AppError(422, 'COMPILED_UNRESOLVED_PAGES', 'Some pages could not be read. Retry analysis or handle the source manually before splitting.');
-    }
     if (!hasCompleteCoverage(input.segments, session.totalPages)) {
       throw validationError('segments', 'must cover every source page exactly once, in order, without gaps or overlaps');
+    }
+    for (const seg of input.segments) {
+      const segmentPages = session.pageTexts.filter(
+        (page) => page.pageNumber >= seg.startPage && page.pageNumber <= seg.endPage,
+      );
+      const hasUnresolvedPage = segmentPages.some(
+        (page) => page.status === 'unresolved' || page.source === 'failed',
+      );
+      if (hasUnresolvedPage) {
+        const segmentReadyText = segmentPages
+          .filter((page) => page.status === 'ready')
+          .map((page) => page.text.trim())
+          .filter(Boolean)
+          .join('\n');
+        const hasUsableSegmentText =
+          hasUsableDigitalText(segmentReadyText) || segmentReadyText.length >= 25;
+        const hasReviewedMetadata =
+          Boolean(seg.categoryKey?.trim()) &&
+          Boolean(seg.folderKey?.trim()) &&
+          Boolean(seg.title?.trim()) &&
+          !/^unreadable\s+page\b/i.test(seg.title.trim()) &&
+          !/review\s+category/i.test(seg.title.trim());
+        const hasExplicitManualDescription = Boolean(seg.description?.trim());
+        if (!hasReviewedMetadata || (!hasUsableSegmentText && !hasExplicitManualDescription)) {
+          throw new AppError(
+            422,
+            'COMPILED_UNRESOLVED_PAGES',
+            'Some pages could not be read. Retry analysis or review and confirm the affected section details before splitting.',
+          );
+        }
+      }
     }
 
     const repositories = this.repositories();
@@ -598,7 +645,7 @@ export class CompiledDocumentService {
     raw: unknown,
     totalPages: number,
     categories: readonly PublicDocumentCategory[],
-    pages: readonly { readonly pageNumber: number; readonly text: string }[],
+    pages: readonly OcrPageText[],
   ): CompiledDocumentProposal[] {
     if (typeof raw !== 'object' || raw === null || !('documents' in raw) || !Array.isArray(raw.documents)) {
       return [];
@@ -606,6 +653,7 @@ export class CompiledDocumentService {
 
     const proposals: CompiledDocumentProposal[] = [];
     let lastEndPage = 0;
+    let validCategorizedCount = 0;
 
     for (const doc of raw.documents) {
       if (typeof doc !== 'object' || doc === null) return [];
@@ -616,54 +664,113 @@ export class CompiledDocumentService {
       // Ranges must be non-overlapping and contiguous/ascending
       if (startPage !== lastEndPage + 1) return [];
 
-      const catKey = typeof doc.categoryKey === 'string' ? doc.categoryKey.trim() : '';
-      const cat = categories.find((c) => c.key === catKey);
-      if (!cat) return [];
+      const segmentPages = pages.filter((p) => p.pageNumber >= startPage && p.pageNumber <= endPage);
+      const allUnresolved =
+        segmentPages.length > 0 && segmentPages.every((p) => p.status === 'unresolved');
+      const hasAnyUnresolved = segmentPages.some((p) => p.status === 'unresolved');
+      const segText = segmentPages.map((p) => p.text).join('\n');
 
-      const folderKey = typeof doc.folderKey === 'string' ? doc.folderKey.trim() : '';
-      if (!cat.folders.some((f) => f.key === folderKey)) {
-        return [];
+      const rawCat = typeof doc.categoryKey === 'string' ? doc.categoryKey.trim() : '';
+      const rawFolder = typeof doc.folderKey === 'string' ? doc.folderKey.trim() : '';
+
+      let matchedCat = categories.find((c) => c.key === rawCat);
+      let matchedFolder = matchedCat?.folders.find((f) => f.key === rawFolder)?.key;
+
+      if ((!matchedCat || !matchedFolder) && rawCat.length > 0) {
+        const resolved = resolveCanonicalTaxonomy(
+          rawCat,
+          rawFolder.length > 0 ? rawFolder : undefined,
+          categories,
+        );
+        if (resolved.category) {
+          matchedCat = resolved.category;
+          // If a specific folder was supplied, require it to resolve to an actual folder of matchedCat
+          if (rawFolder.length > 0) {
+            matchedFolder = resolved.folderKey;
+          } else {
+            matchedFolder = resolved.folderKey;
+          }
+        }
       }
 
+      const isFullyCategorized = Boolean(matchedCat && matchedFolder) && !allUnresolved;
+      if (isFullyCategorized) {
+        validCategorizedCount += 1;
+      }
+
+      const meta = suggestDocumentMetadata({ rawText: segText }, categories);
       let title = typeof doc.title === 'string' ? doc.title.trim().slice(0, 250) : '';
-      if (!title) {
-        title = cat.name;
+      if (allUnresolved) {
+        title = 'Unreadable page — retry required';
+      } else if (!title) {
+        title = meta.title ?? matchedCat?.name ?? 'Document — review category';
       }
 
       let date: string | null =
         typeof doc.documentDate === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(doc.documentDate)
           ? doc.documentDate
-          : suggestDocumentMetadata(
-              {
-                rawText: pages
-                  .filter((p) => p.pageNumber >= startPage && p.pageNumber <= endPage)
-                  .map((p) => p.text)
-                  .join('\n'),
-              },
-              [],
-            ).documentDate ?? null;
+          : meta.documentDate ?? null;
       if (date !== null) {
         try { documentDate(date); } catch { date = null; }
       }
 
-      const conf = typeof doc.confidence === 'number' && doc.confidence >= 0 && doc.confidence <= 1
-        ? doc.confidence
-        : 0;
+      const rawConf =
+        typeof doc.confidence === 'number' && doc.confidence >= 0 && doc.confidence <= 1
+          ? doc.confidence
+          : 0.8;
+
+      let categoryKey: string;
+      let folderKey: string;
+      let confidence: number;
+      let rationale: string | null =
+        typeof (doc as { rationale?: unknown }).rationale === 'string'
+          ? ((doc as { rationale: string }).rationale.trim().slice(0, 300) || null)
+          : null;
+
+      if (allUnresolved) {
+        categoryKey = '';
+        folderKey = '';
+        confidence = 0;
+        rationale = 'Page text could not be read automatically; please review or retry.';
+      } else if (isFullyCategorized && matchedCat && matchedFolder) {
+        categoryKey = matchedCat.key;
+        folderKey = matchedFolder;
+        confidence = hasAnyUnresolved ? Math.min(rawConf, 0.5) : rawConf;
+        if (hasAnyUnresolved && !rationale) {
+          rationale = 'Section includes a page with weak or unreadable OCR text; please confirm details before saving.';
+        }
+      } else {
+        // Preserve valid page boundaries when category/folder is uncertain; do not silently invent a category.
+        categoryKey = matchedCat?.key ?? '';
+        folderKey = '';
+        confidence = Math.min(rawConf, 0.4);
+        rationale =
+          rationale ??
+          'Category or folder is ambiguous; please review and select the appropriate classification.';
+      }
 
       proposals.push({
         startPage,
         endPage,
-        categoryKey: cat.key,
+        categoryKey,
         folderKey,
         title,
         documentDate: date,
-        confidence: conf,
+        confidence,
+        ...(rationale ? { rationale } : {}),
       });
 
       lastEndPage = endPage;
     }
 
-    return hasCompleteCoverage(proposals, totalPages) ? proposals : [];
+    if (!hasCompleteCoverage(proposals, totalPages)) {
+      return [];
+    }
+    // Reject completely ungrounded single/multi proposals where not even one segment had a valid taxonomy match
+    if (validCategorizedCount === 0) {
+      return [];
+    }
+    return proposals;
   }
 
   private heuristicSplit(
@@ -671,7 +778,18 @@ export class CompiledDocumentService {
     totalPages: number,
     categories: readonly PublicDocumentCategory[],
   ): CompiledDocumentProposal[] {
-    const boundaryStarts: { page: number; categoryKey: string; folderKey: string; defaultTitle: string }[] = [];
+    interface BoundaryStart {
+      page: number;
+      kind: 'cv' | 'tor' | 'certificate' | 'coursework' | 'project' | 'college-report' | 'unresolved' | 'unknown';
+      categoryKey: string;
+      folderKey: string;
+      defaultTitle: string;
+      confidence: number;
+      rationale?: string;
+      studentKey?: string;
+    }
+
+    const boundaryStarts: BoundaryStart[] = [];
 
     const getCat = (key: string) => categories.find((c) => c.key === key);
     const getFolder = (catKey: string, folderKey: string) => {
@@ -681,52 +799,202 @@ export class CompiledDocumentService {
     };
 
     for (const page of pages) {
-      const text = page.text.toLowerCase();
-      let match: { categoryKey: string; folderKey: string; defaultTitle: string } | null = null;
+      const normalizedPageText = normalizePdfLigatures(page.text);
+      const text = normalizedPageText.toLowerCase();
+      const student = extractPageStudentName(normalizedPageText);
+      const prior = boundaryStarts.at(-1);
+      const studentChanged =
+        Boolean(student?.canonicalKey) &&
+        Boolean(prior?.studentKey) &&
+        student!.canonicalKey !== prior!.studentKey;
 
       if (page.status === 'unresolved') {
-        boundaryStarts.push({ page: page.pageNumber, categoryKey: '', folderKey: '', defaultTitle: 'Unreadable page — retry required' });
+        boundaryStarts.push({
+          page: page.pageNumber,
+          kind: 'unresolved',
+          categoryKey: '',
+          folderKey: '',
+          defaultTitle: 'Unreadable page — retry required',
+          confidence: 0,
+          rationale: 'Page text could not be read automatically; please review or retry.',
+        });
         continue;
       }
-      if (/(?:curriculum\s+vitae|\bresume\b|\bbio-data\b)/.test(text)) {
+
+      const coursework = extractCourseworkInfo(normalizedPageText);
+      const hasExplicitCertHeader =
+        /(?:certificate\s+of\s+(?:completion|participation|attendance|recognition|appreciation)|\bthis\s+(?:is\s+to\s+)?certif(?:y|ies)\b|\b(?:presented|awarded)\s+to\b|\bhas\s+successfully\s+completed\b|\bseminar\s+certificates?\b)/i.test(
+          normalizedPageText,
+        );
+      const hasSeminarTopicHeader =
+        /\btopic\s*:\s*\S+/i.test(normalizedPageText) &&
+        /\b(?:seminar|webinar|workshop|topic\s+outline|reflection\s+paper)\b/i.test(normalizedPageText);
+      const isReflectionOrOutlineContinuation =
+        prior?.kind === 'certificate' &&
+        !hasExplicitCertHeader &&
+        !hasSeminarTopicHeader &&
+        !studentChanged &&
+        /\b(?:reflection|hands-on|demonstration|i\s+learned|learning\s+experience|topic\s+outline|webinar|seminar)\b/i.test(
+          normalizedPageText,
+        );
+
+      let match: Omit<BoundaryStart, 'page'> | null = null;
+
+      if (isHeaderlessOrExplicitCv(normalizedPageText)) {
         const f = getFolder('curriculum-vitae', 'curriculum-vitae');
-        match = { categoryKey: f.catKey, folderKey: f.folderKey, defaultTitle: 'Curriculum Vitae' };
-      } else if (/(?:transcript\s+of\s+records|\bofficial\s+transcript\b|\bcertificate\s+of\s+grades\b|\bunofficial\s+tor\b)/.test(text)) {
+        match = {
+          kind: 'cv',
+          categoryKey: f.catKey,
+          folderKey: f.folderKey,
+          defaultTitle: 'Curriculum Vitae',
+          confidence: f.catKey && f.folderKey ? 0.85 : 0,
+          ...(student ? { studentKey: student.canonicalKey } : {}),
+        };
+      } else if (
+        /(?:transcript\s+of\s+records|\bofficial\s+transcript\b|\bcertificate\s+of\s+grades\b|\bunofficial\s+tor\b)/.test(
+          text,
+        )
+      ) {
         const f = getFolder('scholastic-record', 'unofficial-tor-with-reflections');
-        match = { categoryKey: f.catKey, folderKey: f.folderKey, defaultTitle: 'Transcript of Records' };
-      } else if (/(?:certificate\s+of\s+(?:completion|participation|attendance|recognition|appreciation)|\bhas\s+successfully\s+completed\b|\bseminar\b|\bwebinar\b|\bworkshop\b)/.test(text)) {
-        const isTraining = /(?:training\s+course|\bbootcamp\b|\bworkshop\b|\bcourse\s+completion\b)/.test(text);
+        match = {
+          kind: 'tor',
+          categoryKey: f.catKey,
+          folderKey: f.folderKey,
+          defaultTitle: 'Transcript of Records',
+          confidence: f.catKey && f.folderKey ? 0.85 : 0,
+          ...(student ? { studentKey: student.canonicalKey } : {}),
+        };
+      } else if (coursework.isCourseworkStart) {
+        const accomplishmentsCat = getCat('accomplishments');
+        const resolvedFolder = coursework.folderKey
+          ? getFolder('accomplishments', coursework.folderKey)
+          : { catKey: accomplishmentsCat?.key ?? '', folderKey: '' };
+        match = {
+          kind: 'coursework',
+          categoryKey: resolvedFolder.catKey,
+          folderKey: resolvedFolder.folderKey,
+          defaultTitle: coursework.title,
+          confidence: resolvedFolder.catKey && resolvedFolder.folderKey ? 0.8 : 0.5,
+          rationale:
+            resolvedFolder.folderKey === ''
+              ? 'Academic coursework/module detected; please confirm whether this belongs under Projects or Assessments.'
+              : 'Academic coursework detected.',
+          ...(student ? { studentKey: student.canonicalKey } : {}),
+        };
+      } else if (
+        !isReflectionOrOutlineContinuation &&
+        (hasExplicitCertHeader ||
+          hasSeminarTopicHeader ||
+          (prior?.kind !== 'certificate' &&
+            /(?:\bseminar\b|\bwebinar\b|\bworkshop\b)/.test(text) &&
+            !coursework.isCourseworkContinuation))
+      ) {
+        const isTraining =
+          /(?:training\s+course|\bbootcamp\b|\bworkshop\b|\bcourse\s+completion\b)/.test(text) &&
+          !/\bseminar\s+certificates?\b/i.test(normalizedPageText);
         const folder = isTraining ? 'trainings' : 'seminars';
         const f = getFolder('certificates', folder);
-        match = { categoryKey: f.catKey, folderKey: f.folderKey, defaultTitle: isTraining ? 'Training Certificate' : 'Certificate of Attendance' };
+        match = {
+          kind: 'certificate',
+          categoryKey: f.catKey,
+          folderKey: f.folderKey,
+          defaultTitle: isTraining ? 'Training Certificate' : 'Certificate of Attendance',
+          confidence: f.catKey && f.folderKey ? 0.85 : 0,
+          ...(student ? { studentKey: student.canonicalKey } : {}),
+        };
       } else if (/(?:capstone\s+project|\bthesis\b|\bcase\s+study\b|\bproject\s+documentation\b)/.test(text)) {
         const isThesis = /(?:capstone|\bthesis\b)/.test(text);
         const folder = isThesis ? 'thesis-capstone' : /case\s+study/.test(text) ? 'case-studies' : 'projects';
         const f = getFolder('accomplishments', folder);
-        match = { categoryKey: f.catKey, folderKey: f.folderKey, defaultTitle: isThesis ? 'Capstone Project' : 'Academic Project' };
+        match = {
+          kind: 'project',
+          categoryKey: f.catKey,
+          folderKey: f.folderKey,
+          defaultTitle: isThesis ? 'Capstone Project' : 'Academic Project',
+          confidence: f.catKey && f.folderKey ? 0.8 : 0,
+          ...(student ? { studentKey: student.canonicalKey } : {}),
+        };
       } else if (/(?:terminal\s+report|\bpracticum\s+report|\bojt\s+report|\binternship\s+report\b)/.test(text)) {
         const f = getFolder('college-report', 'college-report');
-        match = { categoryKey: f.catKey, folderKey: f.folderKey, defaultTitle: 'College Report' };
+        match = {
+          kind: 'college-report',
+          categoryKey: f.catKey,
+          folderKey: f.folderKey,
+          defaultTitle: 'College Report',
+          confidence: f.catKey && f.folderKey ? 0.85 : 0,
+          ...(student ? { studentKey: student.canonicalKey } : {}),
+        };
       }
 
       if (match) {
-        const prior = boundaryStarts.at(-1);
-        // Repeated CV/TOR/project headers usually introduce continuation pages,
-        // unlike separate certificates, which must remain independent.
-        if (prior?.categoryKey === match.categoryKey && ['curriculum-vitae', 'scholastic-record', 'accomplishments'].includes(match.categoryKey)) continue;
-        if (boundaryStarts.length === 0 || boundaryStarts[boundaryStarts.length - 1]!.page !== page.pageNumber) {
-          boundaryStarts.push({ page: page.pageNumber, ...match });
+        // Repeated CV/TOR/project headers introduce continuation pages unless the student name changed.
+        if (
+          !studentChanged &&
+          prior?.kind === match.kind &&
+          ['cv', 'tor', 'project', 'college-report'].includes(match.kind)
+        ) {
+          if (student && !prior.studentKey) {
+            prior.studentKey = student.canonicalKey;
+          }
+          continue;
         }
-      } else if (boundaryStarts.at(-1)?.categoryKey === '') {
-        boundaryStarts.push({ page: page.pageNumber, categoryKey: '', folderKey: '', defaultTitle: 'Document — review category' });
+        if (boundaryStarts.length === 0 || boundaryStarts[boundaryStarts.length - 1]!.page !== page.pageNumber) {
+          boundaryStarts.push({
+            page: page.pageNumber,
+            ...match,
+            ...(student?.canonicalKey
+              ? { studentKey: student.canonicalKey }
+              : prior?.studentKey && !studentChanged
+                ? { studentKey: prior.studentKey }
+                : {}),
+          });
+        }
+      } else if (prior?.kind === 'unresolved') {
+        // A ready page after an unreadable page starts a separate segment so the unreadable page stays isolated.
+        boundaryStarts.push({
+          page: page.pageNumber,
+          kind: 'unknown',
+          categoryKey: '',
+          folderKey: '',
+          defaultTitle: 'Document — review category',
+          confidence: 0,
+          ...(student ? { studentKey: student.canonicalKey } : {}),
+        });
+      } else if (studentChanged && student) {
+        boundaryStarts.push({
+          page: page.pageNumber,
+          kind: 'unknown',
+          categoryKey: '',
+          folderKey: '',
+          defaultTitle: 'Document — review category',
+          confidence: 0,
+          rationale: `Separated at page ${page.pageNumber} due to different student/recipient name (${student.display}).`,
+          studentKey: student.canonicalKey,
+        });
+      } else if (prior && student && !prior.studentKey) {
+        prior.studentKey = student.canonicalKey;
       }
     }
 
     if (boundaryStarts.length === 0) {
-      boundaryStarts.push({ page: 1, categoryKey: '', folderKey: '', defaultTitle: 'Document — review category' });
+      boundaryStarts.push({
+        page: 1,
+        kind: 'unknown',
+        categoryKey: '',
+        folderKey: '',
+        defaultTitle: 'Document — review category',
+        confidence: 0,
+      });
     } else if (boundaryStarts[0]!.page !== 1) {
       // An unrecognized leading page is not evidence for the next category.
-      boundaryStarts.unshift({ page: 1, categoryKey: '', folderKey: '', defaultTitle: 'Document — review category' });
+      boundaryStarts.unshift({
+        page: 1,
+        kind: 'unknown',
+        categoryKey: '',
+        folderKey: '',
+        defaultTitle: 'Document — review category',
+        confidence: 0,
+      });
     }
 
     const proposals: CompiledDocumentProposal[] = [];
@@ -737,11 +1005,14 @@ export class CompiledDocumentService {
 
       const segText = pages
         .filter((p) => p.pageNumber >= start.page && p.pageNumber <= endPage)
-        .map((p) => p.text)
+        .map((p) => normalizePdfLigatures(p.text))
         .join('\n');
 
       const meta = suggestDocumentMetadata({ rawText: segText }, categories);
-      const title = meta.title ?? start.defaultTitle;
+      const title =
+        start.kind === 'coursework'
+          ? start.defaultTitle
+          : meta.title ?? start.defaultTitle;
       const date = meta.documentDate ?? null;
 
       proposals.push({
@@ -751,10 +1022,330 @@ export class CompiledDocumentService {
         folderKey: start.folderKey,
         title,
         documentDate: date,
-        confidence: start.categoryKey ? 0.8 : 0,
+        confidence: start.confidence,
+        ...(start.rationale ? { rationale: start.rationale } : {}),
       });
     }
 
     return proposals;
   }
+}
+
+const NON_PERSON_NAME_TOKENS = new Set([
+  'curriculum',
+  'vitae',
+  'resume',
+  'biodata',
+  'certificate',
+  'certificates',
+  'certification',
+  'completion',
+  'participation',
+  'attendance',
+  'recognition',
+  'appreciation',
+  'seminar',
+  'seminars',
+  'webinar',
+  'workshop',
+  'training',
+  'trainings',
+  'module',
+  'exercise',
+  'activity',
+  'multimedia',
+  'system',
+  'systems',
+  'development',
+  'experience',
+  'education',
+  'personal',
+  'information',
+  'career',
+  'objective',
+  'objectives',
+  'transcript',
+  'records',
+  'official',
+  'unofficial',
+  'scholastic',
+  'record',
+  'college',
+  'report',
+  'university',
+  'department',
+  'society',
+  'academy',
+  'institute',
+  'school',
+  'bachelor',
+  'science',
+  'technology',
+  'engineering',
+  'computing',
+  'software',
+  'developer',
+  'engineer',
+  'researcher',
+  'student',
+  'participant',
+  'attending',
+  'academic',
+  'project',
+  'capstone',
+  'thesis',
+  'topic',
+  'outline',
+  'reflection',
+  'paper',
+  'perfect',
+  'award',
+  'awards',
+  'zone',
+  'bulan',
+  'sorsogon',
+  'manila',
+  'philippines',
+  'street',
+  'barangay',
+  'city',
+  'province',
+  'cisco',
+  'packet',
+  'tracer',
+  'routing',
+  'switching',
+  'canva',
+  'clipchamp',
+  'animaker',
+]);
+
+function buildStudentIdentity(
+  givenNames: string,
+  surname: string,
+): { display: string; canonicalKey: string } | null {
+  const rawDisplay = `${givenNames.trim()} ${surname.trim()}`.replace(/\s+/g, ' ').trim();
+  const words = rawDisplay
+    .replace(/\./g, '')
+    .split(/\s+/)
+    .filter(Boolean);
+  if (words.length < 2 || words.length > 6) return null;
+  if (words.some((w) => NON_PERSON_NAME_TOKENS.has(w.toLowerCase()))) return null;
+  // Require at least two full name words (>= 2 letters)
+  const fullWords = words.filter((w) => /^[\p{Lu}][\p{Ll}]{1,}$/u.test(w));
+  if (fullWords.length < 2) return null;
+
+  const canonicalKey = fullWords.map((w) => w.toLowerCase()).join(' ');
+  return { display: rawDisplay, canonicalKey };
+}
+
+export function extractPageStudentName(
+  rawText: string,
+): { display: string; canonicalKey: string } | null {
+  const normalized = normalizePdfLigatures(rawText);
+  const lines = normalized
+    .split(/\r?\n/)
+    .map((line) => line.replace(/\s+/g, ' ').trim())
+    .filter((line) => line.length > 0);
+  if (lines.length === 0) return null;
+
+  const topBlock = lines.slice(0, 6).join('\n');
+  const hasAcademicContext =
+    /\b(?:[1-4]?\s*bs(?:it|cs|is|ce|cpe|ba|oa)\s*[-–]?\s*[1-9a-z]?|module\s+\d+|exercise\s+\d+|activity\s+\d+|seminar\s+certificates?|topic\s*:|section\s*:)\b/i.test(
+      topBlock,
+    );
+
+  // 1. Top-of-page "LastName, FirstName [M.]" student header
+  for (const line of lines.slice(0, 4)) {
+    const commaMatch =
+      /^(?<last>[\p{Lu}][\p{Ll}]+(?:\s+[\p{Lu}][\p{Ll}]+)?),\s*(?<first>[\p{Lu}][\p{Ll}]+(?:\s+[\p{Lu}][\p{Ll}]+)*(?:\s+[\p{Lu}]\.)?)$/u.exec(
+        line,
+      );
+    if (commaMatch?.groups?.first && commaMatch.groups.last) {
+      const firstTokens = commaMatch.groups.first.trim().split(/\s+/);
+      if (hasAcademicContext || firstTokens.length >= 2) {
+        const identity = buildStudentIdentity(commaMatch.groups.first, commaMatch.groups.last);
+        if (identity) return identity;
+      }
+    }
+  }
+
+  // 2. Explicit student / recipient / author label
+  for (const line of lines.slice(0, 12)) {
+    const labeled =
+      /\b(?:student(?:\s+name)?|prepared\s+by|submitted\s+by|recipient|name\s+of\s+student)\s*:\s*(?<name>[\p{Lu}][\p{Ll}]+(?:\s+(?:[\p{Lu}]\.|[\p{Lu}][\p{Ll}]+)){1,4})/u.exec(
+        line,
+      );
+    if (labeled?.groups?.name) {
+      const parts = labeled.groups.name.trim().split(/\s+/);
+      if (parts.length >= 2) {
+        const last = parts[parts.length - 1]!;
+        const first = parts.slice(0, -1).join(' ');
+        const identity = buildStudentIdentity(first, last);
+        if (identity) return identity;
+      }
+    }
+
+    const awarded =
+      /\b(?:(?:presented|awarded|issued)\s+to|certifies\s+that)\s*:?\s*(?<name>[\p{Lu}][\p{Ll}]+(?:\s+(?:[\p{Lu}]\.|[\p{Lu}][\p{Ll}]+)){1,4})/u.exec(
+        line,
+      );
+    if (awarded?.groups?.name) {
+      const parts = awarded.groups.name.trim().split(/\s+/);
+      if (parts.length >= 2) {
+        const last = parts[parts.length - 1]!;
+        const first = parts.slice(0, -1).join(' ');
+        const identity = buildStudentIdentity(first, last);
+        if (identity) return identity;
+      }
+    }
+  }
+
+  // 3. Top name line on a CV / résumé page
+  if (isHeaderlessOrExplicitCv(normalized)) {
+    for (const line of lines.slice(0, 3)) {
+      if (/^(?:curriculum\s+vitae|resume|bio-?data)\b/i.test(line)) continue;
+      const candidate = line.split(/\s+[-|–]\s+/)[0]!.trim();
+      const nameMatch =
+        /^(?<first>[\p{Lu}][\p{Ll}]+(?:\s+[\p{Lu}][\p{Ll}]+)*(?:\s+[\p{Lu}]\.)?)\s+(?<last>[\p{Lu}][\p{Ll}]+)$/u.exec(
+          candidate,
+        );
+      if (nameMatch?.groups?.first && nameMatch.groups.last) {
+        const identity = buildStudentIdentity(nameMatch.groups.first, nameMatch.groups.last);
+        if (identity) return identity;
+      }
+    }
+  }
+
+  return null;
+}
+
+function extractCourseworkInfo(rawText: string): {
+  isCourseworkStart: boolean;
+  isCourseworkContinuation: boolean;
+  title: string;
+  folderKey: string;
+} {
+  const normalized = normalizePdfLigatures(rawText);
+  const lines = normalized
+    .split(/\r?\n/)
+    .map((line) => line.replace(/\s+/g, ' ').trim())
+    .filter((line) => line.length > 0);
+  const text = lines.join('\n');
+
+  const moduleLine = lines.find((line) => /^module\s+\d+\b/i.test(line));
+  const exerciseLine = lines.find((line) =>
+    /^(?:exercise|activity|laboratory|lab\s+exercise|hands-on\s+activity|seatwork|assignment|problem\s+set)\s+\d+/i.test(
+      line,
+    ),
+  );
+  const hasModule = Boolean(moduleLine) || /\bmodule\s+\d+\b/i.test(text);
+  const hasExercise =
+    Boolean(exerciseLine) ||
+    /\b(?:exercise|activity|laboratory|lab\s+exercise|hands-on\s+activity|seatwork|assignment)\s+\d+(?:\s*(?:and|&|,|-|to)\s*\d+)?\b/i.test(
+      text,
+    );
+  const hasSection =
+    /\b(?:[1-4]\s*bs(?:it|cs|is|ce|cpe)\s*[-–]?\s*[1-9a-z]|bs(?:it|cs|is|ce|cpe)\s*[-–]?\s*[1-4][a-z0-9]?)\b/i.test(
+      text,
+    );
+
+  const isCourseworkStart =
+    (hasModule && (hasExercise || hasSection)) || (hasExercise && hasSection);
+
+  const isCourseworkContinuation =
+    !isCourseworkStart &&
+    (/(?:^\s*[1-9]\.\s+\S+|\bclick\s+here\b|\b(?:canva|clipchamp|animaker|h5p|interactive\s*video|my\s+content|all\s+content)\b)/im.test(
+      text,
+    ));
+
+  const cleanExercise = exerciseLine
+    ? exerciseLine
+        .replace(/\s*:\s*click\s+here.*$/i, '')
+        .replace(/\s+click\s+here.*$/i, '')
+        .trim()
+    : '';
+  const cleanModule = moduleLine ? moduleLine.trim() : '';
+
+  let courseLine = '';
+  if (isCourseworkStart) {
+    for (const line of lines.slice(0, 5)) {
+      if (line === moduleLine || line === exerciseLine) break;
+      if (/^[\p{Lu}][\p{Ll}]+,\s*[\p{Lu}]/u.test(line)) continue;
+      if (/\b(?:[1-4]?\s*bs(?:it|cs|is|ce|cpe)\s*[-–]?\s*[1-9a-z]?)\b/i.test(line)) continue;
+      if (/^(?:student|name|section|date)\s*:/i.test(line)) continue;
+      if (line.length >= 4 && line.length <= 80) {
+        courseLine = line;
+        break;
+      }
+    }
+  }
+
+  let title = 'Academic Coursework';
+  if (courseLine && cleanModule && cleanExercise) {
+    title = `${courseLine} - ${cleanModule} (${cleanExercise})`;
+  } else if (courseLine && cleanModule) {
+    title = `${courseLine} - ${cleanModule}`;
+  } else if (cleanModule && cleanExercise) {
+    title = `${cleanModule} - ${cleanExercise}`;
+  } else if (courseLine && cleanExercise) {
+    title = `${courseLine} - ${cleanExercise}`;
+  } else if (cleanModule || cleanExercise) {
+    title = cleanModule || cleanExercise;
+  }
+
+  // Do not force coursework into thesis-capstone. Only assign a concrete folder
+  // if the text explicitly disambiguates Projects vs Assessments; otherwise leave empty for review.
+  let folderKey = '';
+  if (/\b(?:competency\s+assessment|assessment\s+result|certification\s+assessment|final\s+examination)\b/i.test(text)) {
+    folderKey = 'assessments';
+  } else if (/\b(?:project\s+report|term\s+project|academic\s+project|project\s+documentation)\b/i.test(text)) {
+    folderKey = 'projects';
+  }
+
+  return {
+    isCourseworkStart,
+    isCourseworkContinuation,
+    title: title.slice(0, 250),
+    folderKey,
+  };
+}
+
+function attachStudentNameWarnings(
+  proposals: readonly CompiledDocumentProposal[],
+  pages: readonly OcrPageText[],
+): CompiledDocumentProposal[] {
+  if (proposals.length === 0) return [];
+
+  const segmentNames = proposals.map((proposal) => {
+    const segPages = pages.filter(
+      (page) => page.pageNumber >= proposal.startPage && page.pageNumber <= proposal.endPage,
+    );
+    for (const page of segPages) {
+      const detected = extractPageStudentName(page.text);
+      if (detected) return detected;
+    }
+    return null;
+  });
+
+  const primaryStudent = segmentNames.find((entry) => entry !== null) ?? null;
+  if (!primaryStudent) {
+    return [...proposals];
+  }
+
+  return proposals.map((proposal, index) => {
+    const current = segmentNames[index];
+    if (!current || current.canonicalKey === primaryStudent.canonicalKey) {
+      return proposal;
+    }
+    const warning = `Possible name mismatch: this section references ${current.display} (earlier pages reference ${primaryStudent.display}). Please verify before saving.`;
+    const rationale = proposal.rationale
+      ? `${proposal.rationale} Detected different student/recipient name: ${current.display}.`
+      : `Detected different student/recipient name (${current.display} vs ${primaryStudent.display}).`;
+    return {
+      ...proposal,
+      warning,
+      rationale,
+    };
+  });
 }

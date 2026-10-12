@@ -408,4 +408,146 @@ void main() {
       expect(service.cancelledSessions, ['session_one']);
     },
   );
+
+  testWidgets(
+    'multi-document PDF with needs_review still automatically opens CompiledReviewScreen',
+    (tester) async {
+      final analysis = CompiledAnalysisResult(
+        sessionId: 'session_needs_review_multi',
+        originalFileName: 'AlyssaMaeM.Dato.pdf',
+        totalPages: 7,
+        detection: 'needs_review',
+        documents: [
+          _proposal(1, 2, cv: true),
+          CompiledDocumentProposal(
+            startPage: 3,
+            endPage: 5,
+            categoryKey: 'accomplishments',
+            folderKey: '',
+            title: 'Multimedia System — MODULE 7 (Exercise 1)',
+            documentDate: DateTime(2024, 11, 21),
+            confidence: 0.5,
+            rationale:
+                'Detected academic coursework/module activity. Please confirm whether this belongs under Projects or Assessments.',
+          ),
+          CompiledDocumentProposal(
+            startPage: 6,
+            endPage: 7,
+            categoryKey: 'certificates',
+            folderKey: 'seminars',
+            title: 'Learn Routing and Switching Using Cisco Packet Tracer',
+            documentDate: null,
+            confidence: 0.84,
+            warning:
+                'Detected student/recipient name "Kathrine Anne M. Dato" differs from primary document name "Alyssa Mae M. Dato". Please verify before saving.',
+          ),
+        ],
+        pages: List.generate(
+          7,
+          (index) => CompiledPageResult(
+            pageNumber: index + 1,
+            text: 'Readable text for page ${index + 1}',
+            source: 'digital',
+            status: 'ready',
+          ),
+        ),
+      );
+      final service = _Documents(Future.value(analysis));
+      await _open(tester, service, AddFileScreen(initialFiles: [_file()]));
+      await tester.pumpAndSettle();
+      expect(find.byType(CompiledReviewScreen), findsOneWidget);
+      expect(
+        find.text('Multimedia System — MODULE 7 (Exercise 1)'),
+        findsOneWidget,
+      );
+      expect(
+        find.textContaining('Detected academic coursework/module activity'),
+        findsOneWidget,
+      );
+    },
+  );
+
+  testWidgets(
+    'different-name segment warning is shown in CompiledReviewScreen and does not block saving',
+    (tester) async {
+      final analysis = CompiledAnalysisResult(
+        sessionId: 'session_name_warning',
+        originalFileName: 'mixed.pdf',
+        totalPages: 3,
+        detection: 'needs_review',
+        documents: [
+          _proposal(1, 2, cv: true),
+          CompiledDocumentProposal(
+            startPage: 3,
+            endPage: 3,
+            categoryKey: 'certificates',
+            folderKey: 'seminars',
+            title: 'Learn Routing and Switching Using Cisco Packet Tracer',
+            documentDate: DateTime(2026, 5, 1),
+            confidence: 0.84,
+            warning:
+                'Detected student/recipient name "Kathrine Anne M. Dato" differs from primary document name "Alyssa Mae M. Dato". Please verify before saving.',
+          ),
+        ],
+        pages: List.generate(
+          3,
+          (index) => CompiledPageResult(
+            pageNumber: index + 1,
+            text: 'Preserved page text',
+            source: 'digital',
+            status: 'ready',
+          ),
+        ),
+      );
+      final service = _Documents(Future.value(analysis));
+      await _open(
+        tester,
+        service,
+        CompiledReviewScreen(analysis: analysis, file: _file()),
+      );
+      await tester.pumpAndSettle();
+      expect(
+        find.textContaining(
+          'Detected student/recipient name "Kathrine Anne M. Dato" differs from primary document name "Alyssa Mae M. Dato"',
+        ),
+        findsOneWidget,
+      );
+      await _save(tester, 2);
+      expect(service.splitKeys, hasLength(1));
+      expect(find.byType(CompiledReviewScreen), findsNothing);
+    },
+  );
+
+  for (final entry in const <MapEntry<String, String>>[
+    MapEntry(
+      'COLD_START_TIMEOUT',
+      'The server is waking up and took too long to respond. Please retry in a moment, or enter the details manually.',
+    ),
+    MapEntry(
+      'NETWORK_OFFLINE',
+      'No connection for automatic reading. You can still enter the details manually.',
+    ),
+    MapEntry(
+      'OCR_TIMEOUT',
+      'Automatic reading timed out while processing this file. Please retry, or enter the details manually.',
+    ),
+    MapEntry(
+      'OCR_BUSY',
+      'The server is busy processing another document. Please retry shortly, or enter the details manually.',
+    ),
+  ]) {
+    testWidgets(
+      'AddFileScreen maps ${entry.key} to specific reading failure message',
+      (tester) async {
+        final completer = Completer<CompiledAnalysisResult>();
+        final service = _Documents(completer.future);
+        await _open(tester, service, AddFileScreen(initialFiles: [_file()]));
+        completer.completeError(
+          ApiException(code: entry.key, message: 'Backend failure'),
+        );
+        await tester.pumpAndSettle();
+        expect(find.text(entry.value), findsOneWidget);
+      },
+    );
+  }
 }
