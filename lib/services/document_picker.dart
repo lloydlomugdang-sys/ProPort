@@ -7,6 +7,7 @@ import 'package:image_picker/image_picker.dart';
 import 'package:path_provider/path_provider.dart';
 
 import '../screens/files/document_scan_review_screen.dart';
+import '../screens/files/live_document_scanner_screen.dart';
 import 'document_models.dart';
 import 'scanner/classical_cv_engine.dart';
 
@@ -19,6 +20,8 @@ typedef DocumentScannerRunner =
 
 /// Delegate for cleaning temporary scanner cache files.
 typedef DocumentScannerCleaner = Future<void> Function();
+
+typedef LiveScannerRunner = Future<String?> Function();
 
 /// Delegate for picking camera photos (allowing mock injection in tests).
 typedef CameraPhotoPicker =
@@ -65,12 +68,12 @@ abstract class DocumentPicker {
 
 class DeviceDocumentPicker implements DocumentPicker {
   DeviceDocumentPicker({
-    ImagePicker? imagePicker,
     CameraPhotoPicker? photoPicker,
+    LiveScannerRunner? liveScannerRunner,
     DocumentScannerRunner? scannerRunner,
     DocumentScannerCleaner? scannerCleaner,
-  }) : _imagePicker = imagePicker ?? ImagePicker(),
-       _photoPicker = photoPicker,
+  }) : _photoPicker = photoPicker,
+       _liveScannerRunner = liveScannerRunner,
        _scannerRunner = scannerRunner,
        _scannerCleaner = scannerCleaner ?? _defaultScannerCleaner;
 
@@ -78,8 +81,8 @@ class DeviceDocumentPicker implements DocumentPicker {
   static final GlobalKey<NavigatorState> navigatorKey =
       GlobalKey<NavigatorState>();
 
-  final ImagePicker _imagePicker;
   final CameraPhotoPicker? _photoPicker;
+  final LiveScannerRunner? _liveScannerRunner;
   final DocumentScannerRunner? _scannerRunner;
   final DocumentScannerCleaner _scannerCleaner;
 
@@ -91,23 +94,31 @@ class DeviceDocumentPicker implements DocumentPicker {
 
   @override
   Future<PickedDocument?> pickFromCamera() async {
+    // Production document scanning is entirely in-app. The injected still-photo
+    // seam remains for existing hardware-independent pipeline regression tests.
+    if (_photoPicker == null) {
+      final runner = _liveScannerRunner;
+      final navigator = navigatorKey.currentState;
+      if (runner == null && navigator == null) {
+        throw const FileSystemException('Open the app to scan a document.');
+      }
+      final path = runner != null
+          ? await runner()
+          : await navigator!.push<String>(
+              MaterialPageRoute(
+                builder: (_) => const LiveDocumentScannerScreen(),
+              ),
+            );
+      return _acceptedScan(path);
+    }
     final XFile? photo;
     try {
-      if (_photoPicker != null) {
-        photo = await _photoPicker(
-          source: ImageSource.camera,
-          maxWidth: 2400,
-          maxHeight: 2400,
-          imageQuality: 92,
-        );
-      } else {
-        photo = await _imagePicker.pickImage(
-          source: ImageSource.camera,
-          maxWidth: 2400,
-          maxHeight: 2400,
-          imageQuality: 92,
-        );
-      }
+      photo = await _photoPicker(
+        source: ImageSource.camera,
+        maxWidth: 2400,
+        maxHeight: 2400,
+        imageQuality: 92,
+      );
     } catch (e) {
       throw FileSystemException(
         'Unable to complete document scan: ${e.toString()}',
@@ -167,6 +178,10 @@ class DeviceDocumentPicker implements DocumentPicker {
       processedPath = outFile.path;
     }
 
+    return _acceptedScan(processedPath);
+  }
+
+  Future<PickedDocument?> _acceptedScan(String? processedPath) async {
     if (processedPath == null) return null;
 
     final processedFile = File(processedPath);

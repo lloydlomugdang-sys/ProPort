@@ -26,6 +26,8 @@
 	<string>$(FLUTTER_BUILD_NUMBER)</string>
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
+	<key>NSCameraUsageDescription</key>
+	<string>GradPort uses the camera to scan your documents for your portfolio.</string>
 #if GRADPORT_LOCAL_NETWORKING
 	<key>NSAppTransportSecurity</key>
 	<dict>

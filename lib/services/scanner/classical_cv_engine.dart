@@ -203,6 +203,15 @@ class DocumentDetection {
   bool get isConfident => corners.isAutoDetected;
 }
 
+/// Owned, tightly packed luminance pixels. Live frames are sampled before they
+/// cross the isolate boundary; neither full camera buffers nor JPEGs are queued.
+class GrayscaleFrame {
+  const GrayscaleFrame(this.pixels, this.width, this.height);
+  final Uint8List pixels;
+  final int width;
+  final int height;
+}
+
 /// Classical edge/region detection, polygon approximation, homography and
 /// enhancement. No trained models or neural document detection.
 class ClassicalCvEngine {
@@ -252,6 +261,22 @@ class ClassicalCvEngine {
       }
     }
 
+    return detectGrayscale(GrayscaleFrame(gray, analysisW, analysisH));
+  }
+
+  /// Shared still/live detector: exactly the same candidates, scoring and
+  /// conservative confidence gates. Callers must supply a bounded image.
+  static DocumentDetection detectGrayscale(GrayscaleFrame frame) {
+    final analysisW = frame.width;
+    final analysisH = frame.height;
+    if (analysisW < 50 ||
+        analysisH < 50 ||
+        analysisW > 800 ||
+        analysisH > 800 ||
+        frame.pixels.length != analysisW * analysisH) {
+      return _detectionResult(null, false, 1, 1);
+    }
+    final gray = frame.pixels;
     // 2. Gaussian Noise Reduction (5x5 separable kernel [1, 4, 6, 4, 1] / 16)
     final blurred = _applyGaussian5x5(gray, analysisW, analysisH);
 

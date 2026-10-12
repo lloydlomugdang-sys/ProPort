@@ -9,10 +9,12 @@ import 'package:google_fonts/google_fonts.dart';
 import 'package:image/image.dart' as img;
 import 'package:image_picker/image_picker.dart';
 import 'package:proport_app/screens/files/document_scan_review_screen.dart';
+import 'package:proport_app/screens/files/live_document_scanner_screen.dart';
 import 'package:proport_app/services/document_picker.dart';
 import 'package:proport_app/services/scanner/classical_cv_engine.dart';
 
 import 'helpers/scanner_fixture.dart';
+import 'helpers/fake_scanner_camera.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -116,6 +118,49 @@ void main() {
     await tester.pump();
     await waitForPreview(tester);
   }
+
+  testWidgets(
+    'live shutter opens existing corrected Review Scan; retake resumes camera',
+    (tester) async {
+      final first = FakeScannerCamera(path: photo.path);
+      final second = FakeScannerCamera();
+      var cameras = 0;
+      await tester.pumpWidget(
+        MaterialApp(
+          home: LiveDocumentScannerScreen(
+            cameraFactory: () => cameras++ == 0 ? first : second,
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('live-scan-shutter')));
+      await tester.pump();
+      await waitForPreview(tester);
+      expect(find.text('Review Scan'), findsOneWidget);
+      expect(find.textContaining('Automatically cropped'), findsOneWidget);
+      expect(first.closes, 1);
+      final preview = tester.widget<Image>(
+        find.byKey(const Key('scan-corrected-preview')),
+      );
+      expect(
+        img.decodeJpg((preview.image as MemoryImage).bytes)!.width,
+        lessThan(240),
+      );
+      await tester.tap(find.text('Retake'));
+      await tester.runAsync(() async {
+        for (var i = 0; i < 100 && second.starts == 0; i++) {
+          await Future<void>.delayed(const Duration(milliseconds: 20));
+          await tester.pump();
+        }
+      });
+      await tester.pumpAndSettle();
+      expect(second.starts, 1);
+      expect(find.byKey(const Key('live-scan-shutter')), findsOneWidget);
+      await tester.pumpWidget(const SizedBox());
+      await tester.pump();
+      expect(second.closes, 1);
+    },
+  );
 
   testWidgets(
     'confident scan shows correction immediately and uploads exactly the reviewed JPEG',

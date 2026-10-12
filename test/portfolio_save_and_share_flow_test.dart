@@ -128,9 +128,7 @@ Widget _wrapExport({
     child: PortfolioScope(
       portfolioService: service,
       exporter: exporter,
-      child: MaterialApp(
-        home: PortfolioExportScreen(portfolioInfo: info),
-      ),
+      child: MaterialApp(home: PortfolioExportScreen(portfolioInfo: info)),
     ),
   );
 }
@@ -139,57 +137,74 @@ void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
   group('Portfolio Save to Device & Share Flow', () {
-    testWidgets('1 & 2: Save to Device action and Share action are both visible in PortfolioPreviewScreen', (
-      tester,
-    ) async {
-      final exporter = MemoryPortfolioExporter();
-      await tester.pumpWidget(
-        _wrapPreview(info: _sampleInfo(), exporter: exporter),
-      );
-      await tester.pumpAndSettle();
+    testWidgets(
+      '1 & 2: Save to Device action and Share action are both visible in PortfolioPreviewScreen',
+      (tester) async {
+        final exporter = MemoryPortfolioExporter();
+        await tester.pumpWidget(
+          _wrapPreview(info: _sampleInfo(), exporter: exporter),
+        );
+        await tester.pumpAndSettle();
 
-      // App bar has Share and Download action icons
-      expect(find.byKey(const Key('portfolio-preview-share-btn')), findsOneWidget);
-      expect(find.byKey(const Key('portfolio-preview-download-btn')), findsOneWidget);
+        // App bar has Share and Download action icons
+        expect(
+          find.byKey(const Key('portfolio-preview-share-btn')),
+          findsOneWidget,
+        );
+        expect(
+          find.byKey(const Key('portfolio-preview-download-btn')),
+          findsOneWidget,
+        );
 
-      // Bottom action area has explicit "Save to Device" button
-      expect(find.byKey(const Key('portfolio-preview-save-btn')), findsOneWidget);
-      expect(find.text('Save to Device'), findsWidgets);
+        // Bottom action area has explicit "Save to Device" button
+        expect(
+          find.byKey(const Key('portfolio-preview-save-btn')),
+          findsOneWidget,
+        );
+        expect(find.text('Save to Device'), findsWidgets);
 
-      // Existing "Export Portfolio" text button is also available when format is null
-      expect(find.text('Export Portfolio'), findsOneWidget);
-      expect(find.text('My Portfolios'), findsOneWidget);
-      expect(find.text('Back'), findsOneWidget);
-    });
+        // Existing "Export Portfolio" text button is also available when format is null
+        expect(find.text('Export Portfolio'), findsOneWidget);
+        expect(find.text('My Portfolios'), findsOneWidget);
+        expect(find.text('Back'), findsOneWidget);
+      },
+    );
 
-    testWidgets('3: Existing Share / Export behavior does not regress on PortfolioExportScreen', (
-      tester,
-    ) async {
-      final exporter = MemoryPortfolioExporter();
-      await tester.pumpWidget(
-        _wrapExport(info: _sampleInfo(), exporter: exporter),
-      );
-      await tester.pumpAndSettle();
+    testWidgets(
+      '3: Existing Share / Export behavior does not regress on PortfolioExportScreen',
+      (tester) async {
+        final exporter = MemoryPortfolioExporter();
+        await tester.pumpWidget(
+          _wrapExport(info: _sampleInfo(), exporter: exporter),
+        );
+        await tester.pumpAndSettle();
 
-      // Tap Export Portfolio
-      final exportBtn = find.text('Export Portfolio').last;
-      await tester.ensureVisible(exportBtn);
-      await tester.tap(exportBtn);
-      await tester.pumpAndSettle();
+        // Tap Export Portfolio
+        final exportBtn = find.text('Export Portfolio').last;
+        await tester.ensureVisible(exportBtn);
+        await tester.tap(exportBtn);
+        await tester.pumpAndSettle();
 
-      // Results screen displayed
-      expect(find.text('Portfolio file created'), findsOneWidget);
-      expect(find.byKey(const Key('portfolio-export-save-btn')), findsOneWidget);
-      expect(find.byKey(const Key('portfolio-export-share-btn')), findsOneWidget);
-      expect(find.text('Share'), findsOneWidget);
+        // Results screen displayed
+        expect(find.text('Portfolio file created'), findsOneWidget);
+        expect(
+          find.byKey(const Key('portfolio-export-save-btn')),
+          findsOneWidget,
+        );
+        expect(
+          find.byKey(const Key('portfolio-export-share-btn')),
+          findsOneWidget,
+        );
+        expect(find.text('Share'), findsOneWidget);
 
-      // Tapping Share calls exporter.share
-      final shareBtn = find.byKey(const Key('portfolio-export-share-btn'));
-      await tester.ensureVisible(shareBtn);
-      await tester.tap(shareBtn);
-      await tester.pumpAndSettle();
-      expect(exporter.shareCount, 1);
-    });
+        // Tapping Share calls exporter.share
+        final shareBtn = find.byKey(const Key('portfolio-export-share-btn'));
+        await tester.ensureVisible(shareBtn);
+        await tester.tap(shareBtn);
+        await tester.pumpAndSettle();
+        expect(exporter.shareCount, 1);
+      },
+    );
 
     testWidgets('4: PDF Save to Device flow reuses existing generated PDF', (
       tester,
@@ -247,7 +262,9 @@ void main() {
       await tester.pumpAndSettle();
 
       // Tap app bar download icon
-      final downloadIcon = find.byKey(const Key('portfolio-preview-download-btn'));
+      final downloadIcon = find.byKey(
+        const Key('portfolio-preview-download-btn'),
+      );
       await tester.tap(downloadIcon);
       await tester.pumpAndSettle();
 
@@ -258,71 +275,76 @@ void main() {
       expect(find.text('Portfolio saved successfully.'), findsOneWidget);
     });
 
-    testWidgets('6: Format chooser behavior when Save to Device is tapped without prior export', (
-      tester,
-    ) async {
-      final exporter = MemoryPortfolioExporter();
+    testWidgets(
+      '6: Format chooser behavior when Save to Device is tapped without prior export',
+      (tester) async {
+        final exporter = MemoryPortfolioExporter();
 
-      await tester.pumpWidget(
-        _wrapPreview(info: _sampleInfo(), exporter: exporter),
-      );
-      await tester.pumpAndSettle();
+        await tester.pumpWidget(
+          _wrapPreview(info: _sampleInfo(), exporter: exporter),
+        );
+        await tester.pumpAndSettle();
 
-      // Tap Save to Device without prior generation
-      final saveBtn = find.byKey(const Key('portfolio-preview-save-btn'));
-      await tester.ensureVisible(saveBtn);
-      await tester.tap(saveBtn);
-      await tester.pumpAndSettle();
+        // Tap Save to Device without prior generation
+        final saveBtn = find.byKey(const Key('portfolio-preview-save-btn'));
+        await tester.ensureVisible(saveBtn);
+        await tester.tap(saveBtn);
+        await tester.pumpAndSettle();
 
-      // Bottom sheet format chooser should be open with PDF and DOCX options
-      expect(find.byKey(const Key('format-picker-pdf')), findsOneWidget);
-      expect(find.byKey(const Key('format-picker-docx')), findsOneWidget);
-      expect(find.text('PDF Document'), findsOneWidget);
-      expect(find.text('DOCX Document'), findsOneWidget);
+        // Bottom sheet format chooser should be open with PDF and DOCX options
+        expect(find.byKey(const Key('format-picker-pdf')), findsOneWidget);
+        expect(find.byKey(const Key('format-picker-docx')), findsOneWidget);
+        expect(find.text('PDF Document'), findsOneWidget);
+        expect(find.text('DOCX Document'), findsOneWidget);
 
-      // Select DOCX
-      await tester.tap(find.byKey(const Key('format-picker-docx')));
-      await tester.pumpAndSettle();
+        // Select DOCX
+        await tester.tap(find.byKey(const Key('format-picker-docx')));
+        await tester.pumpAndSettle();
 
-      // Generated once and saved
-      expect(exporter.generationCount, 1);
-      expect(exporter.format, ExportFormat.docx);
-      expect(exporter.saveCount, 1);
-      expect(exporter.lastSavedFile?.format, ExportFormat.docx);
-      expect(find.text('Portfolio saved successfully.'), findsOneWidget);
-    });
+        // Generated once and saved
+        expect(exporter.generationCount, 1);
+        expect(exporter.format, ExportFormat.docx);
+        expect(exporter.saveCount, 1);
+        expect(exporter.lastSavedFile?.format, ExportFormat.docx);
+        expect(find.text('Portfolio saved successfully.'), findsOneWidget);
+      },
+    );
 
-    testWidgets('7: User cancellation of save picker does not show error message', (
-      tester,
-    ) async {
-      final exporter = MemoryPortfolioExporter()..cancelSave = true;
-      const existingPdf = PortfolioExportFile(
-        path: '/test-only/GradPort_Alex_Santos_Portfolio.pdf',
-        name: 'GradPort_Alex_Santos_Portfolio.pdf',
-        format: ExportFormat.pdf,
-        sizeBytes: 2048,
-      );
-
-      await tester.pumpWidget(
-        _wrapPreview(
-          info: _sampleInfo(),
-          exporter: exporter,
-          initialFile: existingPdf,
+    testWidgets(
+      '7: User cancellation of save picker does not show error message',
+      (tester) async {
+        final exporter = MemoryPortfolioExporter()..cancelSave = true;
+        const existingPdf = PortfolioExportFile(
+          path: '/test-only/GradPort_Alex_Santos_Portfolio.pdf',
+          name: 'GradPort_Alex_Santos_Portfolio.pdf',
           format: ExportFormat.pdf,
-        ),
-      );
-      await tester.pumpAndSettle();
+          sizeBytes: 2048,
+        );
 
-      final saveBtn = find.byKey(const Key('portfolio-preview-save-btn'));
-      await tester.ensureVisible(saveBtn);
-      await tester.tap(saveBtn);
-      await tester.pumpAndSettle();
+        await tester.pumpWidget(
+          _wrapPreview(
+            info: _sampleInfo(),
+            exporter: exporter,
+            initialFile: existingPdf,
+            format: ExportFormat.pdf,
+          ),
+        );
+        await tester.pumpAndSettle();
 
-      // saveCount incremented, but no error or success snackbar shown
-      expect(exporter.saveCount, 1);
-      expect(find.text('Portfolio saved successfully.'), findsNothing);
-      expect(find.text("We couldn't save your portfolio. Please try again."), findsNothing);
-    });
+        final saveBtn = find.byKey(const Key('portfolio-preview-save-btn'));
+        await tester.ensureVisible(saveBtn);
+        await tester.tap(saveBtn);
+        await tester.pumpAndSettle();
+
+        // saveCount incremented, but no error or success snackbar shown
+        expect(exporter.saveCount, 1);
+        expect(find.text('Portfolio saved successfully.'), findsNothing);
+        expect(
+          find.text("We couldn't save your portfolio. Please try again."),
+          findsNothing,
+        );
+      },
+    );
 
     testWidgets('8: Write/save failure shows friendly error message', (
       tester,
@@ -401,52 +423,62 @@ void main() {
       expect(find.text('Portfolio saved successfully.'), findsOneWidget);
     });
 
-    testWidgets('11 & 12 & 13 & 14: Save then Share, and Share then Save reuse artifact and do not break each other', (
-      tester,
-    ) async {
-      final exporter = MemoryPortfolioExporter();
-      const existingPdf = PortfolioExportFile(
-        path: '/test-only/GradPort_Alex_Santos_Portfolio.pdf',
-        name: 'GradPort_Alex_Santos_Portfolio.pdf',
-        format: ExportFormat.pdf,
-        sizeBytes: 2048,
-      );
-
-      await tester.pumpWidget(
-        _wrapPreview(
-          info: _sampleInfo(),
-          exporter: exporter,
-          initialFile: existingPdf,
+    testWidgets(
+      '11 & 12 & 13 & 14: Save then Share, and Share then Save reuse artifact and do not break each other',
+      (tester) async {
+        final exporter = MemoryPortfolioExporter();
+        const existingPdf = PortfolioExportFile(
+          path: '/test-only/GradPort_Alex_Santos_Portfolio.pdf',
+          name: 'GradPort_Alex_Santos_Portfolio.pdf',
           format: ExportFormat.pdf,
-        ),
-      );
-      await tester.pumpAndSettle();
+          sizeBytes: 2048,
+        );
 
-      // 1. Save to Device
-      final saveBtn = find.byKey(const Key('portfolio-preview-save-btn'));
-      await tester.ensureVisible(saveBtn);
-      await tester.tap(saveBtn);
-      await tester.pumpAndSettle();
-      expect(exporter.saveCount, 1);
-      expect(exporter.shareCount, 0); // Save did not invoke Share
+        await tester.pumpWidget(
+          _wrapPreview(
+            info: _sampleInfo(),
+            exporter: exporter,
+            initialFile: existingPdf,
+            format: ExportFormat.pdf,
+          ),
+        );
+        await tester.pumpAndSettle();
 
-      // 2. Share
-      final shareIcon = find.byKey(const Key('portfolio-preview-share-btn'));
-      await tester.tap(shareIcon);
-      await tester.pumpAndSettle();
-      expect(exporter.shareCount, 1); // Share works after Save
-      expect(exporter.saveCount, 1); // Share did not invoke Save
-      expect(exporter.generationCount, 0); // Reused same artifact throughout
-    });
+        // 1. Save to Device
+        final saveBtn = find.byKey(const Key('portfolio-preview-save-btn'));
+        await tester.ensureVisible(saveBtn);
+        await tester.tap(saveBtn);
+        await tester.pumpAndSettle();
+        expect(exporter.saveCount, 1);
+        expect(exporter.shareCount, 0); // Save did not invoke Share
 
-    test('16: AndroidManifest does not declare broad storage permissions', () async {
-      final manifestFile = File('android/app/src/main/AndroidManifest.xml');
-      expect(await manifestFile.exists(), isTrue);
-      final content = await manifestFile.readAsString();
+        // 2. Share
+        final shareIcon = find.byKey(const Key('portfolio-preview-share-btn'));
+        await tester.tap(shareIcon);
+        await tester.pumpAndSettle();
+        expect(exporter.shareCount, 1); // Share works after Save
+        expect(exporter.saveCount, 1); // Share did not invoke Save
+        expect(exporter.generationCount, 0); // Reused same artifact throughout
+      },
+    );
 
-      expect(content, isNot(contains('MANAGE_EXTERNAL_STORAGE')));
-      expect(content, isNot(contains('WRITE_EXTERNAL_STORAGE')));
-      expect(content, isNot(contains('READ_EXTERNAL_STORAGE')));
-    });
+    test(
+      '16: AndroidManifest does not declare broad storage permissions',
+      () async {
+        final manifestFile = File('android/app/src/main/AndroidManifest.xml');
+        expect(await manifestFile.exists(), isTrue);
+        final content = await manifestFile.readAsString();
+        // Camera's video-capable plugin contributes legacy storage permissions.
+        // Explicit manifest-merger REMOVALS forbid them; they are not grants.
+        final grants = RegExp(r'<uses-permission\b[^>]*>', dotAll: true)
+            .allMatches(content)
+            .map((match) => match.group(0)!)
+            .where((element) => !element.contains('tools:node="remove"'))
+            .join('\n');
+        expect(grants, isNot(contains('MANAGE_EXTERNAL_STORAGE')));
+        expect(grants, isNot(contains('WRITE_EXTERNAL_STORAGE')));
+        expect(grants, isNot(contains('READ_EXTERNAL_STORAGE')));
+      },
+    );
   });
 }
