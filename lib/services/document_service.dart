@@ -25,6 +25,9 @@ class DocumentService extends ChangeNotifier {
   // 45-second OCR job plus bounded Gemini analysis (at most 30 seconds).
   // Keep ordinary API requests on their existing timeout.
   static const ocrPreviewTimeout = Duration(seconds: 120);
+  // Compiled analysis has its own 90-second extraction budget, up to 30 seconds
+  // of text-only AI, plus upload/storage/cold-start headroom.
+  static const compiledAnalysisTimeout = Duration(seconds: 150);
   static const _documentsPath = '/api/v1/documents';
 
   final AuthService _authService;
@@ -421,7 +424,7 @@ class DocumentService extends ChangeNotifier {
           fileName: file.name,
           mimeType: file.mimeType,
           fileBytes: fileBytes,
-          requestTimeout: ocrPreviewTimeout,
+          requestTimeout: compiledAnalysisTimeout,
         );
         return CompiledAnalysisResult.fromJson(_dataOf(response));
       } finally {

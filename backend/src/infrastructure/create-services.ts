@@ -34,6 +34,7 @@ export function createServices(config: AppConfig, logger: FastifyBaseLogger): Ap
   const ocr = new LocalOcrEngine(
     OCR_PROCESSING_TIMEOUT_MS,
     config.ocrMaxConcurrentJobs,
+    (timing) => logger.info(timing, 'PDF page timing'),
   );
   const metadata = new AiMetadataService(
     config.gemini === undefined ? undefined : new GeminiMetadataProvider(config.gemini),

@@ -481,8 +481,14 @@ export async function registerDocumentRoutes(
       if (files.length !== 1) throw uploadValidation('file', 'requires exactly one PDF');
       const file = files[0];
       if (!file) throw uploadValidation('file', 'is required');
-      const result = await compiledDocuments.analyze(ownerIdFor(request), file, request.id);
-      return successResponse(result, request.id);
+      const started = performance.now();
+      try {
+        const result = await compiledDocuments.analyze(ownerIdFor(request), file, request.id);
+        return successResponse(result, request.id);
+      } finally {
+        // Content-free timing only; no upload names, OCR text, or identities.
+        app.log.info({ analysisMs: Math.round(performance.now() - started) }, 'Compiled PDF analysis timing');
+      }
     },
   );
 

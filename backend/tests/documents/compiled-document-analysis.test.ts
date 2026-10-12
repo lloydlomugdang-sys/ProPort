@@ -1,13 +1,14 @@
 import { Readable } from 'node:stream';
 import { Types } from 'mongoose';
 import { PDFDocument, StandardFonts } from 'pdf-lib';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { runMigrations } from '../../src/database/migrations/migration-runner.js';
 import { seedDatabase } from '../../src/database/seeds/seed-database.js';
 import { LocalOcrEngine } from '../../src/infrastructure/ocr/local-ocr-engine.js';
 import type { ObjectStorage, StoredObject } from '../../src/infrastructure/storage/object-storage.js';
 import { AiMetadataService } from '../../src/modules/documents/ai-metadata.service.js';
-import { CompiledDocumentService } from '../../src/modules/documents/compiled-document.service.js';
+import { CompiledDocumentService, hasCompleteCoverage } from '../../src/modules/documents/compiled-document.service.js';
+import { mixedPdf } from '../helpers/mixed-pdf-fixtures.js';
 import {
   createDisposableMongoDatabase,
   type DisposableMongoDatabase,
@@ -286,7 +287,7 @@ describe('Compiled document analysis service', () => {
     return Buffer.from(await doc.save());
   }
 
-  it('segments a 7-page heterogeneous PDF into [1,2], [3,4,5], [6,7] with coursework review and name mismatch warning', async () => {
+  it.each(['digital', 'scanned', 'sparse'] as const)('segments a 7-page heterogeneous PDF (%s continuation) into [1,2], [3,4,5], [6,7] with coursework review and name mismatch warning', async (continuation) => {
     const syntheticPages = [
       // Page 1: Headerless CV page 1
       [
@@ -355,7 +356,21 @@ describe('Compiled document analysis service', () => {
       ].join('\n'),
     ];
 
-    const pdfBytes = await createSyntheticPagesPdf(syntheticPages);
+    let pdfBytes = await createSyntheticPagesPdf(syntheticPages);
+    if (continuation !== 'digital') {
+      const pdf = await PDFDocument.load(pdfBytes);
+      const scans = await PDFDocument.load(await mixedPdf([
+        { text: continuation === 'sparse' ? '3. Animaker' : syntheticPages[3]!, scanned: true },
+        { text: continuation === 'sparse' ? 'My Content' : syntheticPages[4]!, scanned: true },
+      ]));
+      const copied = await pdf.copyPages(scans, [0, 1]);
+      for (const [index, page] of copied.entries()) {
+        pdf.removePage(index + 3);
+        pdf.insertPage(index + 3, page);
+      }
+      pdfBytes = Buffer.from(await pdf.save());
+    }
+    const extract = vi.spyOn(ocrEngine, 'extract');
     const service = new CompiledDocumentService(disposable.database, storage, ocrEngine);
 
     const result = await service.analyze(ownerId, {
@@ -365,6 +380,13 @@ describe('Compiled document analysis service', () => {
     });
 
     expect(result.totalPages).toBe(7);
+    expect(extract).toHaveBeenCalledWith(expect.objectContaining({ profile: 'compiled-analysis' }));
+    extract.mockRestore();
+    expect(hasCompleteCoverage(result.documents, result.totalPages)).toBe(true);
+    expect(result.pages.map((page) => page.pageNumber)).toEqual([1, 2, 3, 4, 5, 6, 7]);
+    if (continuation !== 'digital') {
+      expect(result.pages.slice(3, 5).map((page) => page.source)).toEqual(['ocr', 'ocr']);
+    }
     expect(result.documents.map((d) => [d.startPage, d.endPage])).toEqual([
       [1, 2],
       [3, 5],

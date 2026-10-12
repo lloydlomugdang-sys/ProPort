@@ -5,6 +5,8 @@ export interface OcrInput {
   readonly mimeType: string;
   readonly fileKind: 'image' | 'pdf';
   readonly documentId?: string;
+  /** Internal caller-selected profile; never derived from untrusted upload fields. */
+  readonly profile?: 'compiled-analysis';
 }
 
 export interface OcrPageText {
@@ -47,3 +49,12 @@ export class OcrEngineError extends Error {
 export interface OcrEngine {
   extract(input: OcrInput): Promise<OcrExtraction>;
 }
+
+/** Content-free timings: never include file names, text, identities, or credentials. */
+export type OcrTiming = {
+  readonly pageNumber: number;
+  readonly source: 'digital' | 'ocr';
+  readonly rasterizationMs: number;
+  readonly ocrPassMs: readonly number[];
+  readonly pageMs: number;
+} | { readonly analysisMs: number };

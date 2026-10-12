@@ -11,6 +11,78 @@ import 'package:proport_app/services/secure_token_store.dart';
 
 void main() {
   test(
+    'compiled analysis uses its own bounded timeout, not the OCR preview timeout',
+    () async {
+      final auth = _DocumentAuthService()
+        ..uploadResponse = _envelope({
+          'sessionId': 'compiled-test',
+          'originalFileName': 'compiled.pdf',
+          'totalPages': 1,
+          'documents': <Map<String, dynamic>>[],
+        });
+      final service = DocumentService(authService: auth);
+      final file = PickedDocument(
+        name: 'compiled.pdf',
+        mimeType: 'application/pdf',
+        bytes: Uint8List.fromList([37, 80, 68, 70]),
+      );
+      final result = await service.analyzeCompiledDocument(file);
+      expect(result.sessionId, 'compiled-test');
+      expect(auth.uploadPath, '/api/v1/documents/compiled/analyze');
+      expect(auth.ocrPostTimeout, DocumentService.compiledAnalysisTimeout);
+      expect(
+        DocumentService.compiledAnalysisTimeout,
+        const Duration(seconds: 150),
+      );
+      expect(DocumentService.ocrPreviewTimeout, const Duration(seconds: 120));
+      expect(DocumentService.ocrRequestTimeout, const Duration(seconds: 60));
+      service.dispose();
+      auth.dispose();
+    },
+  );
+
+  test(
+    'compiled analysis preserves safe server timeout errors and permits retry',
+    () async {
+      final auth = _DocumentAuthService()
+        ..uploadFailure = const ApiException(
+          code: 'OCR_TIMEOUT',
+          message: 'PDF analysis timed out. Please use a smaller PDF or retry.',
+          statusCode: 504,
+        );
+      final service = DocumentService(authService: auth);
+      final file = PickedDocument(
+        name: 'compiled.pdf',
+        mimeType: 'application/pdf',
+        bytes: Uint8List.fromList([37, 80, 68, 70]),
+      );
+      await expectLater(
+        service.analyzeCompiledDocument(file),
+        throwsA(
+          isA<ApiException>().having(
+            (error) => error.code,
+            'code',
+            'OCR_TIMEOUT',
+          ),
+        ),
+      );
+      auth.uploadFailure = null;
+      auth.uploadResponse = _envelope({
+        'sessionId': 'retry-test',
+        'originalFileName': 'compiled.pdf',
+        'totalPages': 1,
+        'documents': <Map<String, dynamic>>[],
+      });
+      expect(
+        (await service.analyzeCompiledDocument(file)).sessionId,
+        'retry-test',
+      );
+      service.dispose();
+      auth.dispose();
+    },
+  );
+
+  test(
     'previews authenticated file bytes with OCR timeout without adding a document',
     () async {
       final auth = _DocumentAuthService();
@@ -315,10 +387,7 @@ void main() {
 
         expect(
           auth.getPaths,
-          containsAll([
-            '/api/v1/documents/categories',
-            '/api/v1/documents',
-          ]),
+          containsAll(['/api/v1/documents/categories', '/api/v1/documents']),
         );
         expect(service.isLoading, isTrue);
 
@@ -491,6 +560,7 @@ class _DocumentAuthService extends AuthService {
   final List<String> getPaths = [];
   final List<String> deletePaths = [];
   ApiException? getFailure;
+  ApiException? uploadFailure;
   Map<String, dynamic>? uploadResponse;
   Map<String, dynamic> ocrResponse = _ocrEnvelope(status: 'not_processed');
   String? ocrPostPath;
@@ -588,6 +658,9 @@ class _DocumentAuthService extends AuthService {
     uploadFileName = fileName;
     uploadMimeType = mimeType;
     uploadBytes = fileBytes;
+    ocrPostTimeout = requestTimeout;
+    final failure = uploadFailure;
+    if (failure != null) throw failure;
     if (path.endsWith('/ocr-preview')) {
       ocrPostTimeout = requestTimeout;
       return ocrResponse;

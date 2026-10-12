@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { LocalOcrEngine, OCR_MAX_PDF_FALLBACK_PAGES } from '../../src/infrastructure/ocr/local-ocr-engine.js';
-import { OcrEngineError, type OcrExtraction } from '../../src/infrastructure/ocr/ocr-engine.js';
+import { OcrEngineError, type OcrExtraction, type OcrInput } from '../../src/infrastructure/ocr/ocr-engine.js';
 import { certificateText, cvText, cvContinuationText, mixedPdf } from '../helpers/mixed-pdf-fixtures.js';
 
 class CountingEngine extends LocalOcrEngine {
@@ -9,18 +9,29 @@ class CountingEngine extends LocalOcrEngine {
   peak = 0;
   failCall = 0;
   fast = false;
-  protected override async extractImage(bytes: Buffer, timeout?: number): Promise<OcrExtraction> {
+  protected override async extractImage(bytes: Buffer, timeout?: number, onPass?: (ms: number) => void, profile?: OcrInput['profile']): Promise<OcrExtraction> {
     this.calls++;
     this.active++;
     this.peak = Math.max(this.peak, this.active);
     try {
       if (this.calls === this.failCall) throw new OcrEngineError('unavailable');
-      return this.fast ? { rawText: cvText, engine: 'tesseract.js' } : await super.extractImage(bytes, timeout);
+      return this.fast ? { rawText: cvText, engine: 'tesseract.js' } : await super.extractImage(bytes, timeout, onPass, profile);
     } finally { this.active--; }
   }
 }
 
 describe('bounded mixed-PDF extraction', () => {
+  it('keeps compiled fallback pages sequential and preserves scanned CV/certificate quality', async () => {
+    const engine = new CountingEngine();
+    const result = await engine.extract({ contents: await mixedPdf([
+      { text: cvText, scanned: true }, { text: cvContinuationText }, { text: certificateText, scanned: true },
+    ]), fileKind: 'pdf', mimeType: 'application/pdf', profile: 'compiled-analysis' });
+    expect(engine.calls).toBe(2);
+    expect(engine.peak).toBe(1);
+    expect(result.pages?.map((page) => page.source)).toEqual(['ocr', 'digital', 'ocr']);
+    expect(result.pages?.[0]?.text).toMatch(/CURRICULUM VITAE/i);
+    expect(result.pages?.[2]?.text).toMatch(/CERTIFICATE OF PARTICIPATION/i);
+  });
   it.each([[false, false], [true, true], [false, true], [true, false]])(
     'preserves digital text and OCRs only scanned pages (%s / %s)', async (certificateScanned, cvScanned) => {
       const engine = new CountingEngine();

@@ -225,6 +225,7 @@ export class CompiledDocumentService {
         contents: file.contents,
         mimeType: 'application/pdf',
         fileKind: 'pdf',
+        profile: 'compiled-analysis',
       });
     } catch (error) {
       if (error instanceof OcrEngineError) {
