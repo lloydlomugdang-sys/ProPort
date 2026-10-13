@@ -203,6 +203,22 @@ const documentOcrSchema = {
     engine: { enum: ['tesseract.js', 'pdfjs'] },
     processedAt: { type: 'string', format: 'date-time' },
     updatedAt: { type: 'string', format: 'date-time' },
+    pages: {
+      type: 'array',
+      maxItems: 100,
+      items: {
+        type: 'object',
+        additionalProperties: false,
+        required: ['pageNumber', 'status'],
+        properties: {
+          pageNumber: { type: 'integer', minimum: 1 },
+          originalFileName: { type: 'string' },
+          mimeType: { type: 'string' },
+          status: { enum: ['ready', 'failed'] },
+          rawText: { type: 'string' },
+        },
+      },
+    },
     metadataAnalysis: {
       type: 'object', additionalProperties: false, required: ['source', 'aiStatus'],
       properties: {

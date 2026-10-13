@@ -78,6 +78,38 @@ class DocumentMetadataSuggestions {
   }
 }
 
+class DocumentOcrPage {
+  const DocumentOcrPage({
+    required this.pageNumber,
+    required this.status,
+    this.originalFileName,
+    this.mimeType,
+    this.rawText,
+  });
+
+  final int pageNumber;
+  final String status;
+  final String? originalFileName;
+  final String? mimeType;
+  final String? rawText;
+
+  bool get isFailed => status == 'failed';
+
+  factory DocumentOcrPage.fromJson(Map<String, dynamic> json) {
+    final pageNumber = json['pageNumber'];
+    if (pageNumber is! int || pageNumber < 1) throw const FormatException();
+    final status = _requiredString(json, 'status');
+    if (status != 'ready' && status != 'failed') throw const FormatException();
+    return DocumentOcrPage(
+      pageNumber: pageNumber,
+      status: status,
+      originalFileName: _optionalString(json, 'originalFileName'),
+      mimeType: _optionalString(json, 'mimeType'),
+      rawText: _optionalString(json, 'rawText'),
+    );
+  }
+}
+
 class DocumentOcrResult {
   const DocumentOcrResult({
     required this.status,
@@ -86,6 +118,7 @@ class DocumentOcrResult {
     this.engine,
     this.processedAt,
     this.updatedAt,
+    this.pages = const [],
     this.metadataSuggestions,
     this.metadataAnalysis,
   });
@@ -96,10 +129,18 @@ class DocumentOcrResult {
   final String? engine;
   final DateTime? processedAt;
   final DateTime? updatedAt;
+  final List<DocumentOcrPage> pages;
   final DocumentMetadataSuggestions? metadataSuggestions;
   final DocumentMetadataAnalysis? metadataAnalysis;
 
   bool get isReady => status == DocumentOcrStatus.ready;
+
+  bool get hasFailedPages => pages.any((page) => page.isFailed);
+
+  List<int> get failedPageNumbers => pages
+      .where((page) => page.isFailed)
+      .map((page) => page.pageNumber)
+      .toList(growable: false);
 
   factory DocumentOcrResult.fromJson(Map<String, dynamic> json) {
     final status = switch (_requiredString(json, 'status')) {
@@ -111,6 +152,16 @@ class DocumentOcrResult {
     };
     final processedAt = _optionalDateTime(json, 'processedAt');
     final updatedAt = _optionalDateTime(json, 'updatedAt');
+    final rawPages = json['pages'];
+    if (rawPages != null && rawPages is! List) {
+      throw const FormatException();
+    }
+    final pages = rawPages is List
+        ? rawPages
+              .whereType<Map<String, dynamic>>()
+              .map(DocumentOcrPage.fromJson)
+              .toList(growable: false)
+        : const <DocumentOcrPage>[];
     final suggestions = json['metadataSuggestions'];
     final analysis = json['metadataAnalysis'];
     if (analysis != null && analysis is! Map<String, dynamic>) {
@@ -126,6 +177,7 @@ class DocumentOcrResult {
       engine: _optionalString(json, 'engine'),
       processedAt: processedAt,
       updatedAt: updatedAt,
+      pages: pages,
       metadataAnalysis: analysis == null
           ? null
           : DocumentMetadataAnalysis.fromJson(analysis as Map<String, dynamic>),

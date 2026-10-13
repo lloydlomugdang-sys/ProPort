@@ -184,10 +184,12 @@ class DocumentService extends ChangeNotifier {
         'reflection': reflection,
     };
 
+    final uploadedBytes = <Uint8List>[];
     final Map<String, dynamic> response;
     if (effectiveFiles.length == 1) {
       final single = effectiveFiles.first;
       final fileBytes = await single.readBytes();
+      uploadedBytes.add(fileBytes);
       response = await _authService.authenticatedPostMultipart(
         _documentsPath,
         fields: fields,
@@ -199,12 +201,14 @@ class DocumentService extends ChangeNotifier {
     } else {
       final multipartFiles = <ApiMultipartFile>[];
       for (final f in effectiveFiles) {
+        final bytes = await f.readBytes();
+        uploadedBytes.add(bytes);
         multipartFiles.add(
           ApiMultipartFile(
             field: 'files',
             fileName: f.name,
             mimeType: f.mimeType,
-            bytes: await f.readBytes(),
+            bytes: bytes,
           ),
         );
       }
@@ -218,6 +222,7 @@ class DocumentService extends ChangeNotifier {
 
     final document = _parseDocument(_dataOf(response)['document']);
     if (authGeneration != _authGeneration) return document;
+    _cacheUploadedDocumentBytes(document, uploadedBytes);
     _documents = [
       document,
       ..._documents.where((value) => value.id != document.id),
@@ -227,6 +232,42 @@ class DocumentService extends ChangeNotifier {
     _errorMessage = null;
     notifyListeners();
     return document;
+  }
+
+  void _cacheUploadedDocumentBytes(
+    DocumentRecord document,
+    List<Uint8List> uploadedBytes,
+  ) {
+    if (uploadedBytes.isEmpty) return;
+    _putInContentCache(document.id, uploadedBytes.first);
+    final attachments = document.effectiveAttachments;
+    for (var i = 0; i < attachments.length && i < uploadedBytes.length; i++) {
+      _putInContentCache(
+        '${document.id}:${attachments[i].id}',
+        uploadedBytes[i],
+      );
+    }
+  }
+
+  Future<void> seedUploadedContent(
+    DocumentRecord document,
+    List<PickedDocument> files,
+  ) async {
+    if (files.isEmpty) return;
+    final uploadedBytes = <Uint8List>[];
+    for (final file in files) {
+      try {
+        uploadedBytes.add(await file.readBytes());
+      } catch (_) {
+        return;
+      }
+    }
+    _cacheUploadedDocumentBytes(document, uploadedBytes);
+  }
+
+  void seedDocumentOcr(String documentId, DocumentOcrResult ocr) {
+    _ocrResults[documentId] = ocr;
+    notifyListeners();
   }
 
   Future<void> delete(String documentId) async {
@@ -260,10 +301,17 @@ class DocumentService extends ChangeNotifier {
 
   Future<DocumentOcrResult> loadOcr(String documentId) async {
     final authGeneration = _authGeneration;
+    final existing = _ocrResults[documentId];
     final response = await _authService.authenticatedGetJson(
       '$_documentsPath/$documentId/ocr',
     );
-    final result = _parseOcr(_dataOf(response)['ocr']);
+    final parsed = _parseOcr(_dataOf(response)['ocr']);
+    final result =
+        (parsed.status == DocumentOcrStatus.notProcessed &&
+            existing != null &&
+            existing.isReady)
+        ? existing
+        : parsed;
     if (authGeneration == _authGeneration) {
       _ocrResults[documentId] = result;
       notifyListeners();

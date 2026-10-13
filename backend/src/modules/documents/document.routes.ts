@@ -329,9 +329,9 @@ export async function registerDocumentRoutes(
         request.params.documentId,
       );
       return reply
-        .type(content.document.mimeType)
-        .header('content-length', content.document.sizeBytes)
-        .header('content-disposition', contentDisposition(content.document.originalFileName))
+        .type(content.mimeType ?? content.document.mimeType)
+        .header('content-length', content.sizeBytes ?? content.document.sizeBytes)
+        .header('content-disposition', contentDisposition(content.originalFileName ?? content.document.originalFileName))
         .send(content.contents);
     },
   );
@@ -352,9 +352,9 @@ export async function registerDocumentRoutes(
         request.params.attachmentId,
       );
       return reply
-        .type(content.document.mimeType)
-        .header('content-length', content.document.sizeBytes)
-        .header('content-disposition', contentDisposition(content.document.originalFileName))
+        .type(content.mimeType ?? content.document.mimeType)
+        .header('content-length', content.sizeBytes ?? content.document.sizeBytes)
+        .header('content-disposition', contentDisposition(content.originalFileName ?? content.document.originalFileName))
         .send(content.contents);
     },
   );

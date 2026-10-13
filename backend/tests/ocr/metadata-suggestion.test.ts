@@ -221,6 +221,28 @@ Dated September 1, 2026`;
       expect(result.description).toContain('Creative Title');
       expect(result).not.toHaveProperty('reflection');
     });
+
+    it('extracts title, date, category, and folder across multi-page OCR text when Page 2 holds the title and date', () => {
+      const multiPageText = `--- Page 1 ---
+CERTIFICATE OF COMPLETION
+This certificate is proudly presented to
+ALEX RIVERA
+
+--- Page 2 ---
+for successfully completing the training on
+Cloud Native Security and DevOps Automation
+Conducted by GradPort Technical Institute
+Held on 18 March 2026`;
+      const result = suggest(multiPageText);
+      expect(result).toEqual({
+        categoryKey: 'certificates',
+        folderKey: 'trainings',
+        title: 'Cloud Native Security and DevOps Automation',
+        documentDate: '2026-03-18',
+        description:
+          'Certificate of Completion for Cloud Native Security and DevOps Automation, conducted by GradPort Technical Institute.',
+      });
+    });
   });
 
   describe('canonical GradPort portfolio taxonomy and section mapping', () => {

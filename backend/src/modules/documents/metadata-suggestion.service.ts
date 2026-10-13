@@ -234,8 +234,8 @@ interface OcrText {
 const MONTHS = ['jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec'];
 const MONTH_PATTERN = '(January|February|March|April|May|June|July|August|September|October|November|December|Jan|Feb|Mar|Apr|Jun|Jul|Aug|Sept?|Oct|Nov|Dec)';
 const CERTIFICATE = /\bcertificate\s+of\s+(completion|participation|attendance|recognition|appreciation)\b/i;
-const SUBJECT = /(?:\b(?:successfully\s+)?completing\s+(?:the\s+)?(?:course|training|seminar|workshop)?\s*|\bparticipated\s+in\s+(?:the\s+)?(?:(?:course|training|seminar|webinar|workshop)\b\s*)?|\b(?:course|event|activity|seminar|training|workshop|title|subject|topic)\s*:\s*)/i;
-const BOUNDARY = /\b(?:conducted\s+(?:by|on)|organized\s+by|issued\s+(?:by|on)|awarded\s+on|dated|presented\s+to|awarded\s+to|certificate\s+(?:no|number))\b|\bon\s+(?=\d|jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)/i;
+const SUBJECT = /(?:\b(?:successfully\s+)?(?:completing|completed)\s+(?:the\s+)?(?:(?:course|training|seminar|webinar|workshop|program)\b\s*(?:(?:on|in|entitled|titled)\b\s*)?)?|\b(?:participated|participating|active\s+participation)\s+in\s+(?:the\s+)?(?:(?:course|training|seminar|webinar|workshop|program)\b\s*(?:(?:on|in|entitled|titled)\b\s*)?)?|\b(?:for\s+attending|having\s+attended)\s+(?:the\s+)?(?:(?:course|training|seminar|webinar|workshop|program)\b\s*(?:(?:on|in|entitled|titled)\b\s*)?)?|\b(?:course|training|seminar|webinar|workshop|program)\s+(?:entitled|titled|on)\s*|\b(?:course|event|activity|seminar|training|workshop|webinar|program|module|title|subject|topic)(?:\s+(?:title|name|topic))?\s*:\s*)/i;
+const BOUNDARY = /\b(?:conducted\s+(?:by|on)|organized\s+by|issued\s+(?:by|on)|awarded\s+on|held\s+on|completed\s+on|dated|presented\s+to|awarded\s+to|certificate\s+(?:no|number))\b|\bon\s+(?=\d|jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)/i;
 
 export function countResumeSectionSignals(rawText: string): number {
   const text = normalizePdfLigatures(rawText);
@@ -292,6 +292,7 @@ export function isHeaderlessOrExplicitCv(rawText: string): boolean {
 
 function linesOf(text: string): string[] {
   return normalizePdfLigatures(text).normalize('NFKC').replace(/\r\n?/g, '\n').split('\n')
+    .filter((line) => !/^\s*---\s*Page\s+\d+\s*---\s*$/i.test(line))
     .map((line) => line.replace(/[^\S\n]+/g, ' ').replace(/^[\s|*_=~•-]+|[\s|*_=~•-]+$/g, '').trim())
     .filter((line) => /[\p{L}\d]/u.test(line));
 }
@@ -317,7 +318,7 @@ function subjectOf(lines: readonly string[]): string | undefined {
       const boundary = BOUNDARY.exec(candidate);
       const segment = (boundary === null ? candidate : candidate.slice(0, boundary.index))
         .replace(/^[\s:;,"“”]+|[\s:;,"“”]+$/g, '').trim();
-      if (/^(?:the )?(?:course|seminar|training|workshop)$/i.test(segment)) continue;
+      if (/^(?:the )?(?:course|seminar|training|webinar|workshop|program)(?:\s+(?:on|in|entitled|titled))?$/i.test(segment)) continue;
       if (segment && /^(?:this certificate|presented to|awarded to|program director|project lead|\d|on\b)/i.test(segment)) break;
       if (segment) parts.push(segment);
       if (boundary !== null) break;
@@ -355,6 +356,12 @@ function dateOf(lines: readonly string[]): string | undefined {
     for (const match of line.matchAll(new RegExp(`\\b${MONTH_PATTERN}\\.?\\s+(\\d{1,2})(?:st|nd|rd|th)?[,]?\\s+(\\d{4})\\b`, 'gi'))) {
       matches.push({ value: calendarDate(Number(match[3]), MONTHS.indexOf(match[1]!.slice(0, 3).toLowerCase()) + 1, Number(match[2])), index: match.index });
     }
+    for (const match of line.matchAll(new RegExp(`\\b${MONTH_PATTERN}\\.?\\s+(\\d{1,2})\\s*[-–—]\\s*(\\d{1,2})[,]?\\s+(\\d{4})\\b`, 'gi'))) {
+      matches.push({ value: calendarDate(Number(match[4]), MONTHS.indexOf(match[1]!.slice(0, 3).toLowerCase()) + 1, Number(match[3])), index: match.index });
+    }
+    for (const match of line.matchAll(new RegExp(`\\b(\\d{1,2})(?:st|nd|rd|th)?(?:\\s+day)?(?:\\s+of)?\\s+${MONTH_PATTERN}\\.?[,]?\\s+(\\d{4})\\b`, 'gi'))) {
+      matches.push({ value: calendarDate(Number(match[3]), MONTHS.indexOf(match[2]!.slice(0, 3).toLowerCase()) + 1, Number(match[1])), index: match.index });
+    }
     for (const match of line.matchAll(/\b(\d{4})-(\d{2})-(\d{2})\b/g)) {
       matches.push({ value: calendarDate(Number(match[1]), Number(match[2]), Number(match[3])), index: match.index });
     }
@@ -372,7 +379,7 @@ function dateOf(lines: readonly string[]): string | undefined {
       if (match.value === undefined) continue;
       const before = line.slice(0, match.index);
       if (/\b(?:birth|born|expires?|expiry|expiration|valid until)\b/i.test(before)) continue;
-      const priority = /\b(?:conducted on|awarded on|issued(?: on)?|dated|on)\s*:?\s*$/i.test(before) ? 2 : 1;
+      const priority = /\b(?:conducted on|awarded on|issued(?: on)?|held on|completed on|dated|date|given this|on)\s*:?\s*$/i.test(before) ? 2 : 1;
       candidates.push({ value: match.value, priority });
     }
   }

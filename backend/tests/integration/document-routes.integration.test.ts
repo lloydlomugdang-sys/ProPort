@@ -130,6 +130,7 @@ class ControllableOcrEngine implements OcrEngine {
   readonly calls: OcrInput[] = [];
   nextFailure: OcrEngineError | undefined;
   nextRawText: string | undefined;
+  readonly nextResponses: Array<{ rawText?: string; failure?: OcrEngineError }> = [];
   private blocked:
     | {
         readonly started: Promise<void>;
@@ -159,6 +160,14 @@ class ControllableOcrEngine implements OcrEngine {
     if (blocked !== undefined) {
       blocked.markStarted();
       await blocked.released;
+    }
+    const queued = this.nextResponses.shift();
+    if (queued !== undefined) {
+      if (queued.failure !== undefined) throw queued.failure;
+      return {
+        rawText: queued.rawText ?? '',
+        engine: input.fileKind === 'pdf' ? 'pdfjs' : 'tesseract.js',
+      };
     }
     const failure = this.nextFailure;
     this.nextFailure = undefined;
@@ -247,6 +256,35 @@ function multipartUpload(
     file.contents,
     Buffer.from(`\r\n--${boundary}--\r\n`),
   );
+  return {
+    headers: { 'content-type': `multipart/form-data; boundary=${boundary}` },
+    payload: Buffer.concat(chunks),
+  };
+}
+
+function multipartMultiUpload(
+  fields: Readonly<Record<string, string>>,
+  files: ReadonlyArray<{ readonly name: string; readonly mimeType: string; readonly contents: Buffer }>,
+) {
+  const boundary = `gradport-${randomUUID()}`;
+  const chunks: Buffer[] = [];
+  for (const [name, value] of Object.entries(fields)) {
+    chunks.push(
+      Buffer.from(
+        `--${boundary}\r\nContent-Disposition: form-data; name="${name}"\r\n\r\n${value}\r\n`,
+      ),
+    );
+  }
+  for (const file of files) {
+    chunks.push(
+      Buffer.from(
+        `--${boundary}\r\nContent-Disposition: form-data; name="files"; filename="${file.name}"\r\nContent-Type: ${file.mimeType}\r\n\r\n`,
+      ),
+      file.contents,
+      Buffer.from('\r\n'),
+    );
+  }
+  chunks.push(Buffer.from(`--${boundary}--\r\n`));
   return {
     headers: { 'content-type': `multipart/form-data; boundary=${boundary}` },
     payload: Buffer.concat(chunks),
@@ -1102,5 +1140,177 @@ describe.sequential('authenticated document API with disposable storage and Mong
       method: 'POST', url: '/api/v1/documents/ocr-preview',
       headers: { ...bearer(firstUser.accessToken), ...preview.headers }, payload: preview.payload,
     }), 429, 'RATE_LIMITED');
+  });
+
+  it('extracts multi-page JPEG + PNG OCR in order, suggests metadata across pages, persists OCR on upload (including reordered pages), and streams each page with its exact MIME type and byte length', async () => {
+    const page1Jpeg = Buffer.concat([jpeg, Buffer.from('page-1-jpeg-unique-bytes')]);
+    const page2Png = Buffer.concat([png, Buffer.from('page-2-png-unique-bytes-longer-than-page-1')]);
+    const page1Text = 'CERTIFICATE OF COMPLETION\nPresented to ALEX RIVERA';
+    const page2Text =
+      'for successfully completing the training on\nCloud Native Security and DevOps\nConducted by GradPort Academy\nHeld on 18 March 2026';
+
+    ocrEngine.nextResponses.push({ rawText: page1Text }, { rawText: page2Text });
+    const previewReq = multipartMultiUpload({}, [
+      { name: 'page1.jpg', mimeType: 'image/jpeg', contents: page1Jpeg },
+      { name: 'page2.png', mimeType: 'image/png', contents: page2Png },
+    ]);
+    const previewRes = await app!.inject({
+      method: 'POST',
+      url: '/api/v1/documents/ocr-preview',
+      headers: { ...bearer(firstUser.accessToken), ...previewReq.headers },
+      payload: previewReq.payload,
+    });
+    expect(previewRes.statusCode).toBe(200);
+    const expectedCombined = `--- Page 1 ---\n${page1Text}\n\n--- Page 2 ---\n${page2Text}`;
+    expect(previewRes.json()).toMatchObject({
+      data: {
+        ocr: {
+          status: 'ready',
+          rawText: expectedCombined,
+          reviewedText: expectedCombined,
+          pages: [
+            { pageNumber: 1, originalFileName: 'page1.jpg', mimeType: 'image/jpeg', status: 'ready', rawText: page1Text },
+            { pageNumber: 2, originalFileName: 'page2.png', mimeType: 'image/png', status: 'ready', rawText: page2Text },
+          ],
+          metadataSuggestions: {
+            categoryKey: 'certificates',
+            folderKey: 'trainings',
+            title: 'Cloud Native Security and DevOps',
+            documentDate: '2026-03-18',
+          },
+        },
+      },
+    });
+
+    // Upload the pages in reordered sequence [page2.png, page1.jpg] and verify OCR is persisted in the new order without re-running OCR
+    const callsBeforeUpload = ocrEngine.calls.length;
+    const uploadReq = multipartMultiUpload(
+      {
+        categoryKey: 'certificates',
+        folderKey: 'trainings',
+        title: 'Cloud Native Security and DevOps',
+        documentDate: '2026-03-18',
+      },
+      [
+        { name: 'page2.png', mimeType: 'image/png', contents: page2Png },
+        { name: 'page1.jpg', mimeType: 'image/jpeg', contents: page1Jpeg },
+      ],
+    );
+    const uploadRes = await app!.inject({
+      method: 'POST',
+      url: '/api/v1/documents',
+      headers: { ...bearer(firstUser.accessToken), ...uploadReq.headers },
+      payload: uploadReq.payload,
+    });
+    expect(uploadRes.statusCode).toBe(201);
+    expect(ocrEngine.calls.length).toBe(callsBeforeUpload);
+
+    const uploadedDoc = uploadRes.json<{
+      readonly data: {
+        readonly document: DocumentBody & {
+          readonly attachments: ReadonlyArray<{
+            readonly id: string;
+            readonly originalFileName: string;
+            readonly mimeType: string;
+            readonly sizeBytes: number;
+            readonly order: number;
+          }>;
+        };
+      };
+    }>().data.document;
+    expect(uploadedDoc.attachments).toEqual([
+      expect.objectContaining({ id: '1', originalFileName: 'page2.png', mimeType: 'image/png', sizeBytes: page2Png.length, order: 0 }),
+      expect.objectContaining({ id: '2', originalFileName: 'page1.jpg', mimeType: 'image/jpeg', sizeBytes: page1Jpeg.length, order: 1 }),
+    ]);
+
+    // Reopening Document Details (GET /ocr) immediately returns status: 'ready' with reordered text
+    const getOcrRes = await app!.inject({
+      method: 'GET',
+      url: `/api/v1/documents/${uploadedDoc.id}/ocr`,
+      headers: bearer(firstUser.accessToken),
+    });
+    expect(getOcrRes.statusCode).toBe(200);
+    const reorderedCombined = `--- Page 1 ---\n${page2Text}\n\n--- Page 2 ---\n${page1Text}`;
+    expect(getOcrRes.json()).toMatchObject({
+      data: {
+        ocr: {
+          status: 'ready',
+          rawText: reorderedCombined,
+          reviewedText: reorderedCombined,
+          pages: [
+            { pageNumber: 1, originalFileName: 'page2.png', mimeType: 'image/png', status: 'ready', rawText: page2Text },
+            { pageNumber: 2, originalFileName: 'page1.jpg', mimeType: 'image/jpeg', status: 'ready', rawText: page1Text },
+          ],
+        },
+      },
+    });
+
+    // Streaming Page 1 and Page 2 content returns each page's exact MIME type, Content-Length, and bytes
+    const page1Content = await app!.inject({
+      method: 'GET',
+      url: `/api/v1/documents/${uploadedDoc.id}/content`,
+      headers: bearer(firstUser.accessToken),
+    });
+    expect(page1Content.statusCode).toBe(200);
+    expect(page1Content.headers['content-type']).toContain('image/png');
+    expect(Number(page1Content.headers['content-length'])).toBe(page2Png.length);
+    expect(page1Content.rawPayload).toEqual(page2Png);
+
+    const page2Content = await app!.inject({
+      method: 'GET',
+      url: `/api/v1/documents/${uploadedDoc.id}/attachments/2/content`,
+      headers: bearer(firstUser.accessToken),
+    });
+    expect(page2Content.statusCode).toBe(200);
+    expect(page2Content.headers['content-type']).toContain('image/jpeg');
+    expect(Number(page2Content.headers['content-length'])).toBe(page1Jpeg.length);
+    expect(page2Content.rawPayload).toEqual(page1Jpeg);
+
+    // Clean up uploaded multi-page document
+    const del = await app!.inject({
+      method: 'DELETE',
+      url: `/api/v1/documents/${uploadedDoc.id}`,
+      headers: bearer(firstUser.accessToken),
+    });
+    expect(del.statusCode).toBe(200);
+  });
+
+  it('tolerates partial OCR failure on multi-page images without discarding readable pages', async () => {
+    const readablePage = Buffer.concat([jpeg, Buffer.from('partial-page-1-readable')]);
+    const unreadablePage = Buffer.concat([png, Buffer.from('partial-page-2-unreadable')]);
+    const page1Text = 'Certificate of Attendance\nTopic: Resilient Systems Engineering\nDated 2026-04-10';
+
+    ocrEngine.nextResponses.push(
+      { rawText: page1Text },
+      { failure: new OcrEngineError('timeout') },
+    );
+    const previewReq = multipartMultiUpload({}, [
+      { name: 'readable.jpg', mimeType: 'image/jpeg', contents: readablePage },
+      { name: 'unreadable.png', mimeType: 'image/png', contents: unreadablePage },
+    ]);
+    const previewRes = await app!.inject({
+      method: 'POST',
+      url: '/api/v1/documents/ocr-preview',
+      headers: { ...bearer(firstUser.accessToken), ...previewReq.headers },
+      payload: previewReq.payload,
+    });
+    expect(previewRes.statusCode).toBe(200);
+    expect(previewRes.json()).toMatchObject({
+      data: {
+        ocr: {
+          status: 'ready',
+          rawText: `--- Page 1 ---\n${page1Text}`,
+          pages: [
+            { pageNumber: 1, originalFileName: 'readable.jpg', status: 'ready', rawText: page1Text },
+            { pageNumber: 2, originalFileName: 'unreadable.png', status: 'failed' },
+          ],
+          metadataSuggestions: {
+            categoryKey: 'certificates',
+            title: 'Resilient Systems Engineering',
+            documentDate: '2026-04-10',
+          },
+        },
+      },
+    });
   });
 });

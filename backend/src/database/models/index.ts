@@ -4,6 +4,7 @@ export {
   documentSchema,
   FILE_KINDS,
   OCR_ENGINES,
+  OCR_PAGE_STATUSES,
   OCR_STATUSES,
 } from './document.schema.js';
 export { oneTimeCodeSchema, ONE_TIME_CODE_TYPES } from './one-time-code.schema.js';
@@ -17,7 +18,9 @@ export type { DocumentCategory } from './document-category.schema.js';
 export type { Document, DocumentAttachment } from './document.schema.js';
 export type {
   DocumentOcr,
+  DocumentOcrPage,
   OcrEngineName,
+  OcrPageStatus,
   OcrStatus,
 } from './document.schema.js';
 export type { OneTimeCode } from './one-time-code.schema.js';

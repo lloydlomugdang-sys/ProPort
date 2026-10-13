@@ -78,7 +78,8 @@ export function validateAiMetadata(value: unknown, text: string, categories: rea
           const yearStr = String(y);
           const dayStr = String(d);
           if (text.includes(yearStr) && (text.includes(dayStr) || text.toLowerCase().includes(String(m)))) {
-            const beforeMatch = text.slice(0, Math.max(0, text.indexOf(yearStr)));
+            const yearIdx = text.indexOf(yearStr);
+            const beforeMatch = text.slice(Math.max(0, yearIdx - 80), Math.max(0, yearIdx));
             if (!/\b(?:birth|born|expires?|expiry|expiration|valid until)\b/i.test(beforeMatch)) {
               documentDate = date;
             }
@@ -137,8 +138,36 @@ export class AiMetadataService {
       try {
         const output = await this.provider.recommend(text, categories);
         received = true;
-        const metadataSuggestions = validateAiMetadata(output, text, categories);
-        if (Object.keys(metadataSuggestions).length > 0) {
+        const aiSuggestions = validateAiMetadata(output, text, categories);
+        if (Object.keys(aiSuggestions).length > 0) {
+          const fallback = suggestDocumentMetadata(ocr, categories);
+          const sameOrUnsetCategory =
+            aiSuggestions.categoryKey === undefined ||
+            fallback.categoryKey === undefined ||
+            aiSuggestions.categoryKey === fallback.categoryKey;
+          const categoryKey = aiSuggestions.categoryKey ?? fallback.categoryKey;
+          const folderKey =
+            aiSuggestions.folderKey ??
+            (sameOrUnsetCategory ? fallback.folderKey : undefined);
+          const title = aiSuggestions.title ?? fallback.title;
+          const documentDate = aiSuggestions.documentDate ?? fallback.documentDate;
+          const description =
+            aiSuggestions.description ??
+            (sameOrUnsetCategory ? fallback.description : undefined);
+          const confidence: 'high' | 'medium' | 'low' =
+            categoryKey !== undefined && title !== undefined && documentDate !== undefined
+              ? 'high'
+              : categoryKey !== undefined && (title !== undefined || folderKey !== undefined)
+                ? 'medium'
+                : (aiSuggestions.confidence ?? 'low');
+          const metadataSuggestions: MetadataSuggestions = {
+            ...(categoryKey === undefined ? {} : { categoryKey }),
+            ...(folderKey === undefined ? {} : { folderKey }),
+            ...(title === undefined ? {} : { title }),
+            ...(documentDate === undefined ? {} : { documentDate }),
+            ...(description === undefined ? {} : { description }),
+            confidence,
+          };
           this.logger?.info({
             requestId, provider: 'gemini', model: this.provider.model ?? 'unknown',
             code: 'AI_SUCCESS', httpStatus: 200, latencyMs: Math.round(performance.now() - startedAt),

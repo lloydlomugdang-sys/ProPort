@@ -86,9 +86,14 @@ class _DocumentOcrScreenState extends State<DocumentOcrScreen> {
     ];
 
     if (document.attachments != null && document.attachments!.isNotEmpty) {
-      final additional = document.attachments!
-          .where((a) => a.order > 0 || (a.id != '1' && a.id != 'att-1'))
-          .toList();
+      final hasExplicitOrder = document.attachments!.any((a) => a.order > 0);
+      final additional = hasExplicitOrder
+          ? document.attachments!.where((a) => a.order > 0).toList()
+          : document.attachments!
+                .where(
+                  (a) => a.id != '1' && a.id != 'att-1' && a.id != 'att_0',
+                )
+                .toList();
 
       if (additional.isEmpty && document.attachments!.length > 1) {
         for (int i = 1; i < document.attachments!.length; i++) {
@@ -527,7 +532,16 @@ class _DocumentOcrScreenState extends State<DocumentOcrScreen> {
 
     final status = _ocr?.status ?? DocumentOcrStatus.notProcessed;
     if (status == DocumentOcrStatus.ready) {
+      final failedPages = _ocr?.failedPageNumbers ?? const <int>[];
       return [
+        if (failedPages.isNotEmpty) ...[
+          _MessageCard(
+            message:
+                '${failedPages.length == 1 ? 'Page ${failedPages.first}' : 'Pages ${failedPages.join(', ')}'} could not be read. You can review the readable pages below or tap Extract Again to retry.',
+            isError: true,
+          ),
+          const SizedBox(height: 12),
+        ],
         Text(
           'Review and edit the extracted text',
           style: GoogleFonts.poppins(

@@ -126,6 +126,14 @@ export interface DocumentContent {
   readonly sizeBytes?: number;
 }
 
+export interface PublicDocumentOcrPage {
+  readonly pageNumber: number;
+  readonly originalFileName?: string;
+  readonly mimeType?: string;
+  readonly status: 'ready' | 'failed';
+  readonly rawText?: string;
+}
+
 export interface PublicDocumentOcr {
   readonly status: 'not_processed' | 'processing' | 'ready' | 'failed';
   readonly rawText?: string;
@@ -133,6 +141,7 @@ export interface PublicDocumentOcr {
   readonly engine?: OcrEngineName;
   readonly processedAt?: string;
   readonly updatedAt?: string;
+  readonly pages?: readonly PublicDocumentOcrPage[];
   readonly metadataSuggestions?: MetadataSuggestions;
   readonly metadataAnalysis?: MetadataAnalysis;
 }
@@ -180,6 +189,19 @@ function publicOcr(document: DocumentRecord): PublicDocumentOcr {
       ? {}
       : { processedAt: ocr.processedAt.toISOString() }),
     updatedAt: ocr.updatedAt.toISOString(),
+    ...(ocr.pages && ocr.pages.length > 0
+      ? {
+          pages: ocr.pages.map((page) => ({
+            pageNumber: page.pageNumber,
+            ...(page.originalFileName === undefined
+              ? {}
+              : { originalFileName: page.originalFileName }),
+            ...(page.mimeType === undefined ? {} : { mimeType: page.mimeType }),
+            status: page.status,
+            ...(page.rawText === undefined ? {} : { rawText: page.rawText }),
+          })),
+        }
+      : {}),
   };
 }
 
@@ -350,13 +372,37 @@ function publicDocument(document: DocumentRecord): PublicDocument {
   };
 }
 
+const MAX_PREVIEW_OCR_CACHE_ENTRIES = 200;
+
+interface CachedPreviewPageOcr {
+  readonly status: 'ready' | 'failed';
+  readonly rawText?: string;
+  readonly engine: OcrEngineName;
+  readonly originalFileName: string;
+  readonly mimeType: string;
+}
+
 export class DocumentService {
+  private readonly recentPreviewOcrBySha256 = new Map<string, CachedPreviewPageOcr>();
+
   constructor(
     private readonly database: DatabaseConnection,
     private readonly storage: ObjectStorage,
     private readonly ocrEngine: OcrEngine,
     private readonly metadata: AiMetadataService = new AiMetadataService(),
   ) {}
+
+  private recordPreviewPageOcr(sha256: string, entry: CachedPreviewPageOcr): void {
+    if (this.recentPreviewOcrBySha256.has(sha256)) {
+      this.recentPreviewOcrBySha256.delete(sha256);
+    } else if (this.recentPreviewOcrBySha256.size >= MAX_PREVIEW_OCR_CACHE_ENTRIES) {
+      const oldestKey = this.recentPreviewOcrBySha256.keys().next().value;
+      if (oldestKey !== undefined) {
+        this.recentPreviewOcrBySha256.delete(oldestKey);
+      }
+    }
+    this.recentPreviewOcrBySha256.set(sha256, entry);
+  }
 
   async upload(ownerId: Types.ObjectId, input: DocumentUploadInput): Promise<PublicDocument> {
     const rawFiles: readonly DocumentFileInput[] =
@@ -462,6 +508,98 @@ export class DocumentService {
     if (!primary) {
       throw documentUnavailable();
     }
+
+    let persistedOcr:
+      | {
+          status: 'ready';
+          rawText: string;
+          reviewedText: string;
+          engine: OcrEngineName;
+          processedAt: Date;
+          updatedAt: Date;
+          pages: PublicDocumentOcrPage[];
+        }
+      | undefined;
+
+    if (storedAttachments.some((att) => this.recentPreviewOcrBySha256.has(att.sha256))) {
+      const pages: PublicDocumentOcrPage[] = [];
+      const textChunks: string[] = [];
+      let engine: OcrEngineName = primary.fileKind === 'image' ? 'tesseract.js' : 'pdfjs';
+      for (let i = 0; i < storedAttachments.length; i++) {
+        const att = storedAttachments[i]!;
+        let cached = this.recentPreviewOcrBySha256.get(att.sha256);
+        const rawFile = rawFiles[i];
+        if (cached === undefined && rawFile !== undefined && att.fileKind === 'image') {
+          try {
+            const extracted = await this.extractContents({
+              contents: rawFile.contents,
+              mimeType: att.mimeType,
+              fileKind: att.fileKind,
+            });
+            const pageText = extracted.rawText.trim();
+            cached =
+              pageText.length > 0
+                ? {
+                    status: 'ready',
+                    rawText: pageText,
+                    engine: extracted.engine,
+                    originalFileName: att.originalFileName,
+                    mimeType: att.mimeType,
+                  }
+                : {
+                    status: 'failed',
+                    engine: extracted.engine,
+                    originalFileName: att.originalFileName,
+                    mimeType: att.mimeType,
+                  };
+          } catch {
+            cached = {
+              status: 'failed',
+              engine: 'tesseract.js',
+              originalFileName: att.originalFileName,
+              mimeType: att.mimeType,
+            };
+          }
+          this.recordPreviewPageOcr(att.sha256, cached);
+        }
+
+        if (cached && cached.status === 'ready' && cached.rawText && cached.rawText.trim().length > 0) {
+          const pageText = cached.rawText.trim();
+          engine = cached.engine;
+          pages.push({
+            pageNumber: i + 1,
+            originalFileName: att.originalFileName,
+            mimeType: att.mimeType,
+            status: 'ready',
+            rawText: pageText,
+          });
+          textChunks.push(
+            storedAttachments.length > 1 ? `--- Page ${i + 1} ---\n${pageText}` : pageText,
+          );
+        } else {
+          pages.push({
+            pageNumber: i + 1,
+            originalFileName: att.originalFileName,
+            mimeType: att.mimeType,
+            status: 'failed',
+          });
+        }
+      }
+      const combinedText = textChunks.join('\n\n');
+      if (combinedText.length > 0 && combinedText.length <= OCR_MAX_TEXT_LENGTH) {
+        const now = new Date();
+        persistedOcr = {
+          status: 'ready',
+          rawText: combinedText,
+          reviewedText: combinedText,
+          engine,
+          processedAt: now,
+          updatedAt: now,
+          pages,
+        };
+      }
+    }
+
     try {
       const created = await repositories.documents.create({
         ownerId,
@@ -479,6 +617,7 @@ export class DocumentService {
         sizeBytes: primary.sizeBytes,
         sha256: primary.sha256,
         attachments: storedAttachments,
+        ...(persistedOcr === undefined ? {} : { ocr: persistedOcr }),
       });
       return publicDocument(created);
     } catch (error) {
@@ -601,23 +740,79 @@ export class DocumentService {
 
     try {
       const textChunks: string[] = [];
+      const pages: PublicDocumentOcrPage[] = [];
       let engine: OcrEngineName = 'tesseract.js';
+      let lastPageError: unknown;
       for (let i = 0; i < rawFiles.length; i++) {
         const file = rawFiles[i];
         if (!file) continue;
-        const type = fileTypeFor(sanitizedFileName(file.originalFileName), file.mimeType, file.contents);
-        const extracted = await this.extractContents({ ...type, contents: file.contents });
-        engine = extracted.engine;
-        if (extracted.rawText.trim().length > 0) {
-          textChunks.push(
-            rawFiles.length > 1
-              ? `--- Page ${i + 1} ---\n${extracted.rawText.trim()}`
-              : extracted.rawText.trim(),
-          );
+        const originalFileName = sanitizedFileName(file.originalFileName);
+        const type = fileTypeFor(originalFileName, file.mimeType, file.contents);
+        const sha256 = createHash('sha256').update(file.contents).digest('hex');
+        try {
+          const extracted = await this.extractContents({ ...type, contents: file.contents });
+          engine = extracted.engine;
+          const pageText = extracted.rawText.trim();
+          if (pageText.length > 0) {
+            pages.push({
+              pageNumber: i + 1,
+              originalFileName,
+              mimeType: type.mimeType,
+              status: 'ready',
+              rawText: pageText,
+            });
+            textChunks.push(rawFiles.length > 1 ? `--- Page ${i + 1} ---\n${pageText}` : pageText);
+            this.recordPreviewPageOcr(sha256, {
+              status: 'ready',
+              rawText: pageText,
+              engine: extracted.engine,
+              originalFileName,
+              mimeType: type.mimeType,
+            });
+          } else {
+            pages.push({
+              pageNumber: i + 1,
+              originalFileName,
+              mimeType: type.mimeType,
+              status: 'failed',
+            });
+            this.recordPreviewPageOcr(sha256, {
+              status: 'failed',
+              engine: extracted.engine,
+              originalFileName,
+              mimeType: type.mimeType,
+            });
+          }
+        } catch (pageError) {
+          if (
+            rawFiles.length === 1 ||
+            (pageError instanceof OcrEngineError && pageError.reason === 'busy') ||
+            (pageError instanceof AppError &&
+              (pageError.code === 'OCR_BUSY' || pageError.code === 'OCR_TEXT_TOO_LARGE'))
+          ) {
+            throw pageError;
+          }
+          lastPageError = pageError;
+          pages.push({
+            pageNumber: i + 1,
+            originalFileName,
+            mimeType: type.mimeType,
+            status: 'failed',
+          });
+          this.recordPreviewPageOcr(sha256, {
+            status: 'failed',
+            engine,
+            originalFileName,
+            mimeType: type.mimeType,
+          });
         }
       }
       const combinedText = textChunks.join('\n\n');
       if (combinedText.length === 0) {
+        if (lastPageError !== undefined) {
+          if (lastPageError instanceof AppError) throw lastPageError;
+          throw mappedOcrError(lastPageError);
+        }
         throw new AppError(422, 'OCR_NO_TEXT_FOUND', 'No readable text was found.');
       }
       if (combinedText.length > OCR_MAX_TEXT_LENGTH) {
@@ -629,6 +824,7 @@ export class DocumentService {
           rawText: combinedText,
           reviewedText: combinedText,
           engine,
+          pages,
         },
         true,
         requestId,
@@ -706,27 +902,64 @@ export class DocumentService {
 
     try {
       const textChunks: string[] = [];
+      const pages: PublicDocumentOcrPage[] = [];
+      let lastPageError: unknown;
       for (let i = 0; i < attachments.length; i++) {
         const att = attachments[i];
         if (!att) continue;
         const stream = await this.storage.get(att.objectKey);
         const contents = await readableToBoundedBuffer(stream, MAX_DOCUMENT_FILE_SIZE_BYTES);
-        const extracted = await this.extractContents({
-          contents,
-          mimeType: att.mimeType,
-          fileKind: att.fileKind,
-          documentId: document._id.toHexString(),
-        });
-        if (extracted.rawText.trim().length > 0) {
-          textChunks.push(
-            attachments.length > 1
-              ? `--- Page ${i + 1} ---\n${extracted.rawText.trim()}`
-              : extracted.rawText.trim(),
-          );
+        try {
+          const extracted = await this.extractContents({
+            contents,
+            mimeType: att.mimeType,
+            fileKind: att.fileKind,
+            documentId: document._id.toHexString(),
+          });
+          const pageText = extracted.rawText.trim();
+          if (pageText.length > 0) {
+            pages.push({
+              pageNumber: i + 1,
+              originalFileName: att.originalFileName,
+              mimeType: att.mimeType,
+              status: 'ready',
+              rawText: pageText,
+            });
+            textChunks.push(
+              attachments.length > 1 ? `--- Page ${i + 1} ---\n${pageText}` : pageText,
+            );
+          } else {
+            pages.push({
+              pageNumber: i + 1,
+              originalFileName: att.originalFileName,
+              mimeType: att.mimeType,
+              status: 'failed',
+            });
+          }
+        } catch (pageError) {
+          if (
+            attachments.length === 1 ||
+            (pageError instanceof OcrEngineError && pageError.reason === 'busy') ||
+            (pageError instanceof AppError &&
+              (pageError.code === 'OCR_BUSY' || pageError.code === 'OCR_TEXT_TOO_LARGE'))
+          ) {
+            throw pageError;
+          }
+          lastPageError = pageError;
+          pages.push({
+            pageNumber: i + 1,
+            originalFileName: att.originalFileName,
+            mimeType: att.mimeType,
+            status: 'failed',
+          });
         }
       }
       const combinedText = textChunks.join('\n\n');
       if (combinedText.length === 0) {
+        if (lastPageError !== undefined) {
+          if (lastPageError instanceof AppError) throw lastPageError;
+          throw mappedOcrError(lastPageError);
+        }
         throw new AppError(422, 'OCR_NO_TEXT_FOUND', 'No readable text was found.');
       }
       if (combinedText.length > OCR_MAX_TEXT_LENGTH) {
@@ -740,6 +973,7 @@ export class DocumentService {
           rawText: combinedText,
           engine,
           processedAt: new Date(),
+          pages,
         },
       );
       if (completed === null) throw ocrUnavailable();

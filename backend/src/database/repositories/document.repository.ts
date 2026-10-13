@@ -201,6 +201,13 @@ export class DocumentRepository {
       readonly rawText: string;
       readonly engine: OcrEngineName;
       readonly processedAt: Date;
+      readonly pages?: readonly {
+        readonly pageNumber: number;
+        readonly originalFileName?: string;
+        readonly mimeType?: string;
+        readonly status: 'ready' | 'failed';
+        readonly rawText?: string;
+      }[];
     },
   ): Promise<DocumentRecord | null> {
     const updated = await this.model
@@ -215,6 +222,7 @@ export class DocumentRepository {
               engine: input.engine,
               processedAt: input.processedAt,
               updatedAt: input.processedAt,
+              ...(input.pages && input.pages.length > 0 ? { pages: input.pages } : {}),
             },
           },
         },

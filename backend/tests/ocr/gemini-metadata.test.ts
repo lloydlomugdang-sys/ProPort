@@ -292,4 +292,42 @@ describe('validated grounded recommendations and fallback', () => {
     expect(response.metadataAnalysis.aiStatus).toBe('not_needed');
     expect((await new AiMetadataService().recommend({ rawText: text }, CATEGORY_SEEDS)).metadataAnalysis.aiStatus).toBe('disabled');
   });
+
+  it('backfills missing title and date from deterministic rules when AI returns only category and folder on multi-page OCR', async () => {
+    const multiPageOcr = `--- Page 1 ---
+CERTIFICATE OF COMPLETION
+This certificate is proudly presented to
+JUAN DELA CRUZ
+
+--- Page 2 ---
+for successfully completing the training on
+Introduction to Digital Documentation and OCR Systems
+conducted by
+GradPort Learning and Development Center
+on September 14, 2026`;
+    const partialAiOutput = {
+      content: 'Certificates',
+      folder: 'Trainings',
+      classificationEvidence: 'CERTIFICATE OF COMPLETION',
+      title: null,
+      date: null,
+      descriptionQuotes: [],
+    };
+    const recommend = vi.fn().mockResolvedValue(partialAiOutput);
+    const response = await new AiMetadataService({ recommend }).recommend(
+      { rawText: multiPageOcr },
+      CATEGORY_SEEDS,
+    );
+    expect(response.metadataAnalysis).toEqual({
+      source: 'gemini',
+      aiStatus: 'success',
+    });
+    expect(response.metadataSuggestions).toMatchObject({
+      categoryKey: 'certificates',
+      folderKey: 'trainings',
+      title: 'Introduction to Digital Documentation and OCR Systems',
+      documentDate: '2026-09-14',
+      confidence: 'high',
+    });
+  });
 });

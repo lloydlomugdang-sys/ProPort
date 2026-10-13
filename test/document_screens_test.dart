@@ -4,6 +4,7 @@ import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:proport_app/screens/files/add_file_screen.dart';
+import 'package:proport_app/screens/files/document_ocr_screen.dart';
 import 'package:proport_app/screens/files/files_screen.dart';
 import 'package:proport_app/screens/files/view_files_screen.dart';
 import 'package:proport_app/screens/files/widgets/optional_field.dart';
@@ -1013,7 +1014,477 @@ void main() {
       service.disposeWithAuth();
     },
   );
+
+  testWidgets(
+    'multi-page image addition re-runs OCR across all pages, refines auto-filled metadata while preserving manual overrides, and persists OCR + multi-page previews on save',
+    (tester) async {
+      final page1 = PickedDocument(
+        name: 'page1.jpg',
+        mimeType: 'image/jpeg',
+        bytes: _validPngBytes,
+      );
+      final page2 = PickedDocument(
+        name: 'page2.png',
+        mimeType: 'image/png',
+        bytes: Uint8List.fromList([..._validPngBytes, 0x00]),
+      );
+
+      final service = _ScreenDocumentService()
+        ..previewResponses.addAll([
+          Future.value(
+            const DocumentOcrResult(
+              status: DocumentOcrStatus.ready,
+              rawText:
+                  'Republic of the Philippines\nCertificate of Participation',
+              reviewedText:
+                  'Republic of the Philippines\nCertificate of Participation',
+              engine: 'tesseract.js',
+              pages: [
+                DocumentOcrPage(
+                  pageNumber: 1,
+                  status: 'ready',
+                  originalFileName: 'page1.jpg',
+                  mimeType: 'image/jpeg',
+                  rawText:
+                      'Republic of the Philippines\nCertificate of Participation',
+                ),
+              ],
+              metadataSuggestions: DocumentMetadataSuggestions(
+                categoryKey: 'certificates',
+                folderKey: 'trainings',
+              ),
+              metadataAnalysis: DocumentMetadataAnalysis(
+                source: 'gemini',
+                aiStatus: 'success',
+              ),
+            ),
+          ),
+          Future.value(
+            DocumentOcrResult(
+              status: DocumentOcrStatus.ready,
+              rawText:
+                  '--- Page 1 ---\nRepublic of the Philippines\nCertificate of Participation\n\n--- Page 2 ---\nNational Cloud Architecture Workshop\nHeld on April 15, 2026',
+              reviewedText:
+                  '--- Page 1 ---\nRepublic of the Philippines\nCertificate of Participation\n\n--- Page 2 ---\nNational Cloud Architecture Workshop\nHeld on April 15, 2026',
+              engine: 'tesseract.js',
+              pages: const [
+                DocumentOcrPage(
+                  pageNumber: 1,
+                  status: 'ready',
+                  originalFileName: 'page1.jpg',
+                  mimeType: 'image/jpeg',
+                  rawText:
+                      'Republic of the Philippines\nCertificate of Participation',
+                ),
+                DocumentOcrPage(
+                  pageNumber: 2,
+                  status: 'ready',
+                  originalFileName: 'page2.png',
+                  mimeType: 'image/png',
+                  rawText:
+                      'National Cloud Architecture Workshop\nHeld on April 15, 2026',
+                ),
+              ],
+              metadataSuggestions: DocumentMetadataSuggestions(
+                categoryKey: 'certificates',
+                folderKey: 'trainings',
+                title: 'National Cloud Architecture Workshop',
+                documentDate: DateTime(2026, 4, 15),
+                description: '2-day hands-on cloud architecture workshop.',
+              ),
+              metadataAnalysis: const DocumentMetadataAnalysis(
+                source: 'gemini',
+                aiStatus: 'success',
+              ),
+            ),
+          ),
+        ]);
+
+      final picker = _FakePicker(page1);
+      await tester.pumpWidget(
+        _app(service, AddFileScreen(filePicker: picker)),
+      );
+      await tester.pumpAndSettle();
+
+      // 1. Pick Page 1 (JPEG)
+      await tester.tap(find.text('Tap to upload file'));
+      await tester.pumpAndSettle();
+
+      expect(service.previewCalls, 1);
+      expect(
+        service.previewFileBatches.single.map((f) => f.name).toList(),
+        ['page1.jpg'],
+      );
+      // Content & Folder auto-filled from Page 1, Title & Date still blank
+      expect(
+        tester
+            .widget<DropdownButton<String>>(
+              find.byType(DropdownButton<String>).first,
+            )
+            .value,
+        'Certificates',
+      );
+      expect(
+        tester
+            .widget<DropdownButton<String>>(
+              find.byType(DropdownButton<String>).last,
+            )
+            .value,
+        'Trainings',
+      );
+      expect(
+        tester.widget<TextField>(find.byType(TextField).first).controller!.text,
+        isEmpty,
+      );
+
+      // 2. Manually override Folder to 'Seminars'
+      await tester.ensureVisible(find.byType(DropdownButton<String>).last);
+      await tester.tap(find.byType(DropdownButton<String>).last);
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Seminars').last);
+      await tester.pumpAndSettle();
+
+      // 3. Add Page 2 (PNG)
+      picker.result = page2;
+      await tester.ensureVisible(find.text('Add Page (1/10)'));
+      await tester.tap(find.text('Add Page (1/10)'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Document Pages (2)'), findsOneWidget);
+      expect(service.previewCalls, 2);
+      expect(
+        service.previewFileBatches.last.map((f) => f.name).toList(),
+        ['page1.jpg', 'page2.png'],
+      );
+
+      // Combined OCR across Page 1 + Page 2 populates Title & Date while keeping manual Folder override ('Seminars')
+      expect(
+        tester.widget<TextField>(find.byType(TextField).first).controller!.text,
+        'National Cloud Architecture Workshop',
+      );
+      expect(
+        tester
+            .widget<DatePickerField>(find.byType(DatePickerField))
+            .selectedDate,
+        DateTime(2026, 4, 15),
+      );
+      expect(
+        tester
+            .widget<DropdownButton<String>>(
+              find.byType(DropdownButton<String>).last,
+            )
+            .value,
+        'Seminars',
+      );
+
+      // 4. Save the document
+      await tester.ensureVisible(find.text('Add File'));
+      await tester.tap(find.text('Add File'));
+      await tester.pumpAndSettle();
+
+      expect(
+        service.uploadedFiles.map((f) => f.name).toList(),
+        ['page1.jpg', 'page2.png'],
+      );
+      expect(service.uploadedFolderKey, 'seminars');
+      expect(
+        service.uploadedTitle,
+        'National Cloud Architecture Workshop',
+      );
+
+      // 5. Reopen DocumentOcrScreen (Document Details) and verify OCR text & both page previews are immediately ready
+      final savedDoc = service.documents.first;
+      expect(savedDoc.pageCount, 2);
+      expect(
+        service.getCachedContent(savedDoc.id),
+        equals(page1.bytes),
+      );
+      expect(
+        service.getCachedContent(savedDoc.id, attachmentId: '2'),
+        equals(page2.bytes),
+      );
+
+      await tester.pumpWidget(const SizedBox.shrink());
+      await tester.pumpWidget(
+        _app(service, DocumentOcrScreen(document: savedDoc)),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.text('No extracted text yet.'), findsNothing);
+      expect(
+        find.textContaining('--- Page 1 ---'),
+        findsOneWidget,
+      );
+      expect(
+        find.textContaining('National Cloud Architecture Workshop'),
+        findsOneWidget,
+      );
+      expect(find.text('Page 1 of 2'), findsOneWidget);
+
+      await tester.tap(find.byTooltip('Next page'));
+      await tester.pumpAndSettle();
+      expect(find.text('Page 2 of 2'), findsOneWidget);
+
+      service.disposeWithAuth();
+    },
+  );
+
+  testWidgets(
+    'reordering image pages before saving updates combined OCR page order and uploads files in the new order',
+    (tester) async {
+      final page1 = PickedDocument(
+        name: 'page1.jpg',
+        mimeType: 'image/jpeg',
+        bytes: _validPngBytes,
+      );
+      final page2 = PickedDocument(
+        name: 'page2.png',
+        mimeType: 'image/png',
+        bytes: Uint8List.fromList([..._validPngBytes, 0x01]),
+      );
+
+      final service = _ScreenDocumentService()
+        ..previewResponses.addAll([
+          Future.value(
+            const DocumentOcrResult(
+              status: DocumentOcrStatus.ready,
+              rawText: 'First image text',
+              reviewedText: 'First image text',
+              engine: 'tesseract.js',
+              pages: [
+                DocumentOcrPage(
+                  pageNumber: 1,
+                  status: 'ready',
+                  originalFileName: 'page1.jpg',
+                  mimeType: 'image/jpeg',
+                  rawText: 'First image text',
+                ),
+              ],
+            ),
+          ),
+          Future.value(
+            DocumentOcrResult(
+              status: DocumentOcrStatus.ready,
+              rawText:
+                  '--- Page 1 ---\nFirst image text\n\n--- Page 2 ---\nSecond image text',
+              reviewedText:
+                  '--- Page 1 ---\nFirst image text\n\n--- Page 2 ---\nSecond image text',
+              engine: 'tesseract.js',
+              pages: const [
+                DocumentOcrPage(
+                  pageNumber: 1,
+                  status: 'ready',
+                  originalFileName: 'page1.jpg',
+                  mimeType: 'image/jpeg',
+                  rawText: 'First image text',
+                ),
+                DocumentOcrPage(
+                  pageNumber: 2,
+                  status: 'ready',
+                  originalFileName: 'page2.png',
+                  mimeType: 'image/png',
+                  rawText: 'Second image text',
+                ),
+              ],
+              metadataSuggestions: DocumentMetadataSuggestions(
+                categoryKey: 'certificates',
+                folderKey: 'seminars',
+                title: 'Reordered Certificate',
+                documentDate: DateTime(2026, 5, 10),
+              ),
+            ),
+          ),
+          Future.value(
+            DocumentOcrResult(
+              status: DocumentOcrStatus.ready,
+              rawText:
+                  '--- Page 1 ---\nSecond image text\n\n--- Page 2 ---\nFirst image text',
+              reviewedText:
+                  '--- Page 1 ---\nSecond image text\n\n--- Page 2 ---\nFirst image text',
+              engine: 'tesseract.js',
+              pages: const [
+                DocumentOcrPage(
+                  pageNumber: 1,
+                  status: 'ready',
+                  originalFileName: 'page2.png',
+                  mimeType: 'image/png',
+                  rawText: 'Second image text',
+                ),
+                DocumentOcrPage(
+                  pageNumber: 2,
+                  status: 'ready',
+                  originalFileName: 'page1.jpg',
+                  mimeType: 'image/jpeg',
+                  rawText: 'First image text',
+                ),
+              ],
+              metadataSuggestions: DocumentMetadataSuggestions(
+                categoryKey: 'certificates',
+                folderKey: 'seminars',
+                title: 'Reordered Certificate',
+                documentDate: DateTime(2026, 5, 10),
+              ),
+            ),
+          ),
+        ]);
+
+      final picker = _FakePicker(page1);
+      await tester.pumpWidget(
+        _app(service, AddFileScreen(filePicker: picker)),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.text('Tap to upload file'));
+      await tester.pumpAndSettle();
+
+      picker.result = page2;
+      await tester.ensureVisible(find.text('Add Page (1/10)'));
+      await tester.tap(find.text('Add Page (1/10)'));
+      await tester.pumpAndSettle();
+
+      // Reorder: move Page 2 up to become Page 1
+      await tester.ensureVisible(find.byTooltip('Move page up'));
+      await tester.tap(find.byTooltip('Move page up'));
+      await tester.pumpAndSettle();
+
+      expect(
+        service.previewFileBatches.last.map((f) => f.name).toList(),
+        ['page2.png', 'page1.jpg'],
+      );
+
+      await tester.ensureVisible(find.text('Add File'));
+      await tester.tap(find.text('Add File'));
+      await tester.pumpAndSettle();
+
+      expect(
+        service.uploadedFiles.map((f) => f.name).toList(),
+        ['page2.png', 'page1.jpg'],
+      );
+
+      final savedDoc = service.documents.first;
+      final persistedOcr = service.ocrFor(savedDoc.id);
+      expect(persistedOcr, isNotNull);
+      expect(
+        persistedOcr!.rawText,
+        '--- Page 1 ---\nSecond image text\n\n--- Page 2 ---\nFirst image text',
+      );
+
+      service.disposeWithAuth();
+    },
+  );
+
+  testWidgets(
+    'partial OCR failure on multi-page images preserves readable pages and shows retry notice',
+    (tester) async {
+      final page1 = PickedDocument(
+        name: 'page1.jpg',
+        mimeType: 'image/jpeg',
+        bytes: _validPngBytes,
+      );
+      final page2 = PickedDocument(
+        name: 'unreadable.png',
+        mimeType: 'image/png',
+        bytes: _validPngBytes,
+      );
+
+      final service = _ScreenDocumentService()
+        ..previewResponses.addAll([
+          Future.value(
+            DocumentOcrResult(
+              status: DocumentOcrStatus.ready,
+              rawText: 'Readable certificate page',
+              reviewedText: 'Readable certificate page',
+              engine: 'tesseract.js',
+              pages: const [
+                DocumentOcrPage(
+                  pageNumber: 1,
+                  status: 'ready',
+                  originalFileName: 'page1.jpg',
+                  mimeType: 'image/jpeg',
+                  rawText: 'Readable certificate page',
+                ),
+              ],
+              metadataSuggestions: DocumentMetadataSuggestions(
+                categoryKey: 'certificates',
+                folderKey: 'seminars',
+                title: 'Readable Certificate',
+                documentDate: DateTime(2026, 6, 1),
+              ),
+            ),
+          ),
+          Future.value(
+            DocumentOcrResult(
+              status: DocumentOcrStatus.ready,
+              rawText: '--- Page 1 ---\nReadable certificate page',
+              reviewedText: '--- Page 1 ---\nReadable certificate page',
+              engine: 'tesseract.js',
+              pages: const [
+                DocumentOcrPage(
+                  pageNumber: 1,
+                  status: 'ready',
+                  originalFileName: 'page1.jpg',
+                  mimeType: 'image/jpeg',
+                  rawText: 'Readable certificate page',
+                ),
+                DocumentOcrPage(
+                  pageNumber: 2,
+                  status: 'failed',
+                  originalFileName: 'unreadable.png',
+                  mimeType: 'image/png',
+                ),
+              ],
+              metadataSuggestions: DocumentMetadataSuggestions(
+                categoryKey: 'certificates',
+                folderKey: 'seminars',
+                title: 'Readable Certificate',
+                documentDate: DateTime(2026, 6, 1),
+              ),
+            ),
+          ),
+        ]);
+
+      final picker = _FakePicker(page1);
+      await tester.pumpWidget(
+        _app(service, AddFileScreen(filePicker: picker)),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.text('Tap to upload file'));
+      await tester.pumpAndSettle();
+
+      picker.result = page2;
+      await tester.ensureVisible(find.text('Add Page (1/10)'));
+      await tester.tap(find.text('Add Page (1/10)'));
+      await tester.pumpAndSettle();
+
+      expect(
+        find.text(
+          'Page 2 could not be read automatically. Readable pages were used; you can retry or continue.',
+        ),
+        findsOneWidget,
+      );
+      expect(find.text('Retry automatic reading'), findsOneWidget);
+      expect(
+        tester.widget<TextField>(find.byType(TextField).first).controller!.text,
+        'Readable Certificate',
+      );
+
+      service.disposeWithAuth();
+    },
+  );
 }
+
+final _validPngBytes = Uint8List.fromList(const [
+  0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A,
+  0x00, 0x00, 0x00, 0x0D, 0x49, 0x48, 0x44, 0x52,
+  0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01,
+  0x08, 0x06, 0x00, 0x00, 0x00, 0x1F, 0x15, 0xC4,
+  0x89, 0x00, 0x00, 0x00, 0x0A, 0x49, 0x44, 0x41,
+  0x54, 0x78, 0x9C, 0x63, 0x00, 0x01, 0x00, 0x00,
+  0x05, 0x00, 0x01, 0x0D, 0x0A, 0x2D, 0xB4, 0x00,
+  0x00, 0x00, 0x00, 0x49, 0x45, 0x4E, 0x44, 0xAE,
+  0x42, 0x60, 0x82,
+]);
 
 Widget _viewFiles() => const ViewFilesScreen(
   categoryKey: 'certificates',
@@ -1189,9 +1660,11 @@ class _ScreenDocumentService extends DocumentService {
   int previewCalls = 0;
   final List<Future<DocumentOcrResult>> previewResponses = [];
   final List<PickedDocument> previewFiles = [];
+  final List<List<PickedDocument>> previewFileBatches = [];
   String? savedText;
   final List<String> deletedIds = [];
   PickedDocument? uploadedFile;
+  List<PickedDocument> uploadedFiles = const [];
   String? uploadedCategoryKey;
   String? uploadedFolderKey;
   String? uploadedTitle;
@@ -1236,19 +1709,56 @@ class _ScreenDocumentService extends DocumentService {
   }) async {
     final failure = uploadFailure;
     if (failure != null) throw failure;
-    final effectiveFile = file ?? files?.firstOrNull;
+    final effectiveFiles = files != null && files.isNotEmpty
+        ? List<PickedDocument>.unmodifiable(files)
+        : (file == null ? const <PickedDocument>[] : [file]);
+    final effectiveFile = effectiveFiles.firstOrNull;
     uploadedFile = effectiveFile;
+    uploadedFiles = effectiveFiles;
     uploadedCategoryKey = categoryKey;
     uploadedFolderKey = folderKey;
     uploadedTitle = title;
     uploadedDate = documentDate;
     uploadedDescription = description;
     uploadedReflection = reflection;
-    final created = _document(fileName: effectiveFile?.name ?? 'document.pdf');
+    final attachments = effectiveFiles.isEmpty
+        ? null
+        : [
+            for (var i = 0; i < effectiveFiles.length; i++)
+              DocumentAttachmentRecord(
+                id: '${i + 1}',
+                originalFileName: effectiveFiles[i].name,
+                mimeType: effectiveFiles[i].mimeType,
+                fileKind: effectiveFiles[i].mimeType == 'application/pdf'
+                    ? 'pdf'
+                    : 'image',
+                extension: effectiveFiles[i].name.split('.').last.toLowerCase(),
+                sizeBytes: effectiveFiles[i].sizeBytes,
+                order: i,
+              ),
+          ];
+    final created = _document(
+      fileName: effectiveFile?.name ?? 'document.pdf',
+      mimeType: effectiveFile?.mimeType ?? 'application/pdf',
+      fileKind: effectiveFile?.mimeType == 'application/pdf' ||
+              effectiveFile == null
+          ? 'pdf'
+          : 'image',
+      extension:
+          effectiveFile?.name.split('.').last.toLowerCase() ?? 'pdf',
+      attachments: attachments,
+    );
+    seedUploadedContent(created, effectiveFiles);
     _documents = [created, ..._documents];
     _summary = _summary.adding(created);
     notifyListeners();
     return created;
+  }
+
+  @override
+  void seedDocumentOcr(String documentId, DocumentOcrResult ocr) {
+    _ocr = ocr;
+    super.seedDocumentOcr(documentId, ocr);
   }
 
   @override
@@ -1264,7 +1774,8 @@ class _ScreenDocumentService extends DocumentService {
   }
 
   @override
-  Future<DocumentOcrResult> loadOcr(String documentId) async => _ocr;
+  Future<DocumentOcrResult> loadOcr(String documentId) async =>
+      ocrFor(documentId) ?? _ocr;
 
   @override
   Future<DocumentOcrResult> previewOcr(dynamic fileOrFiles) async {
@@ -1290,6 +1801,7 @@ class _ScreenDocumentService extends DocumentService {
         ? [fileOrFiles]
         : const <PickedDocument>[];
     previewFiles.addAll(files);
+    previewFileBatches.add(List<PickedDocument>.unmodifiable(files));
     if (previewResponses.isNotEmpty) return await previewResponses.removeAt(0);
     final failure = extractionFailure;
     if (failure != null) throw failure;
@@ -1313,6 +1825,7 @@ class _ScreenDocumentService extends DocumentService {
           )
         : await extraction!.future;
     _ocr = result;
+    super.seedDocumentOcr(documentId, result);
     notifyListeners();
     return result;
   }
@@ -1329,6 +1842,7 @@ class _ScreenDocumentService extends DocumentService {
       reviewedText: reviewedText,
       engine: _ocr.engine,
     );
+    super.seedDocumentOcr(documentId, _ocr);
     notifyListeners();
     return _ocr;
   }
@@ -1358,18 +1872,24 @@ class _NoopTokenStore implements SecureTokenStore {
   Future<void> writeRefreshToken(String refreshToken) async {}
 }
 
-DocumentRecord _document({String fileName = 'certificate.pdf'}) =>
-    DocumentRecord(
-      id: 'document-1',
-      categoryKey: 'certificates',
-      folderKey: 'seminars',
-      title: 'Certificate',
-      documentDate: DateTime(2026, 9, 11),
-      originalFileName: fileName,
-      mimeType: 'application/pdf',
-      fileKind: 'pdf',
-      extension: 'pdf',
-      sizeBytes: 128,
-      createdAt: DateTime(2026, 9, 11),
-      updatedAt: DateTime(2026, 9, 11),
-    );
+DocumentRecord _document({
+  String fileName = 'certificate.pdf',
+  String mimeType = 'application/pdf',
+  String fileKind = 'pdf',
+  String extension = 'pdf',
+  List<DocumentAttachmentRecord>? attachments,
+}) => DocumentRecord(
+  id: 'document-1',
+  categoryKey: 'certificates',
+  folderKey: 'seminars',
+  title: 'Certificate',
+  documentDate: DateTime(2026, 9, 11),
+  originalFileName: fileName,
+  mimeType: mimeType,
+  fileKind: fileKind,
+  extension: extension,
+  sizeBytes: 128,
+  attachments: attachments,
+  createdAt: DateTime(2026, 9, 11),
+  updatedAt: DateTime(2026, 9, 11),
+);

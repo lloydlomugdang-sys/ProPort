@@ -9,6 +9,17 @@ export type OcrStatus = (typeof OCR_STATUSES)[number];
 export const OCR_ENGINES = ['tesseract.js', 'pdfjs'] as const;
 export type OcrEngineName = (typeof OCR_ENGINES)[number];
 
+export const OCR_PAGE_STATUSES = ['ready', 'failed'] as const;
+export type OcrPageStatus = (typeof OCR_PAGE_STATUSES)[number];
+
+export interface DocumentOcrPage {
+  pageNumber: number;
+  originalFileName?: string;
+  mimeType?: string;
+  status: OcrPageStatus;
+  rawText?: string;
+}
+
 export interface DocumentOcr {
   status: OcrStatus;
   rawText?: string;
@@ -18,6 +29,7 @@ export interface DocumentOcr {
   updatedAt: Date;
   processingId?: string;
   processingExpiresAt?: Date;
+  pages?: DocumentOcrPage[];
 }
 
 export interface DocumentAttachment {
@@ -99,6 +111,21 @@ export const documentSchema = new Schema<Document>(
           updatedAt: { type: Date, required: true },
           processingId: { type: String, maxlength: 100 },
           processingExpiresAt: { type: Date },
+          pages: {
+            type: [
+              new Schema<DocumentOcrPage>(
+                {
+                  pageNumber: { type: Number, required: true, min: 1 },
+                  originalFileName: { type: String, trim: true, maxlength: 255 },
+                  mimeType: { type: String, trim: true, maxlength: 150 },
+                  status: { type: String, enum: OCR_PAGE_STATUSES, required: true },
+                  rawText: { type: String, maxlength: 200_000 },
+                },
+                { _id: false, strict: 'throw', versionKey: false },
+              ),
+            ],
+            default: undefined,
+          },
         },
         { _id: false, strict: 'throw', versionKey: false },
       ),

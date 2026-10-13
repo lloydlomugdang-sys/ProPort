@@ -58,6 +58,8 @@ class _AddFileScreenState extends State<AddFileScreen>
 
   bool _isSubmitting = false;
   bool _isSuggesting = false;
+  DocumentOcrResult? _lastPreviewOcr;
+  final Map<PickedDocument, DocumentOcrPage> _pageOcrByFile = {};
   DocumentMetadataSuggestions? _suggestions;
   String? _suggestionMessage;
   int _previewOperation = 0;
@@ -216,6 +218,8 @@ class _AddFileScreenState extends State<AddFileScreen>
         setState(() {
           _clearAutomaticFields();
           _pickedFiles = [file];
+          _lastPreviewOcr = null;
+          _pageOcrByFile.clear();
           _previewOperation++;
           _isSuggesting = false;
           _suggestions = null;
@@ -303,6 +307,7 @@ class _AddFileScreenState extends State<AddFileScreen>
       setState(() {
         _pickedFiles = [..._pickedFiles, newPage];
       });
+      await _suggestDetails();
     } catch (_) {
       if (!mounted) return;
       _showSnack('Unable to read the page image. Please try another file.');
@@ -327,6 +332,8 @@ class _AddFileScreenState extends State<AddFileScreen>
       setState(() {
         _clearAutomaticFields();
         _pickedFiles = [photo];
+        _lastPreviewOcr = null;
+        _pageOcrByFile.clear();
         _previewOperation++;
         _isSuggesting = false;
         _suggestions = null;
@@ -491,7 +498,9 @@ class _AddFileScreenState extends State<AddFileScreen>
       final item = list.removeAt(index);
       list.insert(index - 1, item);
       _pickedFiles = list;
+      _rebuildPreviewOcrForCurrentOrder();
     });
+    unawaited(_suggestDetails());
   }
 
   void _movePageDown(int index) {
@@ -501,21 +510,114 @@ class _AddFileScreenState extends State<AddFileScreen>
       final item = list.removeAt(index);
       list.insert(index + 1, item);
       _pickedFiles = list;
+      _rebuildPreviewOcrForCurrentOrder();
     });
+    unawaited(_suggestDetails());
   }
 
   void _removePage(int index) {
     if (_isSubmitting) return;
+    var hasRemaining = false;
     setState(() {
       final list = List<PickedDocument>.from(_pickedFiles);
-      list.removeAt(index);
+      final removed = list.removeAt(index);
+      _pageOcrByFile.remove(removed);
       _pickedFiles = list;
       if (_pickedFiles.isEmpty) {
         _clearAutomaticFields();
+        _lastPreviewOcr = null;
+        _pageOcrByFile.clear();
         _suggestions = null;
         _suggestionMessage = null;
+      } else {
+        hasRemaining = true;
+        _rebuildPreviewOcrForCurrentOrder();
       }
     });
+    if (hasRemaining) {
+      unawaited(_suggestDetails());
+    }
+  }
+
+  void _recordPreviewOcr(List<PickedDocument> files, DocumentOcrResult result) {
+    if (result.pages.isNotEmpty) {
+      for (var i = 0; i < files.length && i < result.pages.length; i++) {
+        _pageOcrByFile[files[i]] = result.pages[i];
+      }
+      return;
+    }
+    if (files.length == 1) {
+      _pageOcrByFile[files.first] = DocumentOcrPage(
+        pageNumber: 1,
+        status: 'ready',
+        originalFileName: files.first.name,
+        mimeType: files.first.mimeType,
+        rawText: result.rawText,
+      );
+      return;
+    }
+    final raw = result.rawText;
+    if (raw == null || raw.isEmpty) return;
+    final matches = RegExp(
+      r'---\s*Page\s+(\d+)\s*---\r?\n([\s\S]*?)(?=\r?\n\r?\n---\s*Page\s+\d+\s*---|$)',
+    ).allMatches(raw);
+    for (final match in matches) {
+      final pageNum = int.tryParse(match.group(1) ?? '');
+      final text = match.group(2)?.trim();
+      if (pageNum != null &&
+          pageNum >= 1 &&
+          pageNum <= files.length &&
+          text != null) {
+        final file = files[pageNum - 1];
+        _pageOcrByFile[file] = DocumentOcrPage(
+          pageNumber: pageNum,
+          status: text.isNotEmpty ? 'ready' : 'failed',
+          originalFileName: file.name,
+          mimeType: file.mimeType,
+          rawText: text,
+        );
+      }
+    }
+  }
+
+  void _rebuildPreviewOcrForCurrentOrder() {
+    if (_pickedFiles.isEmpty || _lastPreviewOcr == null) return;
+    final rebuiltPages = <DocumentOcrPage>[];
+    final chunks = <String>[];
+    for (var i = 0; i < _pickedFiles.length; i++) {
+      final file = _pickedFiles[i];
+      final cached = _pageOcrByFile[file];
+      if (cached == null) continue;
+      rebuiltPages.add(
+        DocumentOcrPage(
+          pageNumber: i + 1,
+          status: cached.status,
+          originalFileName: file.name,
+          mimeType: file.mimeType,
+          rawText: cached.rawText,
+        ),
+      );
+      final text = cached.rawText?.trim() ?? '';
+      if (!cached.isFailed && text.isNotEmpty) {
+        chunks.add(
+          _pickedFiles.length > 1 ? '--- Page ${i + 1} ---\n$text' : text,
+        );
+      }
+    }
+    if (chunks.isEmpty) return;
+    final combined = chunks.join('\n\n');
+    final now = DateTime.now().toUtc();
+    _lastPreviewOcr = DocumentOcrResult(
+      status: DocumentOcrStatus.ready,
+      rawText: combined,
+      reviewedText: combined,
+      engine: _lastPreviewOcr!.engine ?? 'tesseract.js',
+      processedAt: _lastPreviewOcr!.processedAt ?? now,
+      updatedAt: now,
+      pages: rebuiltPages,
+      metadataSuggestions: _lastPreviewOcr!.metadataSuggestions,
+      metadataAnalysis: _lastPreviewOcr!.metadataAnalysis,
+    );
   }
 
   // ─── Validation + submit ──────────────────────────────────────────────────
@@ -566,9 +668,10 @@ class _AddFileScreenState extends State<AddFileScreen>
     });
     _previewOperation++;
     try {
-      await service.upload(
+      final filesSnapshot = List<PickedDocument>.from(_pickedFiles);
+      final uploaded = await service.upload(
         file: _pickedFile,
-        files: _pickedFiles,
+        files: filesSnapshot,
         categoryKey: category.key,
         folderKey: folder.key,
         title: _titleCtrl.text.trim(),
@@ -576,6 +679,11 @@ class _AddFileScreenState extends State<AddFileScreen>
         description: _descriptionEnabled ? _descriptionCtrl.text : null,
         reflection: _reflectionEnabled ? _reflectionCtrl.text : null,
       );
+      await service.seedUploadedContent(uploaded, filesSnapshot);
+      _rebuildPreviewOcrForCurrentOrder();
+      if (_lastPreviewOcr != null && _lastPreviewOcr!.isReady) {
+        service.seedDocumentOcr(uploaded.id, _lastPreviewOcr!);
+      }
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
@@ -614,13 +722,15 @@ class _AddFileScreenState extends State<AddFileScreen>
   }
 
   Future<void> _suggestDetails() async {
-    if (_pickedFiles.isEmpty || _isSuggesting || _isSubmitting) return;
+    if (_pickedFiles.isEmpty || _isSubmitting) return;
     if (_pickedFiles.length == 1 &&
         _pickedFiles.first.mimeType == 'application/pdf') {
+      if (_isSuggesting) return;
       await _inspectPdf(_pickedFiles.first);
       return;
     }
     final operation = ++_previewOperation;
+    final filesSnapshot = List<PickedDocument>.from(_pickedFiles);
     final service = DocumentScope.of(context);
     setState(() {
       _isSuggesting = true;
@@ -628,7 +738,7 @@ class _AddFileScreenState extends State<AddFileScreen>
       _suggestionFailed = false;
     });
     try {
-      final result = await service.previewOcr(_pickedFiles);
+      final result = await service.previewOcr(filesSnapshot);
       if (!mounted || operation != _previewOperation) return;
       if (!result.isReady) {
         throw const ApiException(
@@ -636,8 +746,14 @@ class _AddFileScreenState extends State<AddFileScreen>
           message: 'Automatic reading failed.',
         );
       }
+      _recordPreviewOcr(filesSnapshot, result);
+      _lastPreviewOcr = result;
       final suggestions = result.isReady ? result.metadataSuggestions : null;
-      _showMetadataSuggestions(suggestions, result.metadataAnalysis);
+      _showMetadataSuggestions(
+        suggestions,
+        result.metadataAnalysis,
+        failedPageNumbers: result.failedPageNumbers,
+      );
       if (suggestions != null) _applySuggestions();
     } on ApiException catch (error) {
       if (mounted && operation == _previewOperation) {
@@ -680,22 +796,30 @@ class _AddFileScreenState extends State<AddFileScreen>
 
   void _showMetadataSuggestions(
     DocumentMetadataSuggestions? suggestions,
-    DocumentMetadataAnalysis? analysis,
-  ) {
+    DocumentMetadataAnalysis? analysis, {
+    List<int> failedPageNumbers = const [],
+  }) {
     setState(() {
       _suggestions = suggestions;
       _suggestedByAi = analysis?.source == 'gemini';
-      _suggestionMessage = suggestions == null || suggestions.isEmpty
+      var message = suggestions == null || suggestions.isEmpty
           ? 'No reliable details found. You can enter them manually.'
           : 'Suggested from OCR — review before adding your file.';
       if (_suggestedByAi) {
-        _suggestionMessage =
-            'AI suggested from document — review and edit before saving.';
+        message = 'AI suggested from document — review and edit before saving.';
       } else if (analysis?.aiStatus == 'unavailable') {
-        _suggestionMessage = suggestions == null || suggestions.isEmpty
+        message = suggestions == null || suggestions.isEmpty
             ? 'AI suggestions are temporarily unavailable. You can enter the details manually.'
             : 'AI suggestions are temporarily unavailable. Basic document details were applied where possible.';
       }
+      if (failedPageNumbers.isNotEmpty) {
+        final label = failedPageNumbers.length == 1
+            ? 'Page ${failedPageNumbers.first}'
+            : 'Pages ${failedPageNumbers.join(', ')}';
+        message =
+            '$label could not be read automatically. Readable pages were used; you can retry or continue.';
+      }
+      _suggestionMessage = message;
     });
   }
 
@@ -737,9 +861,12 @@ class _AddFileScreenState extends State<AddFileScreen>
         if (suggestedCategory != null &&
             (replace ||
                 (!_manualFields.contains(_OcrField.content) &&
-                    _selectedContent == null))) {
+                    (_selectedContent == null ||
+                        _automaticFields.contains(_OcrField.content))))) {
           if (_selectedContent != suggestedCategory.name) {
-            _selectedFolder = null;
+            if (!_manualFields.contains(_OcrField.folder)) {
+              _selectedFolder = null;
+            }
           }
           _selectedContent = suggestedCategory.name;
           _automaticFields.add(_OcrField.content);
@@ -749,7 +876,8 @@ class _AddFileScreenState extends State<AddFileScreen>
             category.key == suggestions.categoryKey &&
             (replace ||
                 (!_manualFields.contains(_OcrField.folder) &&
-                    _selectedFolder == null))) {
+                    (_selectedFolder == null ||
+                        _automaticFields.contains(_OcrField.folder))))) {
           final folder = category.folders
               .where((folder) => folder.key == suggestions.folderKey)
               .firstOrNull;
@@ -761,21 +889,24 @@ class _AddFileScreenState extends State<AddFileScreen>
         if (suggestions.title != null &&
             (replace ||
                 (!_manualFields.contains(_OcrField.title) &&
-                    _titleCtrl.text.trim().isEmpty))) {
+                    (_titleCtrl.text.trim().isEmpty ||
+                        _automaticFields.contains(_OcrField.title))))) {
           _titleCtrl.text = suggestions.title!;
           _automaticFields.add(_OcrField.title);
         }
         if (suggestions.documentDate != null &&
             (replace ||
                 (!_manualFields.contains(_OcrField.date) &&
-                    _selectedDate == null))) {
+                    (_selectedDate == null ||
+                        _automaticFields.contains(_OcrField.date))))) {
           _selectedDate = suggestions.documentDate;
           _automaticFields.add(_OcrField.date);
         }
         if (suggestions.description != null &&
             (replace ||
                 (!_manualFields.contains(_OcrField.description) &&
-                    _descriptionCtrl.text.trim().isEmpty))) {
+                    (_descriptionCtrl.text.trim().isEmpty ||
+                        _automaticFields.contains(_OcrField.description))))) {
           _descriptionCtrl.text = suggestions.description!;
           _descriptionEnabled = true;
           _automaticFields.add(_OcrField.description);
@@ -1140,7 +1271,9 @@ class _AddFileScreenState extends State<AddFileScreen>
                         Text('Reading document...'),
                       ],
                     ),
-                  if (_suggestionFailed)
+                  if (_suggestionFailed ||
+                      (!_isSuggesting &&
+                          (_lastPreviewOcr?.hasFailedPages ?? false)))
                     TextButton.icon(
                       onPressed: _isSubmitting ? null : _suggestDetails,
                       icon: const Icon(Icons.refresh, size: 18),
