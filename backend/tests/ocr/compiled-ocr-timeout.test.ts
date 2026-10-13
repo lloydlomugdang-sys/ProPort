@@ -27,7 +27,10 @@ describe('whole-PDF deadline', () => {
       render: vi.fn(() => ({ promise: renderPromise, cancel })),
       cleanup: vi.fn(),
     };
+    const pdfCleanup = vi.fn().mockResolvedValue(undefined);
+    const pdfDestroy = vi.fn().mockResolvedValue(undefined);
     const pdf = { numPages: 1, getPage: vi.fn(() => stuck === 'page' ? never : stuck === 'late-page' ? delayed : Promise.resolve(page)),
+      cleanup: pdfCleanup, destroy: pdfDestroy,
       canvasFactory: { create: vi.fn(() => ({ canvas: {}, context: {} })), destroy: vi.fn() } };
     vi.mocked(getDocument).mockReturnValue({
       promise: stuck === 'loading' ? never : Promise.resolve(pdf), destroy,
@@ -42,6 +45,10 @@ describe('whole-PDF deadline', () => {
     await assertion;
     expect(engine.isBusy()).toBe(false);
     expect(destroy).toHaveBeenCalled();
+    if (stuck !== 'loading') {
+      expect(pdfCleanup).toHaveBeenCalled();
+      expect(pdfDestroy).toHaveBeenCalled();
+    }
     if (stuck === 'late-page' || stuck === 'late-text') {
       resume(stuck === 'late-page' ? page : { items: [] });
       await vi.advanceTimersByTimeAsync(0);

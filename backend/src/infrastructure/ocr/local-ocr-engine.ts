@@ -13,6 +13,7 @@ import {
   type OcrEngine,
   type OcrExtraction,
   type OcrInput,
+  type OcrMemorySample,
   type OcrPageText,
   type OcrTiming,
 } from './ocr-engine.js';
@@ -28,8 +29,9 @@ const pdfStandardFontsUrl = pathToFileURL(
   `${join(pdfPackageRoot, 'standard_fonts')}${sep}`,
 ).href;
 
-// Bound libvips memory and descriptor caching on memory-constrained instances
-sharp.cache({ memory: 16, files: 0, items: 10 });
+// Bound libvips memory and thread arenas on memory-constrained Render instances
+sharp.cache(false);
+sharp.concurrency(1);
 
 export const OCR_PROCESSING_TIMEOUT_MS = 45_000;
 // Dedicated PDF segmentation budget; ordinary image/document OCR stays at 45s.
@@ -538,6 +540,13 @@ export async function binarizeOcrImage(preprocessedBuffer: Buffer): Promise<Buff
   return await sharp(preprocessedBuffer).threshold(128).png().toBuffer();
 }
 
+interface OcrWorkerSession {
+  getWorker(
+    isTimedOut: () => boolean,
+  ): Promise<Awaited<ReturnType<typeof Tesseract.createWorker>>>;
+  terminate(): Promise<void>;
+}
+
 export class LocalOcrEngine implements OcrEngine {
   private activeJobs = 0;
   private readonly activeDocumentIds = new Set<string>();
@@ -548,7 +557,28 @@ export class LocalOcrEngine implements OcrEngine {
     private readonly timeoutMs = OCR_PROCESSING_TIMEOUT_MS,
     private readonly maxConcurrentJobs = 1,
     private readonly onTiming?: (timing: OcrTiming) => void,
+    private readonly onMemory?: (sample: OcrMemorySample) => void,
   ) {}
+
+  private sampleMemory(
+    phase: OcrMemorySample['phase'],
+    startedAt: number,
+    pageNumber?: number,
+    passNumber?: number,
+  ): void {
+    if (!this.onMemory) return;
+    const usage = process.memoryUsage();
+    this.onMemory({
+      phase,
+      rss: usage.rss,
+      heapUsed: usage.heapUsed,
+      external: usage.external,
+      arrayBuffers: usage.arrayBuffers ?? 0,
+      pageNumber,
+      passNumber,
+      elapsedMs: Math.round(performance.now() - startedAt),
+    });
+  }
 
   isBusy(): boolean {
     return this.activeJobs >= this.maxConcurrentJobs;
@@ -577,13 +607,17 @@ export class LocalOcrEngine implements OcrEngine {
   }
 
   protected async extractImage(
-    contents: Buffer,
+    inputContents: Buffer,
     timeoutMs = this.timeoutMs,
     onPass?: (ms: number) => void,
     profile?: OcrInput['profile'],
+    pageNumber?: number,
+    analysisStartedAt = performance.now(),
+    workerSession?: OcrWorkerSession,
   ): Promise<OcrExtraction> {
+    let rawContents: Buffer | null = inputContents;
     const deadline = Date.now() + timeoutMs;
-    const dimensions = imageDimensions(contents);
+    const dimensions = imageDimensions(rawContents);
     if (dimensions === null) throw new OcrEngineError('invalid-image');
     if (dimensions.width * dimensions.height > OCR_MAX_IMAGE_PIXELS) {
       throw new OcrEngineError('image-too-large');
@@ -594,29 +628,48 @@ export class LocalOcrEngine implements OcrEngine {
       // Compiled pages are already raster-bounded; do not upscale small pages
       // again using the full-quality image-upload preprocessing profile.
       preprocessedBuffer = profile === 'compiled-analysis'
-        ? await sharp(contents).grayscale().normalize().sharpen().png().toBuffer()
-        : await preprocessOcrImage(contents, dimensions);
+        ? await sharp(rawContents).grayscale().normalize().sharpen().png().toBuffer()
+        : await preprocessOcrImage(rawContents, dimensions);
+      if (profile === 'compiled-analysis') {
+        rawContents = null;
+      }
     } catch (error) {
+      rawContents = null;
       throw new OcrEngineError('invalid-image', { cause: error });
     }
-    if (Date.now() >= deadline) throw new OcrEngineError('timeout');
+    if (Date.now() >= deadline) {
+      rawContents = null;
+      preprocessedBuffer = null;
+      throw new OcrEngineError('timeout');
+    }
 
-    let worker: Awaited<ReturnType<typeof Tesseract.createWorker>> | undefined;
+    let localWorker: Awaited<ReturnType<typeof Tesseract.createWorker>> | undefined;
     let timedOut = false;
-    let terminated = false;
-    const terminate = async () => {
-      if (worker === undefined || terminated) return;
-      terminated = true;
-      await worker.terminate().catch(() => undefined);
+    let localTerminated = false;
+    const terminateOnAbort = async () => {
+      if (workerSession !== undefined) {
+        await workerSession.terminate();
+        return;
+      }
+      if (localWorker === undefined || localTerminated) return;
+      localTerminated = true;
+      await localWorker.terminate().catch(() => undefined);
+      this.sampleMemory('after-worker-cleanup', analysisStartedAt, pageNumber);
+    };
+    const terminateAfterPage = async () => {
+      if (workerSession !== undefined) return;
+      await terminateOnAbort();
     };
     const operation = (async () => {
-      worker = await Tesseract.createWorker('eng', Tesseract.OEM.LSTM_ONLY, {
-        langPath: englishData.langPath,
-        gzip: englishData.gzip,
-        cacheMethod: 'none',
-      });
+      const worker = workerSession !== undefined
+        ? await workerSession.getWorker(() => timedOut)
+        : (localWorker = await Tesseract.createWorker('eng', Tesseract.OEM.LSTM_ONLY, {
+            langPath: englishData.langPath,
+            gzip: englishData.gzip,
+            cacheMethod: 'none',
+          }));
       if (timedOut) {
-        await terminate();
+        await terminateOnAbort();
         throw new OcrEngineError('timeout');
       }
 
@@ -625,13 +678,14 @@ export class LocalOcrEngine implements OcrEngine {
         tessedit_pageseg_mode: Tesseract.PSM.AUTO,
       });
       if (timedOut) {
-        await terminate();
+        await terminateOnAbort();
         throw new OcrEngineError('timeout');
       }
 
       const candidates: OcrCandidate[] = [];
 
       // Pass 1: PSM.AUTO on preprocessed image
+      this.sampleMemory('before-ocr-pass', analysisStartedAt, pageNumber, 1);
       const pass1Started = performance.now();
       const result1 = await (worker as unknown as WorkerWithOutput).recognize(
         preprocessedBuffer as unknown as Tesseract.ImageLike,
@@ -639,8 +693,9 @@ export class LocalOcrEngine implements OcrEngine {
         { text: true, blocks: true },
       );
       onPass?.(Math.round(performance.now() - pass1Started));
+      this.sampleMemory('after-ocr-pass', analysisStartedAt, pageNumber, 1);
       if (timedOut) {
-        await terminate();
+        await terminateOnAbort();
         throw new OcrEngineError('timeout');
       }
       const cand1: OcrCandidate = {
@@ -660,35 +715,50 @@ export class LocalOcrEngine implements OcrEngine {
         ? hasSufficientCompiledCandidate(cand1, dimensions)
         : cand1.confidence >= 85 && usableCharCount(cand1.text) >= 8 && !hasNoiseLines;
 
-      if (!isPass1Sufficient && profile === 'compiled-analysis') {
+      if (isPass1Sufficient) {
+        preprocessedBuffer = null;
+        rawContents = null;
+      } else if (profile === 'compiled-analysis') {
         // Segmentation needs readable boundary evidence, not every screenshot label.
         // Reuse the bounded raster for ONE targeted sparse-layout fallback. No
         // color suppression, repeated AUTO pass, or concatenation of alternatives.
         await worker.setParameters({ tessedit_pageseg_mode: Tesseract.PSM.SPARSE_TEXT });
-        if (timedOut) throw new OcrEngineError('timeout');
+        if (timedOut) {
+          await terminateOnAbort();
+          throw new OcrEngineError('timeout');
+        }
+        this.sampleMemory('before-ocr-pass', analysisStartedAt, pageNumber, 2);
         const passStarted = performance.now();
         const result = await (worker as unknown as WorkerWithOutput).recognize(
           preprocessedBuffer as unknown as Tesseract.ImageLike, {}, { text: true, blocks: true },
         );
+        preprocessedBuffer = null;
         onPass?.(Math.round(performance.now() - passStarted));
-        if (timedOut) throw new OcrEngineError('timeout');
+        this.sampleMemory('after-ocr-pass', analysisStartedAt, pageNumber, 2);
+        if (timedOut) {
+          await terminateOnAbort();
+          throw new OcrEngineError('timeout');
+        }
         candidates.push({ text: result.data.text, confidence: result.data.confidence,
           pass: 'sparse', lines: extractLinesInfo(result.data.blocks) });
-      } else if (!isPass1Sufficient) {
+      } else {
         // Pass 2: Color-aware preprocessing with PSM.AUTO
         let colorAwareBuffer: Buffer;
         try {
-          colorAwareBuffer = await preprocessOcrColorAware(contents, dimensions);
+          colorAwareBuffer = await preprocessOcrColorAware(rawContents!, dimensions);
         } catch {
           colorAwareBuffer = preprocessedBuffer!;
+        } finally {
+          rawContents = null;
         }
         if (colorAwareBuffer !== preprocessedBuffer) {
           preprocessedBuffer = null;
         }
         if (timedOut) {
-          await terminate();
+          await terminateOnAbort();
           throw new OcrEngineError('timeout');
         }
+        this.sampleMemory('before-ocr-pass', analysisStartedAt, pageNumber, 2);
         const pass2Started = performance.now();
         const result2 = await (worker as unknown as WorkerWithOutput).recognize(
           colorAwareBuffer as unknown as Tesseract.ImageLike,
@@ -696,8 +766,9 @@ export class LocalOcrEngine implements OcrEngine {
           { text: true, blocks: true },
         );
         onPass?.(Math.round(performance.now() - pass2Started));
+        this.sampleMemory('after-ocr-pass', analysisStartedAt, pageNumber, 2);
         if (timedOut) {
-          await terminate();
+          await terminateOnAbort();
           throw new OcrEngineError('timeout');
         }
         const cand2: OcrCandidate = {
@@ -717,21 +788,24 @@ export class LocalOcrEngine implements OcrEngine {
             tessedit_pageseg_mode: Tesseract.PSM.SPARSE_TEXT,
           });
           if (timedOut) {
-            await terminate();
+            await terminateOnAbort();
             throw new OcrEngineError('timeout');
           }
           const targetBuffer =
             bestSoFar.pass === 'color-aware' ? colorAwareBuffer : preprocessedBuffer;
           if (targetBuffer) {
+            this.sampleMemory('before-ocr-pass', analysisStartedAt, pageNumber, 3);
             const pass3Started = performance.now();
             const result3 = await (worker as unknown as WorkerWithOutput).recognize(
               targetBuffer as unknown as Tesseract.ImageLike,
               {},
               { text: true, blocks: true },
             );
+            preprocessedBuffer = null;
             onPass?.(Math.round(performance.now() - pass3Started));
+            this.sampleMemory('after-ocr-pass', analysisStartedAt, pageNumber, 3);
             if (timedOut) {
-              await terminate();
+              await terminateOnAbort();
               throw new OcrEngineError('timeout');
             }
             const cand3: OcrCandidate = {
@@ -745,6 +819,7 @@ export class LocalOcrEngine implements OcrEngine {
         }
       }
 
+      rawContents = null;
       preprocessedBuffer = null;
 
       const sufficient = profile === 'compiled-analysis'
@@ -752,7 +827,12 @@ export class LocalOcrEngine implements OcrEngine {
         : [];
       const winner = selectBestCandidate(sufficient.length > 0 ? sufficient : candidates);
       this.lastExecutedPassCount = candidates.length;
-      this.lastExecutedCandidates = candidates;
+      // Retain only lightweight pass metadata; do not keep nested line/word bbox trees on the engine instance.
+      this.lastExecutedCandidates = candidates.map(({ text, confidence, pass }) => ({
+        text,
+        confidence,
+        pass,
+      }));
       return checkedText(winner.text, 'tesseract.js', winner.lines, dimensions);
     })();
 
@@ -763,22 +843,26 @@ export class LocalOcrEngine implements OcrEngine {
         new Promise<never>((_resolve, reject) => {
           timer = setTimeout(() => {
             timedOut = true;
-            void terminate();
+            void terminateOnAbort();
             reject(new OcrEngineError('timeout'));
           }, Math.max(1, deadline - Date.now()));
         }),
       ]);
     } catch (error) {
+      await terminateOnAbort();
       if (error instanceof OcrEngineError) throw error;
       throw new OcrEngineError('unavailable', { cause: error });
     } finally {
+      rawContents = null;
       preprocessedBuffer = null;
       if (timer !== undefined) clearTimeout(timer);
-      await terminate();
+      await terminateAfterPage();
     }
   }
 
   private async extractPdf(contents: Buffer, profile?: OcrInput['profile']): Promise<OcrExtraction> {
+    const analysisStartedAt = performance.now();
+    this.sampleMemory('analysis-start', analysisStartedAt);
     this.lastExecutedPassCount = 1;
     this.lastExecutedCandidates = [];
     const loadingTask = getDocument({
@@ -787,6 +871,8 @@ export class LocalOcrEngine implements OcrEngine {
       cMapPacked: true,
       standardFontDataUrl: pdfStandardFontsUrl,
       useSystemFonts: false,
+      disableAutoFetch: true,
+      disableStream: true,
       verbosity: VerbosityLevel.ERRORS,
     });
     let timer: NodeJS.Timeout | undefined;
@@ -794,10 +880,62 @@ export class LocalOcrEngine implements OcrEngine {
     const timeoutMs = profile === 'compiled-analysis' ? COMPILED_ANALYSIS_TIMEOUT_MS : this.timeoutMs;
     const deadline = Date.now() + timeoutMs;
     let activeRender: { cancel(): void } | undefined;
+    let activePdf: { cleanup?: () => Promise<void> | void; destroy?: () => Promise<void> | void } | undefined;
+
+    // One bounded Tesseract worker reused sequentially across fallback pages of
+    // this PDF extraction, and guaranteed to terminate when the PDF finishes or aborts.
+    let sharedWorker: Awaited<ReturnType<typeof Tesseract.createWorker>> | undefined;
+    let workerPending: Promise<Awaited<ReturnType<typeof Tesseract.createWorker>>> | undefined;
+    let workerClosed = false;
+    const workerSession: OcrWorkerSession = {
+      getWorker: async (isTimedOut) => {
+        if (timedOut || isTimedOut() || workerClosed) {
+          throw new OcrEngineError('timeout');
+        }
+        if (sharedWorker !== undefined) return sharedWorker;
+        if (workerPending === undefined) {
+          workerPending = Tesseract.createWorker('eng', Tesseract.OEM.LSTM_ONLY, {
+            langPath: englishData.langPath,
+            gzip: englishData.gzip,
+            cacheMethod: 'none',
+          });
+        }
+        const created = await workerPending;
+        workerPending = undefined;
+        if (timedOut || isTimedOut() || workerClosed) {
+          workerClosed = true;
+          sharedWorker = undefined;
+          await created.terminate().catch(() => undefined);
+          this.sampleMemory('after-worker-cleanup', analysisStartedAt);
+          throw new OcrEngineError('timeout');
+        }
+        sharedWorker = created;
+        return created;
+      },
+      terminate: async () => {
+        workerClosed = true;
+        const current = sharedWorker;
+        const pending = workerPending;
+        sharedWorker = undefined;
+        workerPending = undefined;
+        if (current !== undefined) {
+          await current.terminate().catch(() => undefined);
+          this.sampleMemory('after-worker-cleanup', analysisStartedAt);
+        } else if (pending !== undefined) {
+          await pending
+            .then((w) => w.terminate())
+            .catch(() => undefined);
+          this.sampleMemory('after-worker-cleanup', analysisStartedAt);
+        }
+      },
+    };
+
     // Race the entire extraction, not just PDF loading. A stuck text/render task
     // must not keep the request alive after its deadline.
     const operation = (async (): Promise<OcrExtraction> => {
       const pdf = await loadingTask.promise;
+      activePdf = pdf as { cleanup?: () => Promise<void> | void; destroy?: () => Promise<void> | void };
+      this.sampleMemory('after-pdf-load', analysisStartedAt);
       if (pdf.numPages > OCR_MAX_PDF_PAGES) {
         throw new OcrEngineError('pdf-too-many-pages');
       }
@@ -814,6 +952,7 @@ export class LocalOcrEngine implements OcrEngine {
         if (timedOut || Date.now() >= deadline) throw new OcrEngineError('timeout');
         const page = await pdf.getPage(pageNumber);
         let pageText = '';
+        let pageCleaned = false;
         let result: OcrPageText;
         try {
           if (timedOut || Date.now() >= deadline) throw new OcrEngineError('timeout');
@@ -834,6 +973,7 @@ export class LocalOcrEngine implements OcrEngine {
             if (fallbackPages > OCR_MAX_PDF_FALLBACK_PAGES) {
               throw new OcrEngineError('pdf-too-many-ocr-pages');
             }
+            this.sampleMemory('before-fallback-page', analysisStartedAt, pageNumber);
             // PDF.js' existing Node canvas factory uses its installed native canvas.
             // Render one bounded page at a time, never the entire PDF into images.
             const natural = page.getViewport({ scale: 1 });
@@ -847,6 +987,7 @@ export class LocalOcrEngine implements OcrEngine {
               create(width: number, height: number): { canvas: HTMLCanvasElement & { toBuffer(type: string): Buffer }; context: CanvasRenderingContext2D };
               destroy(target: { canvas: HTMLCanvasElement; context: CanvasRenderingContext2D }): void;
             };
+            let png: Buffer | null = null;
             const target = factory.create(Math.ceil(viewport.width), Math.ceil(viewport.height));
             try {
               const rasterStarted = performance.now();
@@ -854,23 +995,44 @@ export class LocalOcrEngine implements OcrEngine {
               activeRender = render;
               await render.promise;
               activeRender = undefined;
-              const png = target.canvas.toBuffer('image/png');
+              png = target.canvas.toBuffer('image/png');
               rasterizationMs = Math.round(performance.now() - rasterStarted);
-              const stats = await sharp(png).stats();
-              // Only near-uniform white pages are blank; sparse/faint ink still needs OCR.
-              const isBlank = stats.channels.slice(0, 3).every((channel) => channel.min >= 254);
-              if (isBlank) {
-                result = { pageNumber, text: pageText, source: 'blank', status: 'ready' };
-              } else {
-                const remaining = deadline - Date.now();
-                if (remaining <= 0) throw new OcrEngineError('timeout');
-                const extracted = await this.extractImage(png, remaining, (ms) => ocrPassMs.push(ms), profile);
-                result = extracted.rawText.trim().length > 0
-                  ? { pageNumber, text: extracted.rawText, source: 'ocr', status: 'ready' }
-                  : { pageNumber, text: pageText, source: 'failed', status: 'unresolved' };
-              }
             } finally {
+              // Destroy the native canvas surface and PDF.js page/document decoded image
+              // caches immediately after extracting the PNG so they do not coexist with
+              // sharp and Tesseract buffers during OCR.
               factory.destroy(target);
+              page.cleanup();
+              pageCleaned = true;
+              await Promise.resolve(activePdf?.cleanup?.()).catch(() => undefined);
+            }
+            this.sampleMemory('after-rasterization', analysisStartedAt, pageNumber);
+            const stats = await sharp(png).stats();
+            // Only near-uniform white pages are blank; sparse/faint ink still needs OCR.
+            const isBlank = stats.channels.slice(0, 3).every((channel) => channel.min >= 254);
+            if (isBlank) {
+              png = null;
+              result = { pageNumber, text: pageText, source: 'blank', status: 'ready' };
+            } else {
+              const remaining = deadline - Date.now();
+              if (remaining <= 0) {
+                png = null;
+                throw new OcrEngineError('timeout');
+              }
+              const pageBuffer = png;
+              png = null;
+              const extracted = await this.extractImage(
+                pageBuffer,
+                remaining,
+                (ms) => ocrPassMs.push(ms),
+                profile,
+                pageNumber,
+                analysisStartedAt,
+                workerSession,
+              );
+              result = extracted.rawText.trim().length > 0
+                ? { pageNumber, text: extracted.rawText, source: 'ocr', status: 'ready' }
+                : { pageNumber, text: pageText, source: 'failed', status: 'unresolved' };
             }
           }
         } catch (error) {
@@ -878,7 +1040,13 @@ export class LocalOcrEngine implements OcrEngine {
           if (error instanceof OcrEngineError && ['timeout', 'pdf-too-many-ocr-pages', 'text-too-large'].includes(error.reason)) throw error;
           result = { pageNumber, text: pageText, source: 'failed', status: 'unresolved' };
         } finally {
-          page.cleanup();
+          if (!pageCleaned) {
+            page.cleanup();
+          }
+          if (source === 'ocr') {
+            await Promise.resolve(activePdf?.cleanup?.()).catch(() => undefined);
+          }
+          this.sampleMemory('after-page-cleanup', analysisStartedAt, pageNumber);
           this.onTiming?.({ pageNumber, source, rasterizationMs, ocrPassMs, pageMs: Math.round(performance.now() - pageStarted) });
         }
         if (timedOut || Date.now() >= deadline) throw new OcrEngineError('timeout');
@@ -900,6 +1068,7 @@ export class LocalOcrEngine implements OcrEngine {
           timer = setTimeout(() => {
             timedOut = true;
             activeRender?.cancel();
+            void workerSession.terminate();
             void loadingTask.destroy().catch(() => undefined);
             reject(new OcrEngineError('timeout'));
           }, timeoutMs);
@@ -914,7 +1083,12 @@ export class LocalOcrEngine implements OcrEngine {
       throw new OcrEngineError('invalid-pdf', { cause: error });
     } finally {
       if (timer !== undefined) clearTimeout(timer);
+      await workerSession.terminate();
+      await Promise.resolve(activePdf?.cleanup?.()).catch(() => undefined);
+      await Promise.resolve(activePdf?.destroy?.()).catch(() => undefined);
       await loadingTask.destroy().catch(() => undefined);
+      this.sampleMemory('after-pdf-cleanup', analysisStartedAt);
+      this.sampleMemory('analysis-end', analysisStartedAt);
     }
   }
 }

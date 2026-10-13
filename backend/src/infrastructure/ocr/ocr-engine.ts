@@ -58,3 +58,25 @@ export type OcrTiming = {
   readonly ocrPassMs: readonly number[];
   readonly pageMs: number;
 } | { readonly analysisMs: number };
+
+/** Content-free memory telemetry: never include text, file names, or document contents. */
+export interface OcrMemorySample {
+  readonly phase:
+    | 'analysis-start'
+    | 'after-pdf-load'
+    | 'before-fallback-page'
+    | 'after-rasterization'
+    | 'before-ocr-pass'
+    | 'after-ocr-pass'
+    | 'after-page-cleanup'
+    | 'after-worker-cleanup'
+    | 'after-pdf-cleanup'
+    | 'analysis-end';
+  readonly rss: number;
+  readonly heapUsed: number;
+  readonly external: number;
+  readonly arrayBuffers: number;
+  readonly pageNumber?: number | undefined;
+  readonly passNumber?: number | undefined;
+  readonly elapsedMs: number;
+}

@@ -126,4 +126,68 @@ describe('compiled-only OCR profile', () => {
     await vi.waitFor(() => expect(worker.terminate).toHaveBeenCalledTimes(1));
     expect(worker.recognize).not.toHaveBeenCalled();
   });
+
+  it('reuses a single Tesseract worker sequentially across multiple PDF fallback pages and terminates once', async () => {
+    const { worker, create } = mockWorker();
+    let inFlight = 0;
+    let maxInFlight = 0;
+    const callOrder: number[] = [];
+    worker.recognize.mockImplementation(async () => {
+      inFlight += 1;
+      maxInFlight = Math.max(maxInFlight, inFlight);
+      callOrder.push(callOrder.length + 1);
+      await new Promise((resolve) => setTimeout(resolve, 10));
+      inFlight -= 1;
+      return result(cvText, 85);
+    });
+
+    const engine = new LocalOcrEngine();
+    const pdfBytes = await mixedPdf([
+      { text: cvText },
+      { text: cvText, scanned: true },
+      { text: cvText, scanned: true },
+    ]);
+    const extracted = await engine.extract({
+      contents: pdfBytes,
+      fileKind: 'pdf',
+      mimeType: 'application/pdf',
+      profile: 'compiled-analysis',
+    });
+
+    expect(extracted.pages?.map((p) => p.source)).toEqual(['digital', 'ocr', 'ocr']);
+    expect(create).toHaveBeenCalledTimes(1);
+    expect(worker.recognize).toHaveBeenCalledTimes(2);
+    expect(maxInFlight).toBe(1);
+    expect(callOrder).toEqual([1, 2]);
+    expect(worker.terminate).toHaveBeenCalledTimes(1);
+    expect(engine.lastExecutedCandidates.every((c) => c.lines === undefined)).toBe(true);
+  });
+
+  it('always terminates the worker when OCR recognition throws an unexpected error', async () => {
+    const { worker, create } = mockWorker();
+    worker.recognize.mockRejectedValue(new Error('wasm recognize fault'));
+
+    await expect(new ImageProbe().compiledImage(await image(), 1000)).rejects.toMatchObject({
+      reason: 'unavailable',
+    });
+    expect(create).toHaveBeenCalledTimes(1);
+    expect(worker.terminate).toHaveBeenCalledTimes(1);
+  });
+
+  it('always terminates the shared PDF worker on whole-PDF timeout', async () => {
+    const { worker, create } = mockWorker();
+    worker.recognize.mockImplementation(() => new Promise(() => undefined));
+
+    const pdfBytes = await mixedPdf([{ text: cvText, scanned: true }]);
+    await expect(
+      new LocalOcrEngine(800).extract({
+        contents: pdfBytes,
+        fileKind: 'pdf',
+        mimeType: 'application/pdf',
+      }),
+    ).rejects.toMatchObject({ reason: 'timeout' });
+
+    expect(create).toHaveBeenCalledTimes(1);
+    expect(worker.terminate).toHaveBeenCalledTimes(1);
+  });
 });
