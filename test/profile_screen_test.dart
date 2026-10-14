@@ -5,6 +5,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
+import 'package:proport_app/constants/app_colors.dart';
+import 'package:proport_app/screens/profile/edit_profile_screen.dart';
 import 'package:proport_app/screens/profile/profile_screen.dart';
 import 'package:proport_app/screens/settings/settings_screen.dart';
 import 'package:proport_app/services/api_client.dart';
@@ -274,6 +276,54 @@ void main() {
 
     auth.dispose();
   });
+
+  testWidgets(
+    'Edit Profile control is present, visible, unique, and opens EditProfileScreen on tap',
+    (tester) async {
+      final auth = _FakeAuthService(user: _user());
+      await tester.pumpWidget(_testApp(auth));
+      await tester.pumpAndSettle();
+
+      // 1. Exactly one Edit Profile control is present
+      final editButtonFinder = find.byTooltip('Edit profile');
+      expect(editButtonFinder, findsOneWidget);
+
+      // Verify there is only one Edit Profile action on screen (no duplicates)
+      expect(find.text('Edit Profile'), findsNothing);
+      expect(
+        find.widgetWithIcon(IconButton, Icons.edit_outlined),
+        findsOneWidget,
+      );
+
+      // 2. Its visible icon is rendered and clearly visible (contrast against white background)
+      final iconFinder = find.descendant(
+        of: editButtonFinder,
+        matching: find.byType(Icon),
+      );
+      expect(iconFinder, findsOneWidget);
+
+      final icon = tester.widget<Icon>(iconFinder);
+      expect(icon.icon, Icons.edit_outlined);
+      expect(icon.color, isNotNull);
+      expect(icon.color, isNot(Colors.white));
+      expect(icon.color, AppColors.primary);
+
+      // Verify light/background contrast ratio >= 4.5:1 against white AppBar
+      final iconLuminance = icon.color!.computeLuminance();
+      const bgLuminance = 1.0; // Colors.white
+      final contrastRatio = (bgLuminance + 0.05) / (iconLuminance + 0.05);
+      expect(contrastRatio, greaterThan(4.5));
+
+      // 3. Tapping it opens Edit Profile screen
+      await tester.tap(editButtonFinder);
+      await tester.pumpAndSettle();
+
+      expect(find.byType(EditProfileScreen), findsOneWidget);
+      expect(find.byTooltip('Save profile'), findsOneWidget);
+
+      auth.dispose();
+    },
+  );
 }
 
 Widget _testApp(AuthService auth) {

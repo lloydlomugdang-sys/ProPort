@@ -95,7 +95,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
           IconButton(
             icon: const Icon(
               Icons.edit_outlined,
-              color: AppColors.headerText,
+              color: AppColors.primary,
               size: 22,
             ),
             onPressed: profile == null || _isLoading

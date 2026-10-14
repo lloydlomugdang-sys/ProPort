@@ -381,14 +381,16 @@ class _EditProfileScreenState extends State<EditProfileScreen>
                     height: 20,
                     child: CircularProgressIndicator(
                       strokeWidth: 2.5,
-                      valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                      valueColor: AlwaysStoppedAnimation<Color>(
+                        AppColors.primary,
+                      ),
                     ),
                   ),
                 )
               : IconButton(
                   icon: const Icon(
                     Icons.edit_outlined,
-                    color: AppColors.headerText,
+                    color: AppColors.primary,
                     size: 22,
                   ),
                   onPressed: _onSave,
