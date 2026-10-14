@@ -626,10 +626,10 @@ void main() {
 
         // Page 1 is present, Add Page button is shown
         expect(find.text('Document Pages (1)'), findsOneWidget);
-        expect(find.text('Add Page (1/10)'), findsOneWidget);
+        expect(find.text('Add pages to this document (1/10)'), findsOneWidget);
 
         // Tap Add Page
-        await tester.tap(find.text('Add Page (1/10)'));
+        await tester.tap(find.text('Add pages to this document (1/10)'));
         await tester.pumpAndSettle();
 
         // Now 2 pages in one document

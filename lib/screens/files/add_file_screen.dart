@@ -2,6 +2,7 @@
 
 import 'dart:async';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 
@@ -58,6 +59,7 @@ class _AddFileScreenState extends State<AddFileScreen>
 
   bool _isSubmitting = false;
   bool _isSuggesting = false;
+  bool _rerunQueued = false;
   DocumentOcrResult? _lastPreviewOcr;
   final Map<PickedDocument, DocumentOcrPage> _pageOcrByFile = {};
   DocumentMetadataSuggestions? _suggestions;
@@ -139,6 +141,7 @@ class _AddFileScreenState extends State<AddFileScreen>
 
   @override
   void dispose() {
+    _previewOperation++;
     final analysis = _pdfAnalysis;
     if (analysis != null) {
       unawaited(_documentService?.cancelCompiledSession(analysis.sessionId));
@@ -222,14 +225,17 @@ class _AddFileScreenState extends State<AddFileScreen>
           _pageOcrByFile.clear();
           _previewOperation++;
           _isSuggesting = false;
+          _rerunQueued = false;
           _suggestions = null;
           _suggestionMessage = null;
           _suggestionFailed = false;
           _suggestedByAi = false;
           _hasEditedAiSuggestion = false;
         });
-        await _suggestDetails();
+        unawaited(_suggestDetails());
       } else {
+        _previewOperation++;
+        _rerunQueued = false;
         // 2–20 files: automatic multi-file queue/review
         for (final f in selected) {
           if (!f.hasSupportedUploadType) {
@@ -287,27 +293,35 @@ class _AddFileScreenState extends State<AddFileScreen>
       return;
     }
     try {
-      final selected = await _filePicker.pickDocuments(allowMultiple: false);
+      final selected = await _filePicker.pickDocuments(allowMultiple: true);
       if (selected == null || selected.isEmpty || !mounted) return;
-      final newPage = selected.first;
-      if (!newPage.hasSupportedUploadType ||
-          !newPage.mimeType.startsWith('image/')) {
-        _showSnack('Please select a JPG, JPEG, or PNG image page.');
-        return;
+      final validNewPages = <PickedDocument>[];
+      for (final newPage in selected) {
+        if (!newPage.hasSupportedUploadType ||
+            !newPage.mimeType.startsWith('image/')) {
+          _showSnack('Please select a JPG, JPEG, or PNG image page.');
+          return;
+        }
+        if (newPage.sizeBytes > DocumentService.maxUploadBytes) {
+          _showSnack('${newPage.name} exceeds the 15 MB upload limit.');
+          return;
+        }
+        validNewPages.add(newPage);
       }
-      if (newPage.sizeBytes > DocumentService.maxUploadBytes) {
-        _showSnack('${newPage.name} exceeds the 15 MB upload limit.');
+      if (_pickedFiles.length + validNewPages.length > 10) {
+        _showSnack('You can attach up to 10 image pages.');
         return;
       }
       final currentBytes = _pickedFiles.fold(0, (sum, f) => sum + f.sizeBytes);
-      if (currentBytes + newPage.sizeBytes > 45 * 1024 * 1024) {
+      final newBytes = validNewPages.fold(0, (sum, f) => sum + f.sizeBytes);
+      if (currentBytes + newBytes > 45 * 1024 * 1024) {
         _showSnack('The combined files exceed the 45 MB upload limit.');
         return;
       }
       setState(() {
-        _pickedFiles = [..._pickedFiles, newPage];
+        _pickedFiles = [..._pickedFiles, ...validNewPages];
       });
-      await _suggestDetails();
+      unawaited(_suggestDetails());
     } catch (_) {
       if (!mounted) return;
       _showSnack('Unable to read the page image. Please try another file.');
@@ -536,6 +550,14 @@ class _AddFileScreenState extends State<AddFileScreen>
     });
     if (hasRemaining) {
       unawaited(_suggestDetails());
+    } else {
+      _previewOperation++;
+      if (_isSuggesting) {
+        setState(() {
+          _isSuggesting = false;
+          _rerunQueued = false;
+        });
+      }
     }
   }
 
@@ -729,50 +751,89 @@ class _AddFileScreenState extends State<AddFileScreen>
       await _inspectPdf(_pickedFiles.first);
       return;
     }
-    final operation = ++_previewOperation;
-    final filesSnapshot = List<PickedDocument>.from(_pickedFiles);
-    final service = DocumentScope.of(context);
-    setState(() {
-      _isSuggesting = true;
-      _suggestionMessage = null;
-      _suggestionFailed = false;
-    });
+
+    // If OCR is already running, mark current in-flight request stale and queue exactly one rerun.
+    if (_isSuggesting) {
+      _rerunQueued = true;
+      _previewOperation++;
+      return;
+    }
+
+    _isSuggesting = true;
+    _rerunQueued = false;
+
     try {
-      final result = await service.previewOcr(filesSnapshot);
-      if (!mounted || operation != _previewOperation) return;
-      if (!result.isReady) {
-        throw const ApiException(
-          code: 'OCR_FAILED',
-          message: 'Automatic reading failed.',
-        );
-      }
-      _recordPreviewOcr(filesSnapshot, result);
-      _lastPreviewOcr = result;
-      final suggestions = result.isReady ? result.metadataSuggestions : null;
-      _showMetadataSuggestions(
-        suggestions,
-        result.metadataAnalysis,
-        failedPageNumbers: result.failedPageNumbers,
-      );
-      if (suggestions != null) _applySuggestions();
-    } on ApiException catch (error) {
-      if (mounted && operation == _previewOperation) {
+      while (mounted && !_isSubmitting && _pickedFiles.isNotEmpty) {
+        if (_pickedFiles.first.mimeType == 'application/pdf') {
+          break;
+        }
+
+        final operation = ++_previewOperation;
+        final filesSnapshot = List<PickedDocument>.from(_pickedFiles);
+        final service = DocumentScope.of(context);
+
         setState(() {
-          _suggestionFailed = true;
-          _suggestionMessage = _readingFailure(error);
+          _isSuggesting = true;
+          _suggestionMessage = null;
+          _suggestionFailed = false;
         });
-      }
-    } catch (_) {
-      if (mounted && operation == _previewOperation) {
-        setState(() {
-          _suggestionFailed = true;
-          _suggestionMessage =
-              "We couldn't automatically read this file. You can still enter the details manually.";
-        });
+
+        try {
+          final result = await service.previewOcr(filesSnapshot);
+          if (!mounted || operation != _previewOperation) {
+            // Result is stale or widget unmounted — safely ignored
+          } else {
+            if (!result.isReady) {
+              throw const ApiException(
+                code: 'OCR_FAILED',
+                message: 'Automatic reading failed.',
+              );
+            }
+            _recordPreviewOcr(filesSnapshot, result);
+            _lastPreviewOcr = result;
+            final suggestions = result.isReady
+                ? result.metadataSuggestions
+                : null;
+            _showMetadataSuggestions(
+              suggestions,
+              result.metadataAnalysis,
+              failedPageNumbers: result.failedPageNumbers,
+            );
+            if (suggestions != null) _applySuggestions();
+          }
+        } on ApiException catch (error) {
+          if (mounted && operation == _previewOperation) {
+            setState(() {
+              _suggestionFailed = true;
+              _suggestionMessage = _readingFailure(error);
+            });
+          }
+        } catch (_) {
+          if (mounted && operation == _previewOperation) {
+            setState(() {
+              _suggestionFailed = true;
+              _suggestionMessage =
+                  "We couldn't automatically read this file. You can still enter the details manually.";
+            });
+          }
+        }
+
+        if (!mounted || _isSubmitting) break;
+
+        // If pages changed or another rerun was requested while in flight, rerun once
+        if (_rerunQueued || !listEquals(filesSnapshot, _pickedFiles)) {
+          _rerunQueued = false;
+          continue;
+        }
+
+        break;
       }
     } finally {
-      if (mounted && operation == _previewOperation) {
-        setState(() => _isSuggesting = false);
+      if (mounted) {
+        setState(() {
+          _isSuggesting = false;
+          _rerunQueued = false;
+        });
       }
     }
   }
@@ -1149,6 +1210,14 @@ class _AddFileScreenState extends State<AddFileScreen>
                             ),
                           ],
                         ),
+                        const SizedBox(height: 4),
+                        Text(
+                          'Pages will be saved together as one document.',
+                          style: GoogleFonts.poppins(
+                            fontSize: 11,
+                            color: AppColors.textMuted,
+                          ),
+                        ),
                         if (_pickedFiles.length > 1) ...[
                           const SizedBox(height: 8),
                           for (var i = 0; i < _pickedFiles.length; i++)
@@ -1225,13 +1294,14 @@ class _AddFileScreenState extends State<AddFileScreen>
                         if (_pickedFiles.length < 10) ...[
                           const SizedBox(height: 8),
                           OutlinedButton.icon(
+                            key: const Key('add-pages-to-document-button'),
                             onPressed: _onAddPageTap,
                             icon: const Icon(
                               Icons.add_photo_alternate_rounded,
                               size: 16,
                             ),
                             label: Text(
-                              'Add Page (${_pickedFiles.length}/10)',
+                              'Add pages to this document (${_pickedFiles.length}/10)',
                               style: GoogleFonts.poppins(
                                 fontSize: 12,
                                 fontWeight: FontWeight.w600,

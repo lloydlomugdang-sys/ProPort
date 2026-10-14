@@ -4,6 +4,7 @@ import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:proport_app/screens/files/add_file_screen.dart';
+import 'package:proport_app/screens/files/batch_review_screen.dart';
 import 'package:proport_app/screens/files/document_ocr_screen.dart';
 import 'package:proport_app/screens/files/files_screen.dart';
 import 'package:proport_app/screens/files/view_files_screen.dart';
@@ -1101,9 +1102,7 @@ void main() {
         ]);
 
       final picker = _FakePicker(page1);
-      await tester.pumpWidget(
-        _app(service, AddFileScreen(filePicker: picker)),
-      );
+      await tester.pumpWidget(_app(service, AddFileScreen(filePicker: picker)));
       await tester.pumpAndSettle();
 
       // 1. Pick Page 1 (JPEG)
@@ -1111,10 +1110,9 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(service.previewCalls, 1);
-      expect(
-        service.previewFileBatches.single.map((f) => f.name).toList(),
-        ['page1.jpg'],
-      );
+      expect(service.previewFileBatches.single.map((f) => f.name).toList(), [
+        'page1.jpg',
+      ]);
       // Content & Folder auto-filled from Page 1, Title & Date still blank
       expect(
         tester
@@ -1146,16 +1144,18 @@ void main() {
 
       // 3. Add Page 2 (PNG)
       picker.result = page2;
-      await tester.ensureVisible(find.text('Add Page (1/10)'));
-      await tester.tap(find.text('Add Page (1/10)'));
+      await tester.ensureVisible(
+        find.text('Add pages to this document (1/10)'),
+      );
+      await tester.tap(find.text('Add pages to this document (1/10)'));
       await tester.pumpAndSettle();
 
       expect(find.text('Document Pages (2)'), findsOneWidget);
       expect(service.previewCalls, 2);
-      expect(
-        service.previewFileBatches.last.map((f) => f.name).toList(),
-        ['page1.jpg', 'page2.png'],
-      );
+      expect(service.previewFileBatches.last.map((f) => f.name).toList(), [
+        'page1.jpg',
+        'page2.png',
+      ]);
 
       // Combined OCR across Page 1 + Page 2 populates Title & Date while keeping manual Folder override ('Seminars')
       expect(
@@ -1182,23 +1182,17 @@ void main() {
       await tester.tap(find.text('Add File'));
       await tester.pumpAndSettle();
 
-      expect(
-        service.uploadedFiles.map((f) => f.name).toList(),
-        ['page1.jpg', 'page2.png'],
-      );
+      expect(service.uploadedFiles.map((f) => f.name).toList(), [
+        'page1.jpg',
+        'page2.png',
+      ]);
       expect(service.uploadedFolderKey, 'seminars');
-      expect(
-        service.uploadedTitle,
-        'National Cloud Architecture Workshop',
-      );
+      expect(service.uploadedTitle, 'National Cloud Architecture Workshop');
 
       // 5. Reopen DocumentOcrScreen (Document Details) and verify OCR text & both page previews are immediately ready
       final savedDoc = service.documents.first;
       expect(savedDoc.pageCount, 2);
-      expect(
-        service.getCachedContent(savedDoc.id),
-        equals(page1.bytes),
-      );
+      expect(service.getCachedContent(savedDoc.id), equals(page1.bytes));
       expect(
         service.getCachedContent(savedDoc.id, attachmentId: '2'),
         equals(page2.bytes),
@@ -1211,10 +1205,7 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(find.text('No extracted text yet.'), findsNothing);
-      expect(
-        find.textContaining('--- Page 1 ---'),
-        findsOneWidget,
-      );
+      expect(find.textContaining('--- Page 1 ---'), findsOneWidget);
       expect(
         find.textContaining('National Cloud Architecture Workshop'),
         findsOneWidget,
@@ -1329,17 +1320,17 @@ void main() {
         ]);
 
       final picker = _FakePicker(page1);
-      await tester.pumpWidget(
-        _app(service, AddFileScreen(filePicker: picker)),
-      );
+      await tester.pumpWidget(_app(service, AddFileScreen(filePicker: picker)));
       await tester.pumpAndSettle();
 
       await tester.tap(find.text('Tap to upload file'));
       await tester.pumpAndSettle();
 
       picker.result = page2;
-      await tester.ensureVisible(find.text('Add Page (1/10)'));
-      await tester.tap(find.text('Add Page (1/10)'));
+      await tester.ensureVisible(
+        find.text('Add pages to this document (1/10)'),
+      );
+      await tester.tap(find.text('Add pages to this document (1/10)'));
       await tester.pumpAndSettle();
 
       // Reorder: move Page 2 up to become Page 1
@@ -1347,19 +1338,19 @@ void main() {
       await tester.tap(find.byTooltip('Move page up'));
       await tester.pumpAndSettle();
 
-      expect(
-        service.previewFileBatches.last.map((f) => f.name).toList(),
-        ['page2.png', 'page1.jpg'],
-      );
+      expect(service.previewFileBatches.last.map((f) => f.name).toList(), [
+        'page2.png',
+        'page1.jpg',
+      ]);
 
       await tester.ensureVisible(find.text('Add File'));
       await tester.tap(find.text('Add File'));
       await tester.pumpAndSettle();
 
-      expect(
-        service.uploadedFiles.map((f) => f.name).toList(),
-        ['page2.png', 'page1.jpg'],
-      );
+      expect(service.uploadedFiles.map((f) => f.name).toList(), [
+        'page2.png',
+        'page1.jpg',
+      ]);
 
       final savedDoc = service.documents.first;
       final persistedOcr = service.ocrFor(savedDoc.id);
@@ -1444,17 +1435,17 @@ void main() {
         ]);
 
       final picker = _FakePicker(page1);
-      await tester.pumpWidget(
-        _app(service, AddFileScreen(filePicker: picker)),
-      );
+      await tester.pumpWidget(_app(service, AddFileScreen(filePicker: picker)));
       await tester.pumpAndSettle();
 
       await tester.tap(find.text('Tap to upload file'));
       await tester.pumpAndSettle();
 
       picker.result = page2;
-      await tester.ensureVisible(find.text('Add Page (1/10)'));
-      await tester.tap(find.text('Add Page (1/10)'));
+      await tester.ensureVisible(
+        find.text('Add pages to this document (1/10)'),
+      );
+      await tester.tap(find.text('Add pages to this document (1/10)'));
       await tester.pumpAndSettle();
 
       expect(
@@ -1472,18 +1463,575 @@ void main() {
       service.disposeWithAuth();
     },
   );
+
+  testWidgets(
+    'primary Add File + one selected file routes to single Add File flow',
+    (tester) async {
+      final doc = PickedDocument(
+        name: 'single.jpg',
+        mimeType: 'image/jpeg',
+        bytes: _validPngBytes,
+      );
+      final service = _ScreenDocumentService();
+      final picker = _FakePicker(doc);
+
+      await tester.pumpWidget(_app(service, AddFileScreen(filePicker: picker)));
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.text('Tap to upload file'));
+      await tester.pumpAndSettle();
+
+      expect(find.byType(AddFileScreen), findsOneWidget);
+      expect(find.byType(BatchReviewScreen), findsNothing);
+      expect(find.text('single.jpg'), findsOneWidget);
+      expect(find.text('Add File'), findsOneWidget);
+
+      service.disposeWithAuth();
+    },
+  );
+
+  testWidgets(
+    'primary Add File + two selected files routes to Review Files batch screen with separate documents',
+    (tester) async {
+      final file1 = PickedDocument(
+        name: 'cert1.pdf',
+        mimeType: 'application/pdf',
+        bytes: _validPngBytes,
+      );
+      final file2 = PickedDocument(
+        name: 'award.jpg',
+        mimeType: 'image/jpeg',
+        bytes: _validPngBytes,
+      );
+      final service = _ScreenDocumentService();
+      final picker = _FakePicker(file1, multiResult: [file1, file2]);
+
+      await tester.pumpWidget(_app(service, AddFileScreen(filePicker: picker)));
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.text('Tap to upload file'));
+      await tester.pumpAndSettle();
+
+      expect(find.byType(BatchReviewScreen), findsOneWidget);
+      expect(find.textContaining('Processing: 2 Documents'), findsOneWidget);
+      expect(find.text('cert1.pdf'), findsOneWidget);
+      await tester.drag(find.byType(ListView), const Offset(0, -500));
+      await tester.pumpAndSettle();
+      expect(find.text('award.jpg'), findsOneWidget);
+
+      service.disposeWithAuth();
+    },
+  );
+
+  testWidgets(
+    'batch auto-categorization behavior remains intact during batch review',
+    (tester) async {
+      final file1 = PickedDocument(
+        name: 'cert1.pdf',
+        mimeType: 'application/pdf',
+        bytes: _validPngBytes,
+      );
+      final file2 = PickedDocument(
+        name: 'award.jpg',
+        mimeType: 'image/jpeg',
+        bytes: _validPngBytes,
+      );
+      final service = _ScreenDocumentService();
+      final picker = _FakePicker(file1, multiResult: [file1, file2]);
+
+      await tester.pumpWidget(_app(service, AddFileScreen(filePicker: picker)));
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.text('Tap to upload file'));
+      await tester.pumpAndSettle();
+
+      expect(find.byType(BatchReviewScreen), findsOneWidget);
+      expect(find.text('Upload All Valid'), findsOneWidget);
+
+      service.disposeWithAuth();
+    },
+  );
+
+  testWidgets(
+    'explicit Add pages to this document adds a page to one logical document',
+    (tester) async {
+      final page1 = PickedDocument(
+        name: 'page1.jpg',
+        mimeType: 'image/jpeg',
+        bytes: _validPngBytes,
+      );
+      final page2 = PickedDocument(
+        name: 'page2.png',
+        mimeType: 'image/png',
+        bytes: _validPngBytes,
+      );
+      final service = _ScreenDocumentService();
+      final picker = _FakePicker(page1);
+
+      await tester.pumpWidget(_app(service, AddFileScreen(filePicker: picker)));
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.text('Tap to upload file'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Document Pages (1)'), findsOneWidget);
+      expect(
+        find.text('Pages will be saved together as one document.'),
+        findsOneWidget,
+      );
+
+      picker.result = page2;
+      await tester.ensureVisible(
+        find.text('Add pages to this document (1/10)'),
+      );
+      await tester.tap(find.text('Add pages to this document (1/10)'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Document Pages (2)'), findsOneWidget);
+      expect(find.text('page1.jpg'), findsOneWidget);
+      expect(find.text('page2.png'), findsOneWidget);
+
+      // Fill required fields and save as single document
+      await tester.ensureVisible(find.byType(DropdownButton<String>).first);
+      await tester.tap(find.byType(DropdownButton<String>).first);
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Certificates').last);
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byType(DropdownButton<String>).last);
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Seminars').last);
+      await tester.pumpAndSettle();
+
+      await tester.enterText(
+        find.byType(TextField).first,
+        'Combined Multi-page Document',
+      );
+      await tester.tap(find.text('MM/DD/YYYY'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('OK'));
+      await tester.pumpAndSettle();
+
+      await tester.ensureVisible(find.text('Add File'));
+      await tester.tap(find.text('Add File'));
+      await tester.pumpAndSettle();
+
+      expect(service.uploadedFiles.length, 2);
+      expect(service.uploadedFiles.map((f) => f.name).toList(), [
+        'page1.jpg',
+        'page2.png',
+      ]);
+      expect(service.uploadedTitle, 'Combined Multi-page Document');
+
+      service.disposeWithAuth();
+    },
+  );
+
+  testWidgets(
+    'adding Page 2 while Page 1 OCR is active: no parallel request, no visible OCR_BUSY, stale Page 1 ignored, one automatic rerun',
+    (tester) async {
+      final page1 = PickedDocument(
+        name: 'page1.jpg',
+        mimeType: 'image/jpeg',
+        bytes: _validPngBytes,
+      );
+      final page2 = PickedDocument(
+        name: 'page2.jpg',
+        mimeType: 'image/jpeg',
+        bytes: _validPngBytes,
+      );
+
+      final comp1 = Completer<DocumentOcrResult>();
+      final comp2 = Completer<DocumentOcrResult>();
+      final service = _ScreenDocumentService()
+        ..previewResponses.addAll([comp1.future, comp2.future]);
+      final picker = _FakePicker(page1);
+
+      await tester.pumpWidget(_app(service, AddFileScreen(filePicker: picker)));
+      await tester.pumpAndSettle();
+
+      // 1. Pick Page 1 -> starts OCR (comp1 is waiting)
+      await tester.tap(find.text('Tap to upload file'));
+      await tester.pump();
+      expect(service.previewCalls, 1);
+      expect(find.text('Reading document...'), findsOneWidget);
+
+      // 2. While OCR is running, tap Add pages to this document
+      picker.result = page2;
+      await tester.ensureVisible(
+        find.text('Add pages to this document (1/10)'),
+      );
+      await tester.tap(find.text('Add pages to this document (1/10)'));
+      await tester.pump();
+
+      // Must NOT launch a second parallel network request!
+      expect(service.previewCalls, 1);
+      expect(find.text('Document Pages (2)'), findsOneWidget);
+
+      // 3. Complete Page 1 request with OCR_BUSY error (e.g. simulated server collision)
+      comp1.completeError(
+        const ApiException(code: 'OCR_BUSY', message: 'Server busy'),
+      );
+      await tester.pump();
+
+      // User must NOT see OCR_BUSY because it was stale!
+      expect(
+        find.textContaining('busy processing another document'),
+        findsNothing,
+      );
+      // Automatic rerun for pages 1+2 was triggered!
+      expect(service.previewCalls, 2);
+
+      // 4. Complete second OCR request with valid suggestions
+      comp2.complete(
+        DocumentOcrResult(
+          status: DocumentOcrStatus.ready,
+          rawText: 'Combined Two Page Text',
+          metadataSuggestions: DocumentMetadataSuggestions(
+            title: 'Auto Title From Pages 1 and 2',
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      // Title from rerun is applied; no further OCR calls
+      expect(service.previewCalls, 2);
+      expect(
+        tester.widget<TextField>(find.byType(TextField).first).controller!.text,
+        'Auto Title From Pages 1 and 2',
+      );
+
+      service.disposeWithAuth();
+    },
+  );
+
+  testWidgets(
+    'page reorder during active OCR ignores stale result and reruns with final order',
+    (tester) async {
+      final page1 = PickedDocument(
+        name: 'first.jpg',
+        mimeType: 'image/jpeg',
+        bytes: _validPngBytes,
+      );
+      final page2 = PickedDocument(
+        name: 'second.jpg',
+        mimeType: 'image/jpeg',
+        bytes: _validPngBytes,
+      );
+
+      final comp1 = Completer<DocumentOcrResult>();
+      final comp2 = Completer<DocumentOcrResult>();
+      final service = _ScreenDocumentService()
+        ..previewResponses.addAll([comp1.future, comp2.future]);
+
+      // Start with 2 pages directly via initialFiles
+      await tester.pumpWidget(
+        _app(
+          service,
+          AddFileScreen(
+            filePicker: _FakePicker(null),
+            initialFiles: [page1, page2],
+          ),
+        ),
+      );
+      await tester.pump(); // comp1 in flight
+      expect(service.previewCalls, 1);
+
+      // Reorder: move Page 2 up to become Page 1 while comp1 is in flight
+      await tester.ensureVisible(find.byTooltip('Move page up'));
+      await tester.tap(find.byTooltip('Move page up'));
+      await tester.pump();
+
+      // Still only 1 in-flight call (no parallel duplicate)
+      expect(service.previewCalls, 1);
+
+      // Complete comp1 with stale old-order suggestion
+      comp1.complete(
+        DocumentOcrResult(
+          status: DocumentOcrStatus.ready,
+          rawText: 'First then Second',
+          metadataSuggestions: DocumentMetadataSuggestions(
+            title: 'Stale Old Order Title',
+          ),
+        ),
+      );
+      await tester.pump();
+
+      // Rerun automatically triggered with the reordered pages
+      expect(service.previewCalls, 2);
+      expect(service.previewFileBatches.last.map((f) => f.name).toList(), [
+        'second.jpg',
+        'first.jpg',
+      ]);
+
+      // Complete comp2 with new order suggestion
+      comp2.complete(
+        DocumentOcrResult(
+          status: DocumentOcrStatus.ready,
+          rawText: 'Second then First',
+          metadataSuggestions: DocumentMetadataSuggestions(
+            title: 'Correct New Order Title',
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(
+        tester.widget<TextField>(find.byType(TextField).first).controller!.text,
+        'Correct New Order Title',
+      );
+
+      service.disposeWithAuth();
+    },
+  );
+
+  testWidgets(
+    'page remove during active OCR ignores stale result and reruns with remaining pages',
+    (tester) async {
+      final page1 = PickedDocument(
+        name: 'keep.jpg',
+        mimeType: 'image/jpeg',
+        bytes: _validPngBytes,
+      );
+      final page2 = PickedDocument(
+        name: 'drop.jpg',
+        mimeType: 'image/jpeg',
+        bytes: _validPngBytes,
+      );
+
+      final comp1 = Completer<DocumentOcrResult>();
+      final comp2 = Completer<DocumentOcrResult>();
+      final service = _ScreenDocumentService()
+        ..previewResponses.addAll([comp1.future, comp2.future]);
+
+      await tester.pumpWidget(
+        _app(
+          service,
+          AddFileScreen(
+            filePicker: _FakePicker(null),
+            initialFiles: [page1, page2],
+          ),
+        ),
+      );
+      await tester.pump(); // comp1 in flight
+      expect(service.previewCalls, 1);
+
+      // Remove Page 2 while comp1 is in flight
+      await tester.ensureVisible(find.byTooltip('Remove page').last);
+      await tester.tap(find.byTooltip('Remove page').last);
+      await tester.pump();
+
+      expect(service.previewCalls, 1);
+
+      // Complete comp1 with stale result for 2 pages
+      comp1.complete(
+        DocumentOcrResult(
+          status: DocumentOcrStatus.ready,
+          rawText: 'Both pages',
+          metadataSuggestions: DocumentMetadataSuggestions(
+            title: 'Two Pages Title',
+          ),
+        ),
+      );
+      await tester.pump();
+
+      // Rerun triggered with only keep.jpg
+      expect(service.previewCalls, 2);
+      expect(service.previewFileBatches.last.map((f) => f.name).toList(), [
+        'keep.jpg',
+      ]);
+
+      // Complete comp2
+      comp2.complete(
+        DocumentOcrResult(
+          status: DocumentOcrStatus.ready,
+          rawText: 'Single page',
+          metadataSuggestions: DocumentMetadataSuggestions(
+            title: 'Single Page Kept Title',
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(
+        tester.widget<TextField>(find.byType(TextField).first).controller!.text,
+        'Single Page Kept Title',
+      );
+
+      service.disposeWithAuth();
+    },
+  );
+
+  testWidgets(
+    'manual metadata edits (Title, Date, Content, Folder) survive OCR rerun after adding page',
+    (tester) async {
+      final page1 = PickedDocument(
+        name: 'manual_page1.jpg',
+        mimeType: 'image/jpeg',
+        bytes: _validPngBytes,
+      );
+      final page2 = PickedDocument(
+        name: 'manual_page2.jpg',
+        mimeType: 'image/jpeg',
+        bytes: _validPngBytes,
+      );
+
+      final service = _ScreenDocumentService()
+        ..previewResponses.addAll([
+          Future.value(
+            DocumentOcrResult(
+              status: DocumentOcrStatus.ready,
+              rawText: 'Page 1 initial text',
+              metadataSuggestions: DocumentMetadataSuggestions(
+                categoryKey: 'certificates',
+                folderKey: 'seminars',
+                title: 'Original OCR Title',
+                documentDate: DateTime(2026, 1, 1),
+              ),
+            ),
+          ),
+          Future.value(
+            DocumentOcrResult(
+              status: DocumentOcrStatus.ready,
+              rawText: 'Combined rerun text',
+              metadataSuggestions: DocumentMetadataSuggestions(
+                categoryKey: 'accomplishments',
+                folderKey: 'projects',
+                title: 'Overwriting Title Candidate',
+                documentDate: DateTime(2025, 5, 5),
+              ),
+            ),
+          ),
+        ]);
+      final picker = _FakePicker(page1);
+
+      await tester.pumpWidget(_app(service, AddFileScreen(filePicker: picker)));
+      await tester.pumpAndSettle();
+
+      // 1. Pick Page 1
+      await tester.tap(find.text('Tap to upload file'));
+      await tester.pumpAndSettle();
+
+      expect(
+        tester.widget<TextField>(find.byType(TextField).first).controller!.text,
+        'Original OCR Title',
+      );
+
+      // 2. Manually override Title
+      await tester.enterText(
+        find.byType(TextField).first,
+        'Protected Manual Title',
+      );
+      await tester.pumpAndSettle();
+
+      // 3. Manually select Content: Accomplishments -> Folder: Projects
+      await tester.ensureVisible(find.byType(DropdownButton<String>).first);
+      await tester.tap(find.byType(DropdownButton<String>).first);
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Accomplishments').last);
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byType(DropdownButton<String>).last);
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Projects').last);
+      await tester.pumpAndSettle();
+
+      // 4. Manually select Date
+      await tester.ensureVisible(find.byType(DatePickerField));
+      await tester.tap(find.byType(DatePickerField));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('OK'));
+      await tester.pumpAndSettle();
+
+      // 5. Add Page 2, which triggers OCR rerun suggesting different metadata
+      picker.result = page2;
+      await tester.ensureVisible(
+        find.text('Add pages to this document (1/10)'),
+      );
+      await tester.tap(find.text('Add pages to this document (1/10)'));
+      await tester.pumpAndSettle();
+
+      // Verify manual edits were preserved and not overwritten by the rerun!
+      expect(
+        tester.widget<TextField>(find.byType(TextField).first).controller!.text,
+        'Protected Manual Title',
+      );
+      expect(find.text('Accomplishments'), findsOneWidget);
+      expect(find.text('Projects'), findsOneWidget);
+
+      service.disposeWithAuth();
+    },
+  );
 }
 
 final _validPngBytes = Uint8List.fromList(const [
-  0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A,
-  0x00, 0x00, 0x00, 0x0D, 0x49, 0x48, 0x44, 0x52,
-  0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01,
-  0x08, 0x06, 0x00, 0x00, 0x00, 0x1F, 0x15, 0xC4,
-  0x89, 0x00, 0x00, 0x00, 0x0A, 0x49, 0x44, 0x41,
-  0x54, 0x78, 0x9C, 0x63, 0x00, 0x01, 0x00, 0x00,
-  0x05, 0x00, 0x01, 0x0D, 0x0A, 0x2D, 0xB4, 0x00,
-  0x00, 0x00, 0x00, 0x49, 0x45, 0x4E, 0x44, 0xAE,
-  0x42, 0x60, 0x82,
+  0x89,
+  0x50,
+  0x4E,
+  0x47,
+  0x0D,
+  0x0A,
+  0x1A,
+  0x0A,
+  0x00,
+  0x00,
+  0x00,
+  0x0D,
+  0x49,
+  0x48,
+  0x44,
+  0x52,
+  0x00,
+  0x00,
+  0x00,
+  0x01,
+  0x00,
+  0x00,
+  0x00,
+  0x01,
+  0x08,
+  0x06,
+  0x00,
+  0x00,
+  0x00,
+  0x1F,
+  0x15,
+  0xC4,
+  0x89,
+  0x00,
+  0x00,
+  0x00,
+  0x0A,
+  0x49,
+  0x44,
+  0x41,
+  0x54,
+  0x78,
+  0x9C,
+  0x63,
+  0x00,
+  0x01,
+  0x00,
+  0x00,
+  0x05,
+  0x00,
+  0x01,
+  0x0D,
+  0x0A,
+  0x2D,
+  0xB4,
+  0x00,
+  0x00,
+  0x00,
+  0x00,
+  0x49,
+  0x45,
+  0x4E,
+  0x44,
+  0xAE,
+  0x42,
+  0x60,
+  0x82,
 ]);
 
 Widget _viewFiles() => const ViewFilesScreen(
@@ -1563,14 +2111,18 @@ Future<void> _completeUploadForm(
 }
 
 class _FakePicker implements DocumentPicker {
-  _FakePicker(this.result);
+  _FakePicker(this.result, {this.multiResult});
 
   PickedDocument? result;
+  List<PickedDocument>? multiResult;
   int calls = 0;
 
   @override
   Future<PickedDocument?> pickDocument() async {
     calls++;
+    if (multiResult != null && multiResult!.isNotEmpty) {
+      return multiResult!.first;
+    }
     return result;
   }
 
@@ -1578,8 +2130,15 @@ class _FakePicker implements DocumentPicker {
   Future<List<PickedDocument>?> pickDocuments({
     bool allowMultiple = true,
   }) async {
-    final single = await pickDocument();
-    return single == null ? null : [single];
+    calls++;
+    if (allowMultiple && multiResult != null) {
+      return multiResult;
+    }
+    if (result != null) return [result!];
+    if (multiResult != null && multiResult!.isNotEmpty) {
+      return [multiResult!.first];
+    }
+    return null;
   }
 
   @override
@@ -1740,12 +2299,11 @@ class _ScreenDocumentService extends DocumentService {
     final created = _document(
       fileName: effectiveFile?.name ?? 'document.pdf',
       mimeType: effectiveFile?.mimeType ?? 'application/pdf',
-      fileKind: effectiveFile?.mimeType == 'application/pdf' ||
-              effectiveFile == null
+      fileKind:
+          effectiveFile?.mimeType == 'application/pdf' || effectiveFile == null
           ? 'pdf'
           : 'image',
-      extension:
-          effectiveFile?.name.split('.').last.toLowerCase() ?? 'pdf',
+      extension: effectiveFile?.name.split('.').last.toLowerCase() ?? 'pdf',
       attachments: attachments,
     );
     seedUploadedContent(created, effectiveFiles);
