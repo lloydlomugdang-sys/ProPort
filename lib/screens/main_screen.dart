@@ -6,7 +6,6 @@ import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 
 import '../constants/app_colors.dart';
-import '../services/batch_upload_queue.dart';
 import '../services/document_picker.dart';
 import '../services/document_scope.dart';
 import '../widgets/bottom_nav_bar.dart';
@@ -52,11 +51,11 @@ class MainScreenState extends State<MainScreen>
   late final DocumentPicker _filePicker;
 
   List<Widget> get _pages => [
-        const HomeScreen(),
-        const FilesScreen(),
-        const ProfileScreen(),
-        const SettingsScreen(),
-      ];
+    const HomeScreen(),
+    const FilesScreen(),
+    const ProfileScreen(),
+    const SettingsScreen(),
+  ];
 
   @override
   void initState() {
@@ -72,20 +71,12 @@ class MainScreenState extends State<MainScreen>
       parent: _quickActionCtrl,
       curve: Curves.easeOutCubic,
     );
-    _slideAnim = Tween<Offset>(
-      begin: const Offset(0, 0.15),
-      end: Offset.zero,
-    ).animate(
-      CurvedAnimation(
-        parent: _quickActionCtrl,
-        curve: Curves.easeOutCubic,
-      ),
-    );
+    _slideAnim = Tween<Offset>(begin: const Offset(0, 0.15), end: Offset.zero)
+        .animate(
+          CurvedAnimation(parent: _quickActionCtrl, curve: Curves.easeOutCubic),
+        );
     _scaleAnim = Tween<double>(begin: 0.90, end: 1.0).animate(
-      CurvedAnimation(
-        parent: _quickActionCtrl,
-        curve: Curves.easeOutCubic,
-      ),
+      CurvedAnimation(parent: _quickActionCtrl, curve: Curves.easeOutCubic),
     );
     _quickActionCtrl.addStatusListener((status) {
       if (status == AnimationStatus.dismissed ||
@@ -202,48 +193,10 @@ class MainScreenState extends State<MainScreen>
         return;
       }
 
-      if (selected.length == 1) {
-        final service = DocumentScope.of(context);
-        await Navigator.push<bool>(
-          context,
-          PageRouteBuilder(
-            pageBuilder: (_, _, _) => DocumentScope(
-              documentService: service,
-              child: AddFileScreen(
-                initialFiles: selected,
-                filePicker: _filePicker,
-              ),
-            ),
-            transitionDuration: const Duration(milliseconds: 300),
-            transitionsBuilder: (_, anim, _, child) => FadeTransition(
-              opacity: CurvedAnimation(parent: anim, curve: Curves.easeOut),
-              child: child,
-            ),
-          ),
-        );
-      } else {
-        // 2–20 files: delegate to BatchUploadQueue / BatchReviewScreen
-        final service = DocumentScope.of(context);
-        final queue = BatchUploadQueue(documentService: service);
-        final defaultCat = service.categories.firstOrNull;
-        final defaultFolder = defaultCat?.folders.firstOrNull;
-        queue.initialize(
-          selected,
-          defaultCategoryKey: defaultCat?.key,
-          defaultFolderKey: defaultFolder?.key,
-        );
-        final result = await Navigator.push<bool>(
-          context,
-          MaterialPageRoute(
-            builder: (context) => DocumentScope(
-              documentService: service,
-              child: BatchReviewScreen(queue: queue),
-            ),
-          ),
-        );
-        if (result == true && mounted) {
-          await service.load(force: true);
-        }
+      final service = DocumentScope.of(context);
+      final result = await BatchReviewScreen.open(context, selected);
+      if (result == true && mounted) {
+        await service.load(force: true);
       }
     } catch (_) {
       if (!mounted) return;
@@ -334,10 +287,7 @@ class MainScreenState extends State<MainScreen>
             SafeArea(
               top: false,
               bottom: false,
-              child: IndexedStack(
-                index: _currentIndex,
-                children: _pages,
-              ),
+              child: IndexedStack(index: _currentIndex, children: _pages),
             ),
             AnimatedBuilder(
               animation: _quickActionCtrl,

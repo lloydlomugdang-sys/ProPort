@@ -1,9 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import '../../constants/app_colors.dart';
+import '../../services/api_client.dart';
 import '../../services/batch_upload_queue.dart';
 import '../../services/document_models.dart';
 import '../../services/document_scope.dart';
+import '../../services/document_service.dart';
 import '../../widgets/app_empty_state.dart';
 import '../../widgets/grad_app_bar.dart';
 import 'models/batch_upload_item.dart';
@@ -15,6 +17,57 @@ class BatchReviewScreen extends StatefulWidget {
 
   final BatchUploadQueue queue;
 
+  /// One route/queue for 1..20 independent files. Combining pages is explicit.
+  static Future<bool?> open(
+    BuildContext context,
+    List<PickedDocument> files,
+  ) async {
+    if (files.isEmpty) return false;
+    if (files.length > 20) {
+      throw const ApiException(
+        code: 'VALIDATION_ERROR',
+        message: 'You can select up to 20 documents.',
+      );
+    }
+    for (final file in files) {
+      if (!file.hasSupportedUploadType) {
+        throw const ApiException(
+          code: 'VALIDATION_ERROR',
+          message: 'Please select a PDF, JPG, JPEG, or PNG file.',
+        );
+      }
+      if (file.sizeBytes > DocumentService.maxUploadBytes) {
+        throw const ApiException(
+          code: 'VALIDATION_ERROR',
+          message: 'The selected file exceeds the 15 MB upload limit.',
+        );
+      }
+    }
+    final service = DocumentScope.of(context);
+    await service.load().catchError((_) {});
+    if (!context.mounted) return false;
+    final category = service.categories.firstOrNull;
+    final queue = BatchUploadQueue(documentService: service)
+      ..initialize(
+        files,
+        defaultCategoryKey: category?.key,
+        defaultFolderKey: category?.folders.firstOrNull?.key,
+      );
+    try {
+      return await Navigator.push<bool>(
+        context,
+        MaterialPageRoute(
+          builder: (_) => DocumentScope(
+            documentService: service,
+            child: BatchReviewScreen(queue: queue),
+          ),
+        ),
+      );
+    } finally {
+      queue.dispose();
+    }
+  }
+
   @override
   State<BatchReviewScreen> createState() => _BatchReviewScreenState();
 }
@@ -24,6 +77,9 @@ class _BatchReviewScreenState extends State<BatchReviewScreen> {
   void initState() {
     super.initState();
     widget.queue.addListener(_onQueueChanged);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) widget.queue.prepare();
+    });
   }
 
   @override
@@ -145,6 +201,7 @@ class _BatchReviewScreenState extends State<BatchReviewScreen> {
                           },
                           onRetry: () => queue.retry(item.id),
                           onRemove: () => queue.remove(item.id),
+                          onRetryReading: () => queue.prepareItem(item.id),
                         );
                       },
                     ),
@@ -176,7 +233,7 @@ class _BatchReviewScreenState extends State<BatchReviewScreen> {
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
               Text(
-                'Processing: ${queue.totalCount} Documents',
+                'Processing: ${queue.totalCount} ${queue.totalCount == 1 ? 'Document' : 'Documents'}',
                 style: GoogleFonts.poppins(
                   fontSize: 13,
                   fontWeight: FontWeight.w600,
@@ -288,7 +345,11 @@ class _BatchReviewScreenState extends State<BatchReviewScreen> {
                         ),
                       )
                     : const Icon(Icons.cloud_upload_rounded, size: 18),
-                label: Text(queue.isProcessingBatch ? 'Processing...' : 'Upload All Valid'),
+                label: Text(
+                  queue.isProcessingBatch
+                      ? 'Processing...'
+                      : 'Upload All Valid',
+                ),
                 style: ElevatedButton.styleFrom(
                   backgroundColor: AppColors.primary,
                   foregroundColor: Colors.white,
@@ -353,6 +414,7 @@ class _BatchItemCard extends StatefulWidget {
     required this.onSave,
     required this.onRetry,
     required this.onRemove,
+    required this.onRetryReading,
   });
 
   final BatchUploadItem item;
@@ -363,6 +425,7 @@ class _BatchItemCard extends StatefulWidget {
   final VoidCallback onSave;
   final VoidCallback onRetry;
   final VoidCallback onRemove;
+  final VoidCallback onRetryReading;
 
   @override
   State<_BatchItemCard> createState() => _BatchItemCardState();
@@ -431,7 +494,7 @@ class _BatchItemCardState extends State<_BatchItemCard> {
     final item = widget.item;
     final currentCat = _findCategory(item.categoryKey);
     final currentFolder = _findFolder(currentCat, item.folderKey);
-    final isFieldEditable = !item.isProcessing;
+    final isFieldEditable = !item.isProcessing || item.isPreviewing;
 
     return Container(
       margin: const EdgeInsets.only(bottom: 14),
@@ -588,10 +651,7 @@ class _BatchItemCardState extends State<_BatchItemCard> {
           if (item.confidence != null && item.isLowConfidence)
             Container(
               margin: const EdgeInsets.fromLTRB(14, 4, 14, 8),
-              padding: const EdgeInsets.symmetric(
-                horizontal: 10,
-                vertical: 6,
-              ),
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
               decoration: BoxDecoration(
                 color: Colors.amber.shade50,
                 borderRadius: BorderRadius.circular(8),
@@ -619,6 +679,41 @@ class _BatchItemCardState extends State<_BatchItemCard> {
             ),
 
           // Form inputs
+          if (item.isPreviewing)
+            const Padding(
+              padding: EdgeInsets.all(14),
+              child: Text('Reading document and suggesting details...'),
+            ),
+          if (item.previewError != null)
+            Padding(
+              padding: const EdgeInsets.all(14),
+              child: Column(
+                children: [
+                  Text('OCR/read failure: ${item.previewError}'),
+                  TextButton(
+                    onPressed: item.isPreviewing ? null : widget.onRetryReading,
+                    child: const Text('Retry reading'),
+                  ),
+                ],
+              ),
+            ),
+          if (item.previewResult?.metadataAnalysis?.aiStatus == 'unavailable')
+            const Padding(
+              padding: EdgeInsets.all(14),
+              child: Text(
+                'Text extracted. AI suggestions unavailable; review the basic details or enter them manually.',
+              ),
+            ),
+          if (item.rawText?.isNotEmpty ?? false)
+            ExpansionTile(
+              title: const Text('Extracted Text'),
+              children: [
+                Padding(
+                  padding: const EdgeInsets.all(14),
+                  child: SelectableText(item.reviewedText ?? item.rawText!),
+                ),
+              ],
+            ),
           Padding(
             padding: const EdgeInsets.fromLTRB(14, 8, 14, 14),
             child: Column(
@@ -710,26 +805,22 @@ class _BatchItemCardState extends State<_BatchItemCard> {
                         : AppColors.cardBorder.withValues(alpha: 0.2),
                     border: OutlineInputBorder(
                       borderRadius: BorderRadius.circular(10),
-                      borderSide: const BorderSide(
-                        color: AppColors.cardBorder,
-                      ),
+                      borderSide: const BorderSide(color: AppColors.cardBorder),
                     ),
                     enabledBorder: OutlineInputBorder(
                       borderRadius: BorderRadius.circular(10),
-                      borderSide: const BorderSide(
-                        color: AppColors.cardBorder,
-                      ),
+                      borderSide: const BorderSide(color: AppColors.cardBorder),
                     ),
                     disabledBorder: OutlineInputBorder(
                       borderRadius: BorderRadius.circular(10),
-                      borderSide: const BorderSide(
-                        color: AppColors.cardBorder,
-                      ),
+                      borderSide: const BorderSide(color: AppColors.cardBorder),
                     ),
                   ),
                   style: GoogleFonts.poppins(
                     fontSize: 13,
-                    color: isFieldEditable ? AppColors.textPrimary : AppColors.textMuted,
+                    color: isFieldEditable
+                        ? AppColors.textPrimary
+                        : AppColors.textMuted,
                   ),
                   onChanged: (val) {
                     widget.onUpdateMetadata(_ItemMetadataChange(title: val));
@@ -759,9 +850,7 @@ class _BatchItemCardState extends State<_BatchItemCard> {
                     child: Row(
                       children: [
                         Icon(
-                          _showDetails
-                              ? Icons.expand_less
-                              : Icons.expand_more,
+                          _showDetails ? Icons.expand_less : Icons.expand_more,
                           size: 18,
                           color: AppColors.primary,
                         ),
@@ -830,7 +919,9 @@ class _BatchItemCardState extends State<_BatchItemCard> {
                     ),
                     style: GoogleFonts.poppins(
                       fontSize: 12,
-                      color: isFieldEditable ? AppColors.textPrimary : AppColors.textMuted,
+                      color: isFieldEditable
+                          ? AppColors.textPrimary
+                          : AppColors.textMuted,
                     ),
                     onChanged: (val) {
                       widget.onUpdateMetadata(
@@ -886,7 +977,9 @@ class _BatchItemCardState extends State<_BatchItemCard> {
                     ),
                     style: GoogleFonts.poppins(
                       fontSize: 12,
-                      color: isFieldEditable ? AppColors.textPrimary : AppColors.textMuted,
+                      color: isFieldEditable
+                          ? AppColors.textPrimary
+                          : AppColors.textMuted,
                     ),
                     onChanged: (val) {
                       widget.onUpdateMetadata(
@@ -1134,11 +1227,7 @@ class _BatchItemCardState extends State<_BatchItemCard> {
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          const Icon(
-            Icons.auto_awesome,
-            size: 12,
-            color: AppColors.primary,
-          ),
+          const Icon(Icons.auto_awesome, size: 12, color: AppColors.primary),
           const SizedBox(width: 4),
           Text(
             'Auto-categorized',

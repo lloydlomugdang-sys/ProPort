@@ -488,7 +488,7 @@ void main() {
     );
 
     testWidgets(
-      'File Upload with 1 file routes to single-document flow in AddFileScreen',
+      'File Upload with 1 file routes to the same queue review as multiple files',
       (tester) async {
         final singleDoc = _makeDoc('diploma.pdf');
         final picker = _TestMockPicker(documentsResult: [singleDoc]);
@@ -510,10 +510,11 @@ void main() {
         await tester.pumpAndSettle();
 
         expect(picker.documentsCalls, 1);
-        expect(find.byType(AddFileScreen), findsOneWidget);
+        expect(find.byType(AddFileScreen), findsNothing);
+        expect(find.byType(BatchReviewScreen), findsOneWidget);
         expect(find.text('diploma.pdf'), findsOneWidget);
-        expect(docs.analysisCalls, 1);
-        expect(docs.previewCalls, 0);
+        expect(docs.analysisCalls, 0);
+        expect(docs.previewCalls, 1);
       },
     );
 
@@ -546,6 +547,7 @@ void main() {
         expect(picker.documentsCalls, 1);
         expect(find.byType(BatchReviewScreen), findsOneWidget);
         expect(find.textContaining('Processing: 3 Documents'), findsOneWidget);
+        expect(docs.previewCalls, 3);
       },
     );
 

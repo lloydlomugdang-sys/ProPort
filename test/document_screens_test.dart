@@ -733,7 +733,7 @@ void main() {
           _app(service, AddFileScreen(filePicker: _FakePicker(file))),
         );
         await tester.pumpAndSettle();
-        await tester.tap(find.text('Tap to upload file'));
+        await tester.tap(find.text('Add pages to one document'));
         await tester.pump();
         expect(service.previewCalls, 1);
         expect(service.previewFiles.single, same(file));
@@ -1106,7 +1106,7 @@ void main() {
       await tester.pumpAndSettle();
 
       // 1. Pick Page 1 (JPEG)
-      await tester.tap(find.text('Tap to upload file'));
+      await tester.tap(find.text('Add pages to one document'));
       await tester.pumpAndSettle();
 
       expect(service.previewCalls, 1);
@@ -1323,7 +1323,7 @@ void main() {
       await tester.pumpWidget(_app(service, AddFileScreen(filePicker: picker)));
       await tester.pumpAndSettle();
 
-      await tester.tap(find.text('Tap to upload file'));
+      await tester.tap(find.text('Add pages to one document'));
       await tester.pumpAndSettle();
 
       picker.result = page2;
@@ -1438,7 +1438,7 @@ void main() {
       await tester.pumpWidget(_app(service, AddFileScreen(filePicker: picker)));
       await tester.pumpAndSettle();
 
-      await tester.tap(find.text('Tap to upload file'));
+      await tester.tap(find.text('Add pages to one document'));
       await tester.pumpAndSettle();
 
       picker.result = page2;
@@ -1465,7 +1465,7 @@ void main() {
   );
 
   testWidgets(
-    'primary Add File + one selected file routes to single Add File flow',
+    'primary Add File + one selected JPEG uses the same queue review and OCR as multiple files',
     (tester) async {
       final doc = PickedDocument(
         name: 'single.jpg',
@@ -1481,10 +1481,15 @@ void main() {
       await tester.tap(find.text('Tap to upload file'));
       await tester.pumpAndSettle();
 
-      expect(find.byType(AddFileScreen), findsOneWidget);
-      expect(find.byType(BatchReviewScreen), findsNothing);
+      expect(find.byType(AddFileScreen), findsNothing);
+      expect(find.byType(BatchReviewScreen), findsOneWidget);
       expect(find.text('single.jpg'), findsOneWidget);
-      expect(find.text('Add File'), findsOneWidget);
+      expect(find.text('Review Files (0/1)'), findsOneWidget);
+      expect(find.text('Processing: 1 Document'), findsOneWidget);
+      expect(find.text('Document 1 of 1'), findsOneWidget);
+      expect(service.previewCalls, 1);
+      expect(service.previewFileBatches.single, [doc]);
+      expect(service.uploadedFiles, isEmpty);
 
       service.disposeWithAuth();
     },
@@ -1514,6 +1519,11 @@ void main() {
 
       expect(find.byType(BatchReviewScreen), findsOneWidget);
       expect(find.textContaining('Processing: 2 Documents'), findsOneWidget);
+      expect(service.previewCalls, 2);
+      expect(service.previewFileBatches, [
+        [file1],
+        [file2],
+      ]);
       expect(find.text('cert1.pdf'), findsOneWidget);
       await tester.drag(find.byType(ListView), const Offset(0, -500));
       await tester.pumpAndSettle();
@@ -1571,7 +1581,7 @@ void main() {
       await tester.pumpWidget(_app(service, AddFileScreen(filePicker: picker)));
       await tester.pumpAndSettle();
 
-      await tester.tap(find.text('Tap to upload file'));
+      await tester.tap(find.text('Add pages to one document'));
       await tester.pumpAndSettle();
 
       expect(find.text('Document Pages (1)'), findsOneWidget);
@@ -1651,7 +1661,7 @@ void main() {
       await tester.pumpAndSettle();
 
       // 1. Pick Page 1 -> starts OCR (comp1 is waiting)
-      await tester.tap(find.text('Tap to upload file'));
+      await tester.tap(find.text('Add pages to one document'));
       await tester.pump();
       expect(service.previewCalls, 1);
       expect(find.text('Reading document...'), findsOneWidget);
@@ -1909,7 +1919,7 @@ void main() {
       await tester.pumpAndSettle();
 
       // 1. Pick Page 1
-      await tester.tap(find.text('Tap to upload file'));
+      await tester.tap(find.text('Add pages to one document'));
       await tester.pumpAndSettle();
 
       expect(
@@ -2066,7 +2076,7 @@ Future<_FakePicker> _openSuggestionForm(
   );
   await tester.pumpWidget(_app(service, AddFileScreen(filePicker: picker)));
   await tester.pumpAndSettle();
-  await tester.tap(find.text('Tap to upload file'));
+  await tester.tap(find.text('Add pages to one document'));
   if (settle) {
     await tester.pumpAndSettle();
   } else {
@@ -2085,7 +2095,7 @@ Future<void> _completeUploadForm(
   bool pick = true,
 }) async {
   if (pick) {
-    await tester.tap(find.text('Tap to upload file'));
+    await tester.tap(find.text('Add pages to one document'));
     await tester.pump();
   }
 

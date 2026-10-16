@@ -13,8 +13,8 @@ class BatchUploadQueue extends ChangeNotifier {
     int? maxConcurrentUploads,
     this.maxBatchSize = 20,
     this.maxRetries = 3,
-  })  : maxConcurrentUploads = maxConcurrentUploads ?? maxConcurrent ?? 2,
-        _documentService = documentService;
+  }) : maxConcurrentUploads = maxConcurrentUploads ?? maxConcurrent ?? 2,
+       _documentService = documentService;
 
   final DocumentService _documentService;
   final int maxConcurrentUploads;
@@ -30,6 +30,7 @@ class BatchUploadQueue extends ChangeNotifier {
   bool _isDisposed = false;
   bool _isProcessingBatch = false;
   Completer<int>? _batchCompleter;
+  Future<void>? _preparation;
 
   List<BatchUploadItem> get items => List.unmodifiable(_items);
   int get totalCount => _items.length;
@@ -47,14 +48,21 @@ class BatchUploadQueue extends ChangeNotifier {
   int get savedCount => completedCount;
   int get failedCount => _items.where((i) => i.isFailed).length;
   int get processingCount => _items.where((i) => i.isProcessing).length;
-  int get readyCount =>
-      _items.where((i) => i.status == BatchItemStatus.queued || i.isCompleted).length;
+  int get readyCount => _items
+      .where((i) => i.status == BatchItemStatus.queued || i.isCompleted)
+      .length;
 
-  int get validToSaveCount =>
-      _items.where((i) => i.isValidForUpload && (i.status == BatchItemStatus.queued || i.isFailed)).length;
+  int get validToSaveCount => _items
+      .where(
+        (i) =>
+            i.isValidForUpload &&
+            (i.status == BatchItemStatus.queued || i.isFailed),
+      )
+      .length;
 
   bool get isAllProcessed => _items.every((i) => !i.isProcessing);
-  bool get isAllCompleted => _items.isNotEmpty && _items.every((i) => i.isCompleted);
+  bool get isAllCompleted =>
+      _items.isNotEmpty && _items.every((i) => i.isCompleted);
   bool get isAllSaved => isAllCompleted;
   bool get isProcessingBatch => _isProcessingBatch;
   bool get isSavingAll => _isProcessingBatch;
@@ -63,8 +71,91 @@ class BatchUploadQueue extends ChangeNotifier {
       _activeUploadWorkers > 0 ||
       _items.any((i) => i.status == BatchItemStatus.uploading);
 
-  bool get hasPendingUploads =>
-      _items.any((i) => i.status == BatchItemStatus.queued || i.status == BatchItemStatus.uploading);
+  bool get hasPendingUploads => _items.any(
+    (i) =>
+        i.status == BatchItemStatus.queued ||
+        i.status == BatchItemStatus.uploading,
+  );
+
+  // All normal selections, including one file, use this same serial processor.
+  // The existing preview endpoint extracts locally then sends TEXT ONLY to AI.
+  // No document is saved until the user confirms its metadata.
+  Future<void> prepare() => _preparation ??= _prepareItems();
+
+  Future<void> _prepareItems() async {
+    for (final item in List<BatchUploadItem>.of(_items)) {
+      if (_isDisposed) return;
+      await prepareItem(item.id);
+    }
+  }
+
+  Future<void> prepareItem(String itemId) async {
+    var index = _items.indexWhere((item) => item.id == itemId);
+    if (_isDisposed ||
+        index == -1 ||
+        _items[index].isProcessing ||
+        _items[index].isUploaded) {
+      return;
+    }
+    final file = _items[index].file;
+    _items[index] = _items[index].copyWith(
+      isPreviewing: true,
+      clearPreviewError: true,
+    );
+    notifyListeners();
+    try {
+      final result = await _documentService.ocrCoordinator.runGuarded(
+        () => _documentService.previewOcr(file),
+      );
+      if (!result.isReady || (result.rawText?.trim().isEmpty ?? true)) {
+        throw const ApiException(
+          code: 'OCR_FAILED',
+          message: 'No readable text was found in this document.',
+        );
+      }
+      index = _items.indexWhere((item) => item.id == itemId);
+      if (_isDisposed || index == -1) return;
+      // Read the latest item after awaiting: manual edits win over late results.
+      final existing = _items[index];
+      final suggestions = result.metadataSuggestions;
+      final apply = !existing.isManualCategory;
+      _items[index] = existing.copyWith(
+        previewResult: result,
+        rawText: result.rawText,
+        reviewedText: result.reviewedText,
+        categoryKey: apply ? suggestions?.categoryKey : null,
+        folderKey: apply ? suggestions?.folderKey : null,
+        clearFolder:
+            apply &&
+            suggestions?.categoryKey != null &&
+            suggestions!.categoryKey != existing.categoryKey &&
+            suggestions.folderKey == null,
+        title: apply ? suggestions?.title : null,
+        documentDate: apply ? suggestions?.documentDate : null,
+        description: apply ? suggestions?.description : null,
+        confidence: suggestions?.confidence,
+        isAutoCategorized: apply && suggestions?.categoryKey != null,
+      );
+    } catch (error) {
+      index = _items.indexWhere((item) => item.id == itemId);
+      if (!_isDisposed && index != -1) {
+        _items[index] = _items[index].copyWith(
+          previewError: error is ApiException
+              ? error.message
+              : 'Text extraction failed. Retry reading or enter details manually.',
+        );
+      }
+    } finally {
+      // Keep large file buffers lazy while the user reviews metadata.
+      file.releaseBytes();
+      index = _items.indexWhere((item) => item.id == itemId);
+      if (!_isDisposed && index != -1) {
+        _items[index] = _items[index].copyWith(isPreviewing: false);
+        notifyListeners();
+        _drainUploadQueue();
+      }
+    }
+  }
 
   void initialize(
     List<PickedDocument> files, {
@@ -78,6 +169,7 @@ class BatchUploadQueue extends ChangeNotifier {
       );
     }
     _items.clear();
+    _preparation = null;
     for (var i = 0; i < files.length; i++) {
       final file = files[i];
       _items.add(
@@ -101,6 +193,9 @@ class BatchUploadQueue extends ChangeNotifier {
   }
 
   Future<int> startProcessing() async {
+    // Do not let Upload All race unprocessed preview items into persistence.
+    await _preparation;
+    if (_isDisposed) return completedCount;
     if (_isProcessingBatch) {
       return _batchCompleter?.future ?? Future.value(completedCount);
     }
@@ -121,7 +216,10 @@ class BatchUploadQueue extends ChangeNotifier {
     if (_isDisposed || !_isProcessingBatch) return;
     while (_activeUploadWorkers < maxConcurrentUploads) {
       final nextIndex = _items.indexWhere(
-        (i) => i.status == BatchItemStatus.queued && i.isValidForUpload,
+        (i) =>
+            i.status == BatchItemStatus.queued &&
+            !i.isPreviewing &&
+            i.isValidForUpload,
       );
       if (nextIndex == -1) break;
 
@@ -158,7 +256,8 @@ class BatchUploadQueue extends ChangeNotifier {
       if (curIdx != -1) {
         _items[curIdx] = _items[curIdx].copyWith(
           status: BatchItemStatus.failed,
-          errorMessage: 'The file could not be read from device storage. Please try again.',
+          errorMessage:
+              'The file could not be read from device storage. Please try again.',
         );
         notifyListeners();
       }
@@ -255,7 +354,8 @@ class BatchUploadQueue extends ChangeNotifier {
     if (_isDisposed) return;
     while (_activeOcrWorkers < 1) {
       final nextIndex = _items.indexWhere(
-        (i) => i.status == BatchItemStatus.waitingForOcr && i.documentId != null,
+        (i) =>
+            i.status == BatchItemStatus.waitingForOcr && i.documentId != null,
       );
       if (nextIndex == -1) break;
 
@@ -283,14 +383,29 @@ class BatchUploadQueue extends ChangeNotifier {
     final current = _items[index];
 
     try {
-      final ocrResult = await _documentService.extractText(current.documentId!);
+      // Upload may already have persisted the preview OCR from its server cache.
+      // Confirm it through the existing read endpoint before doing expensive OCR
+      // again; cache misses still use the established extraction/retry path.
+      final persisted = current.previewResult?.isReady == true
+          ? await _documentService.loadOcr(current.documentId!)
+          : null;
+      final ocrResult =
+          persisted?.isReady == true &&
+              (persisted!.rawText?.trim().isNotEmpty ?? false)
+          ? persisted
+          : await _documentService.extractText(current.documentId!);
 
       if (_isDisposed) return;
       final curIdx = _items.indexWhere((i) => i.id == itemId);
       if (curIdx != -1) {
         final existing = _items[curIdx];
-        final suggestions = ocrResult.metadataSuggestions;
-        final hasCategorySuggestion = suggestions != null &&
+        // Persisted extraction must not replace the reviewed AI preview with
+        // the saved-OCR endpoint's rule-only suggestions.
+        final suggestions =
+            existing.previewResult?.metadataSuggestions ??
+            ocrResult.metadataSuggestions;
+        final hasCategorySuggestion =
+            suggestions != null &&
             suggestions.categoryKey != null &&
             suggestions.categoryKey!.trim().isNotEmpty;
 
@@ -304,13 +419,15 @@ class BatchUploadQueue extends ChangeNotifier {
         if (!existing.isManualCategory && hasCategorySuggestion) {
           updatedCategory = suggestions.categoryKey;
           updatedFolder = suggestions.folderKey ?? existing.folderKey;
-          if (suggestions.title != null && suggestions.title!.trim().isNotEmpty) {
+          if (suggestions.title != null &&
+              suggestions.title!.trim().isNotEmpty) {
             updatedTitle = suggestions.title;
           }
           if (suggestions.documentDate != null) {
             updatedDate = suggestions.documentDate;
           }
-          if (suggestions.description != null && suggestions.description!.trim().isNotEmpty) {
+          if (suggestions.description != null &&
+              suggestions.description!.trim().isNotEmpty) {
             updatedDescription = suggestions.description;
           }
           isAutoCategorized = true;
@@ -333,8 +450,9 @@ class BatchUploadQueue extends ChangeNotifier {
 
         _items[curIdx] = existing.copyWith(
           status: BatchItemStatus.completed,
-          rawText: ocrResult.rawText,
-          reviewedText: ocrResult.reviewedText,
+          rawText: existing.previewResult?.rawText ?? ocrResult.rawText,
+          reviewedText:
+              existing.previewResult?.reviewedText ?? ocrResult.reviewedText,
           categoryKey: updatedCategory,
           folderKey: updatedFolder,
           title: updatedTitle,
@@ -467,7 +585,7 @@ class BatchUploadQueue extends ChangeNotifier {
     if (index == -1) return;
 
     final current = _items[index];
-    if (current.isProcessing) return;
+    if (current.isProcessing && !current.isPreviewing) return;
 
     final updatedCat = categoryKey ?? current.categoryKey;
     final updatedFolder = folderKey ?? current.folderKey;

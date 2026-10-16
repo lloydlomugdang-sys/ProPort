@@ -9,7 +9,6 @@ import 'package:google_fonts/google_fonts.dart';
 import '../../constants/app_colors.dart';
 import '../../constants/app_text_styles.dart';
 import '../../services/api_client.dart';
-import '../../services/batch_upload_queue.dart';
 import '../../services/document_models.dart';
 import '../../services/document_picker.dart';
 import '../../services/document_scope.dart';
@@ -194,7 +193,7 @@ class _AddFileScreenState extends State<AddFileScreen>
   }
 
   // ─── Upload handler ───────────────────────────────────────────────────────
-  Future<void> _onUploadTap() async {
+  Future<void> _onUploadTap({bool oneDocument = false}) async {
     if (_isSubmitting) return;
     try {
       final selected = await _filePicker.pickDocuments(allowMultiple: true);
@@ -207,20 +206,28 @@ class _AddFileScreenState extends State<AddFileScreen>
         return;
       }
 
-      if (selected.length == 1) {
-        final file = selected.first;
-        if (!file.hasSupportedUploadType) {
-          _showSnack('Please select a PDF, JPG, JPEG, or PNG file.');
+      if (oneDocument) {
+        if (selected.length > 10 ||
+            (selected.length > 1 &&
+                selected.any((f) => f.mimeType == 'application/pdf'))) {
+          _showSnack('Choose up to 10 images for one document, or one PDF.');
           return;
         }
-        if (file.sizeBytes > DocumentService.maxUploadBytes) {
-          _showSnack('The selected file exceeds the 15 MB upload limit.');
+        if (selected.any(
+              (f) =>
+                  !f.hasSupportedUploadType ||
+                  f.sizeBytes > DocumentService.maxUploadBytes,
+            ) ||
+            selected.fold<int>(0, (sum, f) => sum + f.sizeBytes) >
+                45 * 1024 * 1024) {
+          _showSnack(
+            'Choose supported files up to 15 MB each and 45 MB combined.',
+          );
           return;
         }
-
         setState(() {
           _clearAutomaticFields();
-          _pickedFiles = [file];
+          _pickedFiles = List.of(selected);
           _lastPreviewOcr = null;
           _pageOcrByFile.clear();
           _previewOperation++;
@@ -236,50 +243,16 @@ class _AddFileScreenState extends State<AddFileScreen>
       } else {
         _previewOperation++;
         _rerunQueued = false;
-        // 2–20 files: automatic multi-file queue/review
-        for (final f in selected) {
-          if (!f.hasSupportedUploadType) {
-            _showSnack(
-              '${f.name}: Please select a PDF, JPG, JPEG, or PNG file.',
-            );
-            return;
-          }
-          if (f.sizeBytes > DocumentService.maxUploadBytes) {
-            _showSnack('${f.name} exceeds the 15 MB upload limit.');
-            return;
-          }
-        }
-
         final service = DocumentScope.of(context);
-        final queue = BatchUploadQueue(documentService: service);
-        final defaultCat =
-            _selectedContent ?? service.categories.firstOrNull?.key;
-        final catObj = service.categories
-            .where((c) => c.key == defaultCat)
-            .firstOrNull;
-        final defaultFolder =
-            _selectedFolder ?? catObj?.folders.firstOrNull?.key;
-        queue.initialize(
-          selected,
-          defaultCategoryKey: defaultCat,
-          defaultFolderKey: defaultFolder,
-        );
-
-        final result = await Navigator.push<bool>(
-          context,
-          MaterialPageRoute(
-            builder: (context) => DocumentScope(
-              documentService: service,
-              child: BatchReviewScreen(queue: queue),
-            ),
-          ),
-        );
+        final result = await BatchReviewScreen.open(context, selected);
 
         if (result == true && mounted) {
           await service.load(force: true);
           if (mounted) Navigator.pop(context, true);
         }
       }
+    } on ApiException catch (error) {
+      if (mounted) _showSnack(error.message);
     } catch (_) {
       if (!mounted) return;
       _showSnack('Unable to read the selected file. Please try another file.');
@@ -1025,13 +998,23 @@ class _AddFileScreenState extends State<AddFileScreen>
                 Text('1. Upload file', style: AppTextStyles.h4),
                 const SizedBox(height: 10),
                 UploadCard(
-                  onTap: _onUploadTap,
+                  // Replacing pages within the explicit one-document workflow
+                  // keeps that intent; ordinary selection always opens review.
+                  onTap: () =>
+                      _onUploadTap(oneDocument: _pickedFiles.isNotEmpty),
                   fileName: _pickedFiles.isEmpty
                       ? null
                       : _pickedFiles.length == 1
                       ? _pickedFiles.first.name
                       : '${_pickedFiles.first.name} (+${_pickedFiles.length - 1} pages)',
                   pageCount: _pickedFiles.length,
+                ),
+                TextButton.icon(
+                  onPressed: _isSubmitting
+                      ? null
+                      : () => _onUploadTap(oneDocument: true),
+                  icon: const Icon(Icons.collections_rounded),
+                  label: const Text('Add pages to one document'),
                 ),
 
                 if (_pickedFiles.isEmpty) ...[

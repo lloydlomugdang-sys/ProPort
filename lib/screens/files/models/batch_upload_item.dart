@@ -29,6 +29,9 @@ class BatchUploadItem {
     this.retryCount = 0,
     this.isAutoCategorized = false,
     this.isManualCategory = false,
+    this.previewResult,
+    this.isPreviewing = false,
+    this.previewError,
   });
 
   final String id;
@@ -48,11 +51,15 @@ class BatchUploadItem {
   final int retryCount;
   final bool isAutoCategorized;
   final bool isManualCategory;
+  final DocumentOcrResult? previewResult;
+  final bool isPreviewing;
+  final String? previewError;
 
   String get fileName => file.name;
   int get fileSize => file.sizeBytes;
 
   bool get isProcessing =>
+      isPreviewing ||
       status == BatchItemStatus.uploading ||
       status == BatchItemStatus.uploaded ||
       status == BatchItemStatus.waitingForOcr ||
@@ -69,7 +76,8 @@ class BatchUploadItem {
 
   bool get isOcrEligible =>
       file.hasSupportedUploadType &&
-      (file.mimeType == 'application/pdf' || file.mimeType.startsWith('image/'));
+      (file.mimeType == 'application/pdf' ||
+          file.mimeType.startsWith('image/'));
 
   bool get isValidForUpload =>
       categoryKey != null &&
@@ -106,6 +114,10 @@ class BatchUploadItem {
     bool? isManualCategory,
     bool clearCategory = false,
     bool clearFolder = false,
+    DocumentOcrResult? previewResult,
+    bool? isPreviewing,
+    String? previewError,
+    bool clearPreviewError = false,
   }) {
     return BatchUploadItem(
       id: id ?? this.id,
@@ -122,6 +134,11 @@ class BatchUploadItem {
       reflection: reflection ?? this.reflection,
       confidence: confidence ?? this.confidence,
       errorMessage: errorMessage ?? this.errorMessage,
+      previewResult: previewResult ?? this.previewResult,
+      isPreviewing: isPreviewing ?? this.isPreviewing,
+      previewError: clearPreviewError
+          ? null
+          : (previewError ?? this.previewError),
       retryCount: retryCount ?? this.retryCount,
       isAutoCategorized: isAutoCategorized ?? this.isAutoCategorized,
       isManualCategory: isManualCategory ?? this.isManualCategory,
