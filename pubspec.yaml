@@ -43,7 +43,7 @@ flutter:
 flutter_launcher_icons:
   android: true
   ios: false
-  image_path: "assets/images/proport_logo.png"
-  adaptive_icon_background: "#166088"
-  adaptive_icon_foreground: "assets/images/proport_logo.png"
+  image_path: "assets/images/launcher_icon.png"
+  adaptive_icon_background: "#FFFFFF"
+  adaptive_icon_foreground: "assets/images/launcher_icon_foreground.png"
   min_sdk_android: 21
