@@ -110,6 +110,7 @@ class _FakeDocumentService extends DocumentService {
     required DateTime documentDate,
     String? description,
     String? reflection,
+    ScholasticDetails? scholastic,
   }) async {
     uploadCallCount++;
     final uploadIndex = uploadCallCount;
@@ -214,6 +215,7 @@ class _FakeDocumentService extends DocumentService {
     DateTime? documentDate,
     String? description,
     String? reflection,
+    ScholasticDetails? scholastic,
   }) async {
     return DocumentRecord(
       id: documentId,
@@ -248,6 +250,56 @@ PickedDocument _makeDoc(
 }
 
 void main() {
+  test(
+    'append reuses queue and serial OCR without changing manual edits or combining files',
+    () async {
+      final service = _FakeDocumentService();
+      final queue = BatchUploadQueue(documentService: service);
+      addTearDown(queue.dispose);
+      queue.initialize([_makeDoc('first.jpg')]);
+      await queue.prepare();
+      final id = queue.items.first.id;
+      queue.updateItemMetadata(id, title: 'Manual original title');
+      queue.append([_makeDoc('second.jpg'), _makeDoc('third.pdf')]);
+      await queue.prepare();
+      expect(queue.items.first.id, id);
+      expect(queue.items.first.title, 'Manual original title');
+      expect(service.previewFiles.map((f) => f.name), [
+        'first.jpg',
+        'second.jpg',
+        'third.pdf',
+      ]);
+      expect(await queue.saveAllValid(), 3);
+      expect(service.uploadedFiles.map((f) => f!.name), [
+        'first.jpg',
+        'second.jpg',
+        'third.pdf',
+      ]);
+      expect(service.combinedUploads, everyElement(isNull));
+    },
+  );
+  test(
+    'append validates entire selection and max20 without partial additions',
+    () async {
+      final service = _FakeDocumentService();
+      final queue = BatchUploadQueue(documentService: service);
+      addTearDown(queue.dispose);
+      queue.initialize([_makeDoc('first.jpg')]);
+      expect(
+        () => queue.append(List.generate(20, (i) => _makeDoc('$i.jpg'))),
+        throwsA(isA<ApiException>()),
+      );
+      expect(
+        () => queue.append([_makeDoc('fine.jpg'), _makeDoc('bad.exe')]),
+        throwsA(isA<ApiException>()),
+      );
+      expect(queue.totalCount, 1);
+      queue.append(List.generate(19, (i) => _makeDoc('$i.jpg')));
+      await queue.prepare();
+      expect(queue.totalCount, 20);
+      expect(service.previewFiles.length, 20);
+    },
+  );
   group('Unified review preparation', () {
     test(
       'save reuses server-persisted preview OCR instead of running extraction twice',

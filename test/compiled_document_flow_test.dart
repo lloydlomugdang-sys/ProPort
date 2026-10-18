@@ -107,6 +107,7 @@ class _BatchTestDocService extends DocumentService {
     required DateTime documentDate,
     String? description,
     String? reflection,
+    ScholasticDetails? scholastic,
   }) async {
     return DocumentRecord(
       id: 'doc_${file?.name ?? 'upload.pdf'}',
@@ -143,6 +144,7 @@ class _BatchTestDocService extends DocumentService {
     DateTime? documentDate,
     String? description,
     String? reflection,
+    ScholasticDetails? scholastic,
   }) async {
     updateMetadataCallCount++;
     return DocumentRecord(

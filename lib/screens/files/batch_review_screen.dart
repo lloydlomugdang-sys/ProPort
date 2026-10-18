@@ -6,16 +6,19 @@ import '../../services/batch_upload_queue.dart';
 import '../../services/document_models.dart';
 import '../../services/document_scope.dart';
 import '../../services/document_service.dart';
+import '../../services/document_picker.dart';
 import '../../widgets/app_empty_state.dart';
 import '../../widgets/grad_app_bar.dart';
 import 'models/batch_upload_item.dart';
 import 'widgets/custom_dropdown.dart';
 import 'widgets/date_picker_field.dart';
+import 'widgets/scholastic_fields.dart';
 
 class BatchReviewScreen extends StatefulWidget {
-  const BatchReviewScreen({super.key, required this.queue});
+  const BatchReviewScreen({super.key, required this.queue, this.picker});
 
   final BatchUploadQueue queue;
+  final DocumentPicker? picker;
 
   /// One route/queue for 1..20 independent files. Combining pages is explicit.
   static Future<bool?> open(
@@ -73,6 +76,31 @@ class BatchReviewScreen extends StatefulWidget {
 }
 
 class _BatchReviewScreenState extends State<BatchReviewScreen> {
+  bool _picking = false;
+  Future<void> _addMore() async {
+    setState(() => _picking = true);
+    try {
+      final files = await (widget.picker ?? DeviceDocumentPicker())
+          .pickDocuments(allowMultiple: true);
+      if (!mounted || files == null) return;
+      widget.queue.append(files);
+    } catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              error is ApiException
+                  ? error.message
+                  : 'Unable to select more files. Please retry.',
+            ),
+          ),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _picking = false);
+    }
+  }
+
   @override
   void initState() {
     super.initState();
@@ -143,6 +171,20 @@ class _BatchReviewScreenState extends State<BatchReviewScreen> {
           children: [
             // Queue progress header
             _buildProgressBanner(queue),
+            Align(
+              alignment: Alignment.centerLeft,
+              child: TextButton.icon(
+                onPressed:
+                    _picking ||
+                        queue.isSavingAll ||
+                        queue.hasActiveUploads ||
+                        queue.totalCount >= 20
+                    ? null
+                    : _addMore,
+                icon: const Icon(Icons.add),
+                label: const Text('Add more files'),
+              ),
+            ),
 
             // Document review list
             Expanded(
@@ -177,6 +219,7 @@ class _BatchReviewScreenState extends State<BatchReviewScreen> {
                               documentDate: metadata.documentDate,
                               description: metadata.description,
                               reflection: metadata.reflection,
+                              scholastic: metadata.scholastic,
                               isManual: true,
                             );
                           },
@@ -229,8 +272,9 @@ class _BatchReviewScreenState extends State<BatchReviewScreen> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          Wrap(
+            spacing: 12,
+            runSpacing: 4,
             children: [
               Text(
                 'Processing: ${queue.totalCount} ${queue.totalCount == 1 ? 'Document' : 'Documents'}',
@@ -393,6 +437,7 @@ class _ItemMetadataChange {
     this.documentDate,
     this.description,
     this.reflection,
+    this.scholastic,
   });
 
   final String? categoryKey;
@@ -401,6 +446,7 @@ class _ItemMetadataChange {
   final DateTime? documentDate;
   final String? description;
   final String? reflection;
+  final ScholasticDetails? scholastic;
 }
 
 class _BatchItemCard extends StatefulWidget {
@@ -855,14 +901,16 @@ class _BatchItemCardState extends State<_BatchItemCard> {
                           color: AppColors.primary,
                         ),
                         const SizedBox(width: 4),
-                        Text(
-                          _showDetails
-                              ? 'Hide Details'
-                              : 'Add Description & Reflection',
-                          style: GoogleFonts.poppins(
-                            fontSize: 12,
-                            fontWeight: FontWeight.w500,
-                            color: AppColors.primary,
+                        Expanded(
+                          child: Text(
+                            _showDetails
+                                ? 'Hide Details'
+                                : 'Add Description & Reflection',
+                            style: GoogleFonts.poppins(
+                              fontSize: 12,
+                              fontWeight: FontWeight.w500,
+                              color: AppColors.primary,
+                            ),
                           ),
                         ),
                       ],
@@ -870,7 +918,15 @@ class _BatchItemCardState extends State<_BatchItemCard> {
                   ),
                 ),
 
-                if (_showDetails) ...[
+                if (item.isTor)
+                  ScholasticFields(
+                    value: item.scholastic,
+                    enabled: isFieldEditable,
+                    onChanged: (value) => widget.onUpdateMetadata(
+                      _ItemMetadataChange(scholastic: value),
+                    ),
+                  ),
+                if (_showDetails || item.isTor) ...[
                   const SizedBox(height: 8),
                   Text(
                     'Description',

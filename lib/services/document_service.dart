@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'package:flutter/foundation.dart';
 
 import 'api_client.dart';
@@ -154,6 +155,7 @@ class DocumentService extends ChangeNotifier {
   }
 
   Future<DocumentRecord> upload({
+    ScholasticDetails? scholastic,
     PickedDocument? file,
     List<PickedDocument>? files,
     required String categoryKey,
@@ -178,6 +180,7 @@ class DocumentService extends ChangeNotifier {
       'folderKey': folderKey,
       'title': title,
       'documentDate': _dateOnly(documentDate),
+      if (scholastic != null) 'scholastic': jsonEncode(scholastic.toJson()),
       if (description != null && description.trim().isNotEmpty)
         'description': description,
       if (reflection != null && reflection.trim().isNotEmpty)
@@ -427,6 +430,7 @@ class DocumentService extends ChangeNotifier {
 
   Future<DocumentRecord> updateDocumentMetadata(
     String documentId, {
+    ScholasticDetails? scholastic,
     String? categoryKey,
     String? folderKey,
     String? title,
@@ -443,6 +447,7 @@ class DocumentService extends ChangeNotifier {
     }
     if (description != null) body['description'] = description;
     if (reflection != null) body['reflection'] = reflection;
+    if (scholastic != null) body['scholastic'] = scholastic.toJson();
 
     final response = await _authService.authenticatedPatchJson(
       '$_documentsPath/$documentId',
@@ -453,6 +458,7 @@ class DocumentService extends ChangeNotifier {
     final index = _documents.indexWhere((d) => d.id == documentId);
     if (index != -1) {
       final list = List<DocumentRecord>.from(_documents);
+      _summary = _summary.removing(list[index]).adding(updated);
       list[index] = updated;
       _documents = list;
       notifyListeners();

@@ -1,19 +1,28 @@
+import 'dart:convert';
 import 'package:flutter/foundation.dart';
 
 import 'api_client.dart';
 import 'auth_service.dart';
 import 'college_report_models.dart';
+import 'college_report_draft_store.dart';
 
-/// Account-scoped memory draft. Only an acknowledged API save is persisted.
+/// Account-scoped secure local drafts; only acknowledged API saves are exported.
 class CollegeReportService extends ChangeNotifier {
-  CollegeReportService({required AuthService authService})
-    : _auth = authService {
+  CollegeReportService({
+    required AuthService authService,
+    CollegeReportDraftStore draftStore = const SecureCollegeReportDraftStore(),
+  }) : _auth = authService,
+       _draftStore = draftStore {
     _owner = _auth.user?.id;
     _auth.addListener(_authChanged);
   }
 
   static const _path = '/api/v1/college-report';
   final AuthService _auth;
+  final CollegeReportDraftStore _draftStore;
+  Future<void> _draftWrites = Future.value();
+  Future<void> get pendingDraftWrites => _draftWrites;
+  String? draftWarning;
   String? _owner;
   int _generation = 0;
   bool _disposed = false;
@@ -55,13 +64,32 @@ class CollegeReportService extends ChangeNotifier {
       final report = data['report'] == null
           ? null
           : SavedCollegeReport.fromJson(data['report'] as Map<String, dynamic>);
+      Map<String, dynamic>? draft;
+      try {
+        final raw = _owner == null ? null : await _draftStore.read(_owner!);
+        if (raw != null) {
+          final parsed = jsonDecode(raw) as Map<String, dynamic>;
+          // Never resurrect an older draft after a successful server save.
+          if (parsed['version'] == parsedTemplate.version &&
+              parsed['savedAt'] == report?.updatedAt.toIso8601String()) {
+            draft = parsed;
+          }
+        }
+      } catch (_) {
+        if (_current(generation)) {
+          draftWarning =
+              'Device draft storage is unavailable. Use Save Responses to keep your changes.';
+        }
+      }
       if (report != null && report.version != parsedTemplate.version) {
         throw const FormatException();
       }
       if (!_current(generation)) return;
       template = parsedTemplate;
       saved = report;
-      templateReady = data['templateReady'] == true;
+      // The returned versioned questionnaire, not a seeded database ID, defines
+      // the form. Older servers may still report templateReady=false.
+      templateReady = true;
       hasLegacyReport = data['hasLegacyReport'] == true;
       // A retry must not replace a draft, including edits made in flight.
       if (!dirty) {
@@ -72,6 +100,19 @@ class CollegeReportService extends ChangeNotifier {
               q.key: report?.answers[q.key],
           });
         essay = report?.essay ?? '';
+        if (draft != null &&
+            draft['answers'] is Map &&
+            draft['essay'] is String) {
+          final values = draft['answers'] as Map;
+          for (final q in parsedTemplate.questions) {
+            final value = values[q.key];
+            if (value == null || value is String || value is num) {
+              _answers[q.key] = value;
+            }
+          }
+          essay = draft['essay'] as String;
+          dirty = true;
+        }
         draftRevision++;
       }
       loaded = true;
@@ -91,6 +132,7 @@ class CollegeReportService extends ChangeNotifier {
     if (!loaded || isSaving || !_answers.containsKey(key)) return;
     _answers[key] = value is String && value.trim().isEmpty ? null : value;
     dirty = true;
+    _persistDraft();
     notifyListeners();
   }
 
@@ -98,6 +140,7 @@ class CollegeReportService extends ChangeNotifier {
     if (!loaded || isSaving) return;
     essay = value;
     dirty = true;
+    _persistDraft();
     notifyListeners();
   }
 
@@ -128,6 +171,7 @@ class CollegeReportService extends ChangeNotifier {
       if (report.version != template!.version) throw const FormatException();
       saved = report;
       dirty = false;
+      _persistDraft(clear: true);
       return true;
     } catch (error) {
       if (_current(generation)) {
@@ -145,6 +189,30 @@ class CollegeReportService extends ChangeNotifier {
 
   static Map<String, dynamic> _data(Map<String, dynamic> envelope) =>
       envelope['data'] as Map<String, dynamic>;
+
+  void _persistDraft({bool clear = false}) {
+    final owner = _owner;
+    if (owner == null) return;
+    final generation = _generation;
+    final value = clear
+        ? null
+        : jsonEncode({
+            'version': template!.version,
+            'savedAt': saved?.updatedAt.toIso8601String(),
+            'answers': _answers,
+            'essay': essay,
+          });
+    // Serialize writes so rapid edits cannot overwrite a newer draft/save.
+    _draftWrites = _draftWrites
+        .then((_) => _draftStore.write(owner, value))
+        .catchError((Object _) {
+          if (_current(generation)) {
+            draftWarning =
+                'Device draft storage is unavailable. Use Save Responses to keep your changes.';
+            notifyListeners();
+          }
+        });
+  }
 
   static String _safeError(Object error) {
     if (error is ApiException) {
@@ -198,6 +266,7 @@ class CollegeReportService extends ChangeNotifier {
     isLoading = isSaving = loaded = dirty = templateReady = hasLegacyReport =
         false;
     errorMessage = null;
+    draftWarning = null;
     notifyListeners();
   }
 

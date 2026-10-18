@@ -277,6 +277,7 @@ export function countResumeSectionSignals(rawText: string): number {
 
 export function isHeaderlessOrExplicitCv(rawText: string): boolean {
   const text = normalizePdfLigatures(rawText);
+  if (isGraduationApplication(text)) return false;
   if (/\b(?:curriculum\s+vitae|\bresume\b|\bbio-?data\b)/i.test(text)) {
     return true;
   }
@@ -328,7 +329,32 @@ function subjectOf(lines: readonly string[]): string | undefined {
     const subject = parts.join(' ');
     if (meaningful(subject)) return subject;
   }
-  return undefined;
+  // Recognizable event headings are evidence even without a 'Title:' marker.
+  // Never select a bare recipient, institution, date, or arbitrary uppercase line.
+  return lines.find((line) => meaningful(line) &&
+    /\b(?:seminar|webinar|workshop|training|conference|symposium)\b/i.test(line) &&
+    !/\b(?:certificate|presented|awarded|participat\w*|attend\w*|university|college|department|signed|director)\b/i.test(line) &&
+    line.split(/\s+/).length >= 3);
+}
+
+export function isGraduationApplication(text: string): boolean {
+  return /\b(?:application\s+(?:for|to)\s+graduation|graduation\s+application)\b/i.test(text);
+}
+
+export function hasTranscriptEvidence(text: string): boolean {
+  // A checklist asking applicants to attach a TOR is not a transcript itself.
+  if (isGraduationApplication(text)) return false;
+  return /\b(?:transcript\s+of\s+records|(?:un)?official\s+transcript|certificate\s+of\s+grades|grade\s+report|report\s+of\s+grades|official\s+evaluation\s+of\s+grades)\b/i.test(text) ||
+    (/\btor\b/i.test(text) && /\b(?:grades?|units?|semester|gpa|gwa)\b/i.test(text));
+}
+
+/** Reject internally contradictory suggestions, never manual metadata. */
+export function hasConsistentClassification(value: MetadataSuggestions, text: string): boolean {
+  if (isGraduationApplication(text) && (value.categoryKey === 'scholastic-record' || value.categoryKey === 'curriculum-vitae')) return false;
+  if ((value.categoryKey === 'scholastic-record' || value.folderKey === 'unofficial-tor-with-reflections') && !hasTranscriptEvidence(text)) return false;
+  if (value.categoryKey === 'scholastic-record' && /\b(?:curriculum\s+vitae|resume|bio-?data)\b/i.test(value.title ?? '') &&
+      !/\b(?:curriculum\s+vitae|resume|bio-?data)\b/i.test(text)) return false;
+  return true;
 }
 
 function organizationOf(lines: readonly string[]): string | undefined {
@@ -396,6 +422,11 @@ export function suggestDocumentMetadata(
   // An explicitly reviewed empty string is authoritative, too.
   const lines = linesOf(ocr.reviewedText ?? ocr.rawText ?? '');
   const text = lines.join('\n');
+
+  if (isGraduationApplication(text)) {
+    const title = lines.find((line) => isGraduationApplication(line));
+    return { ...(title ? { title: title.slice(0, 250) } : {}), confidence: 'low' };
+  }
 
   // 1. Creative Title artifact (section divider)
   const isCreativeTitle = /\b(?:creative\s+title|section\s+divider|divider\s+page|title\s+page\s+artifact)\b/i.test(text);
@@ -467,9 +498,7 @@ export function suggestDocumentMetadata(
   }
 
   // 3. Scholastic Record (TOR / Grades)
-  const isTor = /\b(?:transcript\s+of\s+records|official\s+transcript|certificate\s+of\s+grades|grade\s+report|scholastic\s+record|report\s+of\s+grades)\b/i.test(text) || (
-    /\btor\b/i.test(text) && /\b(?:grades?|units?|semester|gpa|gwa)\b/i.test(text)
-  );
+  const isTor = hasTranscriptEvidence(text);
   if (isTor) {
     const category = categories.find((value) => value.key === 'scholastic-record');
     const folder = category?.folders.find((value) => value.key === 'unofficial-tor-with-reflections');

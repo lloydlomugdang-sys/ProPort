@@ -2275,6 +2275,7 @@ class _ScreenDocumentService extends DocumentService {
     required DateTime documentDate,
     String? description,
     String? reflection,
+    ScholasticDetails? scholastic,
   }) async {
     final failure = uploadFailure;
     if (failure != null) throw failure;

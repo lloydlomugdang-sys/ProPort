@@ -6,8 +6,6 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:file_picker/file_picker.dart';
-import 'package:pdf/pdf.dart';
-import 'package:pdf/widgets.dart' as pw;
 import 'package:share_plus/share_plus.dart';
 import 'package:xml/xml.dart';
 
@@ -48,8 +46,8 @@ class PortfolioExportContent {
       : 'Includes $includedDocuments stored documents.';
 
   static const attachmentNote =
-      'Document metadata is included. Original uploaded images and PDF pages '
-      'are not embedded in this export.';
+      'This editable outline contains metadata only. Choose PDF Document in '
+      'GradPort to export the actual uploaded image and PDF evidence.';
 
   factory PortfolioExportContent.fromDocuments(
     PortfolioInfo info,
@@ -322,84 +320,6 @@ class PortfolioExportStore {
 }
 
 class PortfolioFileRenderer {
-  static Future<Uint8List> pdf(
-    PortfolioExportContent content,
-    ByteData regular,
-    ByteData bold,
-  ) async {
-    final document = pw.Document(
-      title: 'GradPort Portfolio',
-      creator: 'GradPort',
-      theme: pw.ThemeData.withFont(
-        base: pw.Font.ttf(regular),
-        bold: pw.Font.ttf(bold),
-      ),
-    );
-    const margin = pw.EdgeInsets.all(50);
-    document.addPage(
-      pw.MultiPage(
-        pageFormat: PdfPageFormat.a4,
-        margin: margin,
-        build: (_) => [
-          pw.SizedBox(height: 70),
-          pw.Header(level: 0, text: 'ACADEMIC PORTFOLIO'),
-          pw.SizedBox(height: 28),
-          for (final field in content.titleFields.entries)
-            ..._pdfField(field.key, field.value),
-          pw.SizedBox(height: 24),
-          pw.Paragraph(text: content.coverageNote),
-          pw.Paragraph(text: PortfolioExportContent.attachmentNote),
-        ],
-      ),
-    );
-    for (final section in content.sections) {
-      document.addPage(
-        pw.MultiPage(
-          pageFormat: PdfPageFormat.a4,
-          margin: margin,
-          maxPages: 1000,
-          header: (_) => pw.Text(
-            'GradPort | ${section.name}',
-            style: const pw.TextStyle(fontSize: 9, color: PdfColors.grey700),
-          ),
-          footer: (context) => pw.Align(
-            alignment: pw.Alignment.centerRight,
-            child: pw.Text(
-              'Page ${context.pageNumber}',
-              style: const pw.TextStyle(fontSize: 9),
-            ),
-          ),
-          build: (_) => [
-            pw.Header(level: 0, text: section.name),
-            if (section.documents.isEmpty)
-              pw.Paragraph(text: 'No stored documents in this section.'),
-            for (final fields in section.documents) ...[
-              for (final field in fields.entries)
-                ..._pdfField(field.key, field.value),
-              pw.Divider(),
-              pw.SizedBox(height: 12),
-            ],
-          ],
-        ),
-      );
-    }
-    return document.save();
-  }
-
-  static List<pw.Widget> _pdfField(String label, String value) => [
-    pw.Text(
-      label,
-      style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 11),
-    ),
-    // Small paragraph chunks can cross pages even for very long reflections.
-    for (final part in _textChunks(value.isEmpty ? 'Not provided' : value))
-      pw.Paragraph(
-        text: part,
-        style: const pw.TextStyle(fontSize: 11, lineSpacing: 3),
-      ),
-    pw.SizedBox(height: 6),
-  ];
-
   /// Minimal OOXML package: no macros, remote links, fields, templates or IDs.
   static Uint8List docx(PortfolioExportContent content) {
     final body = XmlBuilder();
@@ -411,23 +331,41 @@ class PortfolioFileRenderer {
         body.element(
           'w:body',
           nest: () {
-            _docxParagraph(body, 'ACADEMIC PORTFOLIO', size: 36, bold: true);
+            _docxParagraph(
+              body,
+              'ACADEMIC PORTFOLIO — EDITABLE OUTLINE',
+              bold: true,
+            );
             for (final field in content.titleFields.entries) {
               _docxField(body, field);
             }
             _docxParagraph(body, content.coverageNote);
             _docxParagraph(body, PortfolioExportContent.attachmentNote);
             for (final section in content.sections) {
+              if (section.documents.isEmpty) continue;
+              if (section.name == 'Creative Title') {
+                for (final document in section.documents) {
+                  _docxParagraph(
+                    body,
+                    document['Title'] ?? '',
+                    bold: true,
+                    pageBreak: true,
+                  );
+                  for (final field in document.entries.where(
+                    (field) => field.key != 'Title',
+                  )) {
+                    _docxField(body, field);
+                  }
+                }
+                continue;
+              }
               _docxParagraph(
                 body,
                 section.name,
-                size: 32,
+                size: 24,
                 bold: true,
                 pageBreak: true,
               );
-              if (section.documents.isEmpty) {
-                _docxParagraph(body, 'No stored documents in this section.');
-              }
               for (final document in section.documents) {
                 for (final field in document.entries) {
                   _docxField(body, field);
@@ -440,15 +378,15 @@ class PortfolioFileRenderer {
               nest: () {
                 body.element(
                   'w:pgSz',
-                  attributes: {'w:w': '11906', 'w:h': '16838'},
+                  attributes: {'w:w': '12240', 'w:h': '15840'},
                 );
                 body.element(
                   'w:pgMar',
                   attributes: {
-                    'w:top': '1000',
-                    'w:right': '1000',
-                    'w:bottom': '1000',
-                    'w:left': '1000',
+                    'w:top': '1440',
+                    'w:right': '1440',
+                    'w:bottom': '1440',
+                    'w:left': '2160',
                     'w:header': '500',
                     'w:footer': '500',
                     'w:gutter': '0',
@@ -484,7 +422,7 @@ class PortfolioFileRenderer {
   static void _docxParagraph(
     XmlBuilder builder,
     String text, {
-    int size = 22,
+    int size = 24,
     bool bold = false,
     bool pageBreak = false,
   }) {
@@ -499,8 +437,8 @@ class PortfolioFileRenderer {
             builder.element(
               'w:spacing',
               attributes: {
-                'w:after': '140',
-                'w:line': '300',
+                'w:after': '0',
+                'w:line': '480',
                 'w:lineRule': 'auto',
               },
             );
@@ -514,7 +452,7 @@ class PortfolioFileRenderer {
               nest: () {
                 builder.element(
                   'w:rFonts',
-                  attributes: {'w:ascii': 'Calibri', 'w:hAnsi': 'Calibri'},
+                  attributes: {'w:ascii': 'Noto Sans', 'w:hAnsi': 'Noto Sans'},
                 );
                 if (bold) builder.element('w:b');
                 builder.element('w:sz', attributes: {'w:val': '$size'});

@@ -24,6 +24,7 @@ class BatchUploadItem {
     this.documentDate,
     this.description,
     this.reflection,
+    this.scholastic = const ScholasticDetails(),
     this.confidence,
     this.errorMessage,
     this.retryCount = 0,
@@ -46,6 +47,8 @@ class BatchUploadItem {
   final DateTime? documentDate;
   final String? description;
   final String? reflection;
+  final ScholasticDetails scholastic;
+  bool get isTor => ScholasticDetails.isTor(categoryKey, folderKey);
   final String? confidence;
   final String? errorMessage;
   final int retryCount;
@@ -86,7 +89,8 @@ class BatchUploadItem {
       folderKey!.trim().isNotEmpty &&
       title != null &&
       title!.trim().isNotEmpty &&
-      documentDate != null;
+      documentDate != null &&
+      (!isTor || scholastic.reflectionSatisfied(reflection));
 
   // Backward-compatibility getters
   bool get isReadyForReview =>
@@ -107,6 +111,7 @@ class BatchUploadItem {
     DateTime? documentDate,
     String? description,
     String? reflection,
+    ScholasticDetails? scholastic,
     String? confidence,
     String? errorMessage,
     int? retryCount,
@@ -132,6 +137,7 @@ class BatchUploadItem {
       documentDate: documentDate ?? this.documentDate,
       description: description ?? this.description,
       reflection: reflection ?? this.reflection,
+      scholastic: scholastic ?? this.scholastic,
       confidence: confidence ?? this.confidence,
       errorMessage: errorMessage ?? this.errorMessage,
       previewResult: previewResult ?? this.previewResult,

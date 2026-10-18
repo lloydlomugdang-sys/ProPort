@@ -4,6 +4,7 @@ import 'dart:async';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'widgets/scholastic_fields.dart';
 import 'package:google_fonts/google_fonts.dart';
 
 import '../../constants/app_colors.dart';
@@ -51,6 +52,7 @@ class _AddFileScreenState extends State<AddFileScreen>
   DateTime? _selectedDate;
   bool _descriptionEnabled = false;
   bool _reflectionEnabled = false;
+  ScholasticDetails _scholastic = const ScholasticDetails();
 
   final _titleCtrl = TextEditingController();
   final _descriptionCtrl = TextEditingController();
@@ -656,6 +658,13 @@ class _AddFileScreenState extends State<AddFileScreen>
       _showSnack('Date is required.');
       return;
     }
+    final isTor = ScholasticDetails.isTor(category.key, folder.key);
+    if (isTor && !_scholastic.reflectionSatisfied(_reflectionCtrl.text)) {
+      _showSnack(
+        'Enter a TOR reflection or confirm that it is already included in the uploaded document.',
+      );
+      return;
+    }
 
     setState(() {
       _isSubmitting = true;
@@ -672,7 +681,8 @@ class _AddFileScreenState extends State<AddFileScreen>
         title: _titleCtrl.text.trim(),
         documentDate: _selectedDate!,
         description: _descriptionEnabled ? _descriptionCtrl.text : null,
-        reflection: _reflectionEnabled ? _reflectionCtrl.text : null,
+        reflection: _reflectionEnabled || isTor ? _reflectionCtrl.text : null,
+        scholastic: isTor ? _scholastic : null,
       );
       await service.seedUploadedContent(uploaded, filesSnapshot);
       _rebuildPreviewOcrForCurrentOrder();
@@ -1431,12 +1441,20 @@ class _AddFileScreenState extends State<AddFileScreen>
                 ),
                 const SizedBox(height: 14),
 
-                // Reflection (optional)
+                if (_selectedFolder == 'Unofficial TOR with Reflections')
+                  ScholasticFields(
+                    value: _scholastic,
+                    enabled: !_isSubmitting,
+                    onChanged: (value) => setState(() => _scholastic = value),
+                  ),
+                // A TOR requires reflection text unless inclusion is confirmed.
                 OptionalField(
                   label: 'Reflection',
                   hint: 'Enter reflection',
                   controller: _reflectionCtrl,
-                  isEnabled: _reflectionEnabled,
+                  isEnabled:
+                      _reflectionEnabled ||
+                      _selectedFolder == 'Unofficial TOR with Reflections',
                   onToggle: () =>
                       setState(() => _reflectionEnabled = !_reflectionEnabled),
                 ),

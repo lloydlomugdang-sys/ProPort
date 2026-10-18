@@ -1,4 +1,4 @@
-import { PDFDocument, StandardFonts, degrees } from 'pdf-lib';
+import { PDFDocument, PDFName, PDFString, StandardFonts, degrees } from 'pdf-lib';
 import { getDocument, OPS } from 'pdfjs-dist/legacy/build/pdf.mjs';
 import sharp from 'sharp';
 import { describe, expect, it, vi } from 'vitest';
@@ -259,7 +259,7 @@ describe('official Phase B portfolio formatting', () => {
     expect(planPortfolioSections([doc({ folderKey: 'legacy-certificate' })])[0]!.subsections[0]!.name).toBe('Legacy Certificate');
   });
 
-  it('requires a flattened form PDF instead of silently omitting entered answers', async () => {
+  it('flattens supported form fields on the export copy, preserves visible answers and leaves the original intact', async () => {
     const source = await PDFDocument.create();
     const page = source.addPage();
     const field = source.getForm().createTextField('student-answer');
@@ -268,13 +268,39 @@ describe('official Phase B portfolio formatting', () => {
     const original = Buffer.from(await source.save());
     const files = new Map([['form', original]]);
     const generator = new PortfolioGeneratorService(undefined, portfolioMemoryStorage(files));
-    await expect(generator.generateFromDocuments([doc({ objectKey: 'form', fileKind: 'pdf' })], info))
-      .rejects.toMatchObject({ code: 'PORTFOLIO_ARTIFACT_UNSUPPORTED', message: expect.stringContaining('flattened copy') });
-    expect(files.get('form')).toEqual(original);
-    source.getForm().flatten();
-    files.set('form', Buffer.from(await source.save()));
     const pages = await inspect(await generator.generateFromDocuments([doc({ objectKey: 'form', fileKind: 'pdf' })], info));
     expect(pages.at(-1)!.text).toContain('An actual entered student answer');
+    expect(files.get('form')).toEqual(original);
+    expect((await PDFDocument.load(original)).getForm().getFields()).toHaveLength(1);
+  });
+
+  it('renders each creative title on its own evidence page before TOC', async () => {
+    const pages = await inspect(await generate([
+      doc({ folderKey: 'creative-title', title: 'Learning through practice' }),
+      doc({ folderKey: 'creative-title', title: 'Building with purpose' }),
+    ]));
+    expect(pages[1]!.text).toContain('Learning through practice');
+    expect(pages[2]!.text).toContain('Building with purpose');
+    expect(pages[3]!.text).toContain('TABLE OF CONTENTS');
+    expect(pages.map((page) => page.text).join(' ')).not.toContain('No stored documents');
+  });
+
+  it.each(['annotation', 'xfa'])('fails actionably for unsupported %s without altering uploaded bytes', async (kind) => {
+    const source = await PDFDocument.create();
+    const page = source.addPage();
+    page.drawText('Original evidence stays intact');
+    if (kind === 'xfa') {
+      source.getForm().acroForm.dict.set(PDFName.of('XFA'), PDFString.of('unsupported form fixture'));
+    } else {
+      const annotation = source.context.obj({ Type: 'Annot', Subtype: 'Text', Rect: [20, 20, 60, 60], Contents: 'Visible annotation' });
+      page.node.set(PDFName.of('Annots'), source.context.obj([source.context.register(annotation)]));
+    }
+    const original = Buffer.from(await source.save());
+    const files = new Map([['unsupported.pdf', original]]);
+    const generator = new PortfolioGeneratorService(undefined, portfolioMemoryStorage(files));
+    await expect(generator.generateFromDocuments([doc({ objectKey: 'unsupported.pdf', fileKind: 'pdf' })], info))
+      .rejects.toMatchObject({ code: 'PORTFOLIO_ARTIFACT_UNSUPPORTED', statusCode: 422, message: expect.stringContaining('print to PDF') });
+    expect(files.get('unsupported.pdf')).toEqual(original);
   });
 
   it('fails explicitly for unsupported font characters instead of losing user text', async () => {

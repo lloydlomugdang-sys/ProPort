@@ -14,6 +14,7 @@ export type CreateDocumentInput = CreateRecord<Document>;
 export type UpdateDocumentInput = UpdateRecord<Document>;
 
 export interface DocumentCountSummary {
+  readonly scholasticCoverage: { readonly missingReflection: number; readonly missingPeriod: number; readonly periodCounts: Readonly<Record<string, number>> };
   readonly totalCount: number;
   readonly categoryCounts: Readonly<Record<string, number>>;
   readonly folderCounts: Readonly<Record<string, number>>;
@@ -118,11 +119,15 @@ export class DocumentRepository {
         readonly categoryKey: string;
         readonly folderKey: string;
         readonly count: number;
+        readonly studyYear?: number;
+        readonly semester?: string;
+        readonly hasReflection: boolean;
       }>([
         { $match: { ownerId } },
         {
           $group: {
-            _id: { categoryKey: '$categoryKey', folderKey: '$folderKey' },
+            _id: { categoryKey: '$categoryKey', folderKey: '$folderKey', studyYear: '$scholastic.studyYear', semester: '$scholastic.semester',
+              hasReflection: { $or: [{ $eq: ['$scholastic.reflectionIncluded', true] }, { $gt: [{ $strLenCP: { $trim: { input: { $ifNull: ['$reflection', ''] } } } }, 0] }] } },
             count: { $sum: 1 },
           },
         },
@@ -131,6 +136,7 @@ export class DocumentRepository {
             _id: 0,
             categoryKey: '$_id.categoryKey',
             folderKey: '$_id.folderKey',
+            studyYear: '$_id.studyYear', semester: '$_id.semester', hasReflection: '$_id.hasReflection',
             count: 1,
           },
         },
@@ -139,13 +145,22 @@ export class DocumentRepository {
     const categoryCounts: Record<string, number> = {};
     const folderCounts: Record<string, number> = {};
     let totalCount = 0;
+    const scholasticCoverage = { missingReflection: 0, missingPeriod: 0, periodCounts: {} as Record<string, number> };
     for (const row of rows) {
       totalCount += row.count;
       categoryCounts[row.categoryKey] = (categoryCounts[row.categoryKey] ?? 0) + row.count;
       const folder = `${row.categoryKey}/${row.folderKey}`;
       folderCounts[folder] = (folderCounts[folder] ?? 0) + row.count;
+      if (folder === 'scholastic-record/unofficial-tor-with-reflections') {
+        if (!row.hasReflection) scholasticCoverage.missingReflection += row.count;
+        if (!row.studyYear || !row.semester) scholasticCoverage.missingPeriod += row.count;
+        else {
+          const period = `Year ${row.studyYear} / ${row.semester}`;
+          scholasticCoverage.periodCounts[period] = (scholasticCoverage.periodCounts[period] ?? 0) + row.count;
+        }
+      }
     }
-    return { totalCount, categoryCounts, folderCounts };
+    return { totalCount, categoryCounts, folderCounts, scholasticCoverage };
   }
 
   async updateByIdForOwner(

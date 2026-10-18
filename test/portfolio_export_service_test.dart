@@ -7,9 +7,37 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:proport_app/screens/portfolio/models/portfolio_models.dart';
 import 'package:proport_app/services/portfolio_export_service.dart';
 import 'package:xml/xml.dart';
+import 'support/legacy_outline_pdf_fixture.dart';
+import 'package:proport_app/services/auth_service.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
+
+  test(
+    'production PDF requests the authenticated evidence endpoint and stores its bytes unchanged',
+    () async {
+      final root = await Directory.systemTemp.createTemp(
+        'gradport_pdf_route_test_',
+      );
+      addTearDown(() => root.delete(recursive: true));
+      final bytes = Uint8List.fromList(
+        utf8.encode('%PDF-1.7\nbackend-evidence-fixture\n%%EOF'),
+      );
+      final auth = _EvidenceAuth(bytes);
+      addTearDown(auth.dispose);
+      final exporter = DevicePortfolioExporter(
+        authService: auth,
+        store: PortfolioExportStore(temporaryDirectory: () async => root),
+      );
+      final file = await exporter.generate(_content(), ExportFormat.pdf);
+      expect(auth.path, '/api/v1/portfolios/export/pdf');
+      expect(auth.body!.keys, unorderedEquals(PortfolioInfo.fieldLabels.keys));
+      expect(auth.body, isNot(contains('documents')));
+      expect(auth.body, isNot(contains('ownerId')));
+      expect(await File(file.path).readAsBytes(), bytes);
+      expect(file.format, ExportFormat.pdf);
+    },
+  );
 
   test('safe bounded filename cannot escape the export directory', () {
     expect(
@@ -51,25 +79,36 @@ void main() {
         .findAllElements('w:t')
         .map((node) => node.innerText)
         .join('\n');
-    for (final expected in _expectedText) {
+    for (final expected in _expectedText.where(
+      (text) =>
+          !PortfolioSummary.categorySections.values.contains(text) &&
+          text != 'Creative Title',
+    )) {
       expect(text, contains(expected));
     }
     expect(text, contains('A < B & C')); // XML escaping, not executable markup.
-    expect(text, contains('No stored documents in this section.'));
-    expect(body.findAllElements('w:pageBreakBefore').length, 7);
-    expect(body.findAllElements('w:pgSz').single.getAttribute('w:w'), '11906');
+    expect(text, isNot(contains('No stored documents in this section.')));
+    expect(body.findAllElements('w:pageBreakBefore').length, 1);
+    expect(body.findAllElements('w:pgSz').single.getAttribute('w:w'), '12240');
     expect(text, isNot(contains('accessToken')));
     expect(text, isNot(contains('ownerId')));
     expect(text, isNot(contains('document-id')));
   });
 
   test(
-    'PDF contains title-page and document text with embedded Unicode fonts',
+    'historical metadata-only PDF fixture reproduces the exact QA warning',
     () async {
       final bytes = await _pdf(_content());
       expect(ascii.decode(bytes.take(5).toList()), '%PDF-');
       expect(bytes.length, greaterThan(1000));
       final text = _pdfText(bytes);
+      expect(
+        text,
+        contains(
+          'Document metadata is included. Original uploaded images and PDF pages are not embedded in this export.',
+        ),
+      );
+      expect(latin1.decode(bytes), isNot(contains('/Subtype /Image')));
       for (final expected in _expectedText) {
         expect(text, contains(expected));
       }
@@ -188,42 +227,46 @@ void main() {
     },
   );
 
-  test('saveToDevice writes bytes and returns true on user confirmation', () async {
-    final tempDir = await Directory.systemTemp.createTemp('save_test_');
-    addTearDown(() => tempDir.delete(recursive: true));
-    final file = File('${tempDir.path}/GradPort_Student_Portfolio.pdf');
-    await file.writeAsBytes([1, 2, 3, 4]);
+  test(
+    'saveToDevice writes bytes and returns true on user confirmation',
+    () async {
+      final tempDir = await Directory.systemTemp.createTemp('save_test_');
+      addTearDown(() => tempDir.delete(recursive: true));
+      final file = File('${tempDir.path}/GradPort_Student_Portfolio.pdf');
+      await file.writeAsBytes([1, 2, 3, 4]);
 
-    String? capturedName;
-    Uint8List? capturedBytes;
-    final exporter = DevicePortfolioExporter(
-      fileSaveFunction: ({
-        String? dialogTitle,
-        String? fileName,
-        String? initialDirectory,
-        dynamic type,
-        List<String>? allowedExtensions,
-        Uint8List? bytes,
-        bool lockParentWindow = false,
-      }) async {
-        capturedName = fileName;
-        capturedBytes = bytes;
-        return '/storage/emulated/0/Download/$fileName';
-      },
-    );
+      String? capturedName;
+      Uint8List? capturedBytes;
+      final exporter = DevicePortfolioExporter(
+        fileSaveFunction:
+            ({
+              String? dialogTitle,
+              String? fileName,
+              String? initialDirectory,
+              dynamic type,
+              List<String>? allowedExtensions,
+              Uint8List? bytes,
+              bool lockParentWindow = false,
+            }) async {
+              capturedName = fileName;
+              capturedBytes = bytes;
+              return '/storage/emulated/0/Download/$fileName';
+            },
+      );
 
-    final exportFile = PortfolioExportFile(
-      path: file.path,
-      name: 'GradPort_Student_Portfolio.pdf',
-      format: ExportFormat.pdf,
-      sizeBytes: 4,
-    );
+      final exportFile = PortfolioExportFile(
+        path: file.path,
+        name: 'GradPort_Student_Portfolio.pdf',
+        format: ExportFormat.pdf,
+        sizeBytes: 4,
+      );
 
-    final result = await exporter.saveToDevice(exportFile);
-    expect(result, isTrue);
-    expect(capturedName, 'GradPort_Student_Portfolio.pdf');
-    expect(capturedBytes, Uint8List.fromList([1, 2, 3, 4]));
-  });
+      final result = await exporter.saveToDevice(exportFile);
+      expect(result, isTrue);
+      expect(capturedName, 'GradPort_Student_Portfolio.pdf');
+      expect(capturedBytes, Uint8List.fromList([1, 2, 3, 4]));
+    },
+  );
 
   test('saveToDevice returns false when user cancels save dialog', () async {
     final tempDir = await Directory.systemTemp.createTemp('save_cancel_test_');
@@ -232,17 +275,18 @@ void main() {
     await file.writeAsBytes([5, 6, 7]);
 
     final exporter = DevicePortfolioExporter(
-      fileSaveFunction: ({
-        String? dialogTitle,
-        String? fileName,
-        String? initialDirectory,
-        dynamic type,
-        List<String>? allowedExtensions,
-        Uint8List? bytes,
-        bool lockParentWindow = false,
-      }) async {
-        return null; // user cancelled
-      },
+      fileSaveFunction:
+          ({
+            String? dialogTitle,
+            String? fileName,
+            String? initialDirectory,
+            dynamic type,
+            List<String>? allowedExtensions,
+            Uint8List? bytes,
+            bool lockParentWindow = false,
+          }) async {
+            return null; // user cancelled
+          },
     );
 
     final exportFile = PortfolioExportFile(
@@ -256,20 +300,23 @@ void main() {
     expect(result, isFalse);
   });
 
-  test('saveToDevice throws PortfolioExportException if file missing', () async {
-    final exporter = const DevicePortfolioExporter();
-    const exportFile = PortfolioExportFile(
-      path: '/nonexistent/path/portfolio.pdf',
-      name: 'GradPort_Student_Portfolio.pdf',
-      format: ExportFormat.pdf,
-      sizeBytes: 0,
-    );
+  test(
+    'saveToDevice throws PortfolioExportException if file missing',
+    () async {
+      final exporter = const DevicePortfolioExporter();
+      const exportFile = PortfolioExportFile(
+        path: '/nonexistent/path/portfolio.pdf',
+        name: 'GradPort_Student_Portfolio.pdf',
+        format: ExportFormat.pdf,
+        sizeBytes: 0,
+      );
 
-    await expectLater(
-      exporter.saveToDevice(exportFile),
-      throwsA(isA<PortfolioExportException>()),
-    );
-  });
+      await expectLater(
+        exporter.saveToDevice(exportFile),
+        throwsA(isA<PortfolioExportException>()),
+      );
+    },
+  );
 
   // Opt-in synthetic fixtures for external PDF/Word compatibility inspection.
   const fixturePath = String.fromEnvironment('EXPORT_FIXTURE_DIR');
@@ -283,6 +330,23 @@ void main() {
         '${directory.path}/portfolio.docx',
       ).writeAsBytes(PortfolioFileRenderer.docx(_content()));
     });
+  }
+}
+
+class _EvidenceAuth extends AuthService {
+  _EvidenceAuth(this.bytes);
+  final Uint8List bytes;
+  String? path;
+  Map<String, dynamic>? body;
+  @override
+  Future<Uint8List> authenticatedPostBytes(
+    String path, {
+    required Map<String, dynamic> body,
+    Duration? requestTimeout,
+  }) async {
+    this.path = path;
+    this.body = body;
+    return bytes;
   }
 }
 
@@ -346,7 +410,7 @@ PortfolioExportContent _content({int total = 1, String? reflection}) =>
     );
 
 Future<Uint8List> _pdf(PortfolioExportContent content) async =>
-    PortfolioFileRenderer.pdf(
+    LegacyOutlinePdfFixture.pdf(
       content,
       await rootBundle.load('assets/fonts/NotoSans-Regular.ttf'),
       await rootBundle.load('assets/fonts/NotoSans-Bold.ttf'),

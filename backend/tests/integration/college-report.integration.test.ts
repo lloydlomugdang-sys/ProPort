@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import type { FastifyInstance } from 'fastify';
-import type { Types } from 'mongoose';
+import { Types } from 'mongoose';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { getDocument } from 'pdfjs-dist/legacy/build/pdf.mjs';
 import { buildApp } from '../../src/app.js';
@@ -164,9 +164,9 @@ describe('College Report authenticated persistence (disposable local database on
     }
   });
 
-  it('sanitizes database errors and refuses missing-template saves rather than inventing success', async () => {
+  it('sanitizes database errors and saves bundled questionnaires without a seeded template', async () => {
     const models = registerModels(disposable.connection);
-    const find = vi.spyOn(models.ReportTemplate, 'findOne').mockImplementationOnce(() => { throw new Error('provider detail private response'); });
+    const find = vi.spyOn(models.CollegeReport, 'findOne').mockImplementationOnce(() => { throw new Error('provider detail private response'); });
     const response = await app.inject({ method: 'GET', url: `${path}/me`, headers });
     expect(response.statusCode).toBe(503);
     expect(response.body).not.toMatch(/provider detail|private response/);
@@ -174,7 +174,18 @@ describe('College Report authenticated persistence (disposable local database on
     // Disposable database only: simulate a deployment before its additive seed.
     await models.ReportTemplate.deleteOne({ key: 'college-report', version: 2 });
     const missing = await app.inject({ method: 'POST', url: `${path}/me`, headers, payload: { questionnaireVersion: 2, answers: [] } });
-    expect(missing.statusCode).toBe(503);
-    expect(missing.json().error.code).toBe('COLLEGE_REPORT_NOT_CONFIGURED');
+    expect(missing.statusCode).toBe(200);
+    const read = await app.inject({ method: 'GET', url: `${path}/me`, headers });
+    expect(read.statusCode).toBe(200);
+    expect(read.json().data.templateReady).toBe(true);
+    expect(read.json().data.report.questionnaireVersion).toBe(2);
+    const newOwner = new Types.ObjectId();
+    const service = new CollegeReportService(disposable.database);
+    const payload = { questionnaireVersion: 2, answers: [], essay: 'Saved without a template ID' };
+    await Promise.all([service.save(newOwner, payload), service.save(newOwner, payload)]);
+    const records = await models.CollegeReport.find({ ownerId: newOwner }).lean();
+    expect(records).toHaveLength(1);
+    expect(records[0]!.templateId).toBeUndefined();
+    expect((await service.current(newOwner)).report?.essay).toBe(payload.essay);
   });
 });

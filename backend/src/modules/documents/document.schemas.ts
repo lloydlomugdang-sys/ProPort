@@ -1,3 +1,5 @@
+import { scholasticDetailsSchema } from './scholastic-details.js';
+
 export const documentPathParamsSchema = {
   type: 'object',
   additionalProperties: false,
@@ -71,6 +73,7 @@ const documentSchema = {
     documentDate: { type: 'string', format: 'date-time' },
     description: { type: 'string' },
     reflection: { type: 'string' },
+    scholastic: scholasticDetailsSchema,
     originalFileName: { type: 'string' },
     mimeType: { type: 'string' },
     fileKind: { enum: ['image', 'pdf', 'docx'] },
@@ -128,6 +131,9 @@ export const documentListResponseSchema = {
             totalCount: { type: 'integer', minimum: 0 },
             categoryCounts: countMapSchema,
             folderCounts: countMapSchema,
+            scholasticCoverage: { type: 'object', additionalProperties: false, required: ['missingReflection', 'missingPeriod', 'periodCounts'], properties: {
+              missingReflection: { type: 'integer', minimum: 0 }, missingPeriod: { type: 'integer', minimum: 0 }, periodCounts: countMapSchema,
+            } },
           },
         },
       },
@@ -275,6 +281,7 @@ export const documentPatchSchema = {
     documentDate: { type: 'string', pattern: '^\\d{4}-\\d{2}-\\d{2}$' },
     description: { type: 'string', maxLength: 2_000 },
     reflection: { type: 'string', maxLength: 5_000 },
+    scholastic: scholasticDetailsSchema,
   },
 } as const;
 
@@ -353,6 +360,7 @@ export const compiledSplitSchema = {
           documentDate: { type: 'string', pattern: '^\\d{4}-\\d{2}-\\d{2}$' },
           description: { type: 'string', maxLength: 2_000 },
           reflection: { type: 'string', maxLength: 5_000 },
+          scholastic: scholasticDetailsSchema,
         },
       },
     },

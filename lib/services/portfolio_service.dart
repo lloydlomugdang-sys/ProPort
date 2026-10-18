@@ -18,27 +18,39 @@ class PortfolioService extends ChangeNotifier {
   List<PortfolioRecord> _portfolios = const [];
   bool _hasLoaded = false;
   bool _isLoading = false;
+  int _generation = 0;
+  bool _disposed = false;
+  Future<List<PortfolioRecord>>? _pendingLoad;
 
   List<PortfolioRecord> get portfolios => List.unmodifiable(_portfolios);
   bool get hasLoaded => _hasLoaded;
   bool get isLoading => _isLoading;
 
-  Future<List<PortfolioRecord>> loadPortfolios({bool force = false}) async {
-    if (_isLoading) return portfolios;
-    if (_hasLoaded && !force) return portfolios;
+  Future<List<PortfolioRecord>> loadPortfolios({bool force = false}) {
+    if (_disposed) return Future.value(const []);
+    if (_pendingLoad != null) return _pendingLoad!;
+    if (_hasLoaded && !force) return Future.value(portfolios);
+    return _pendingLoad = _loadPortfolios();
+  }
 
+  Future<List<PortfolioRecord>> _loadPortfolios() async {
     _isLoading = true;
+    final generation = _generation;
     notifyListeners();
     try {
       final response = await _authService.authenticatedGetJson(_portfoliosPath);
+      if (_disposed || generation != _generation) return const [];
       final values = _dataOf(response)['portfolios'];
       if (values is! List) throw _invalidResponse();
       _portfolios = values.map(_parsePortfolio).toList(growable: false);
       _hasLoaded = true;
       return portfolios;
     } finally {
-      _isLoading = false;
-      notifyListeners();
+      if (!_disposed && generation == _generation) {
+        _pendingLoad = null;
+        _isLoading = false;
+        notifyListeners();
+      }
     }
   }
 
@@ -113,6 +125,8 @@ class PortfolioService extends ChangeNotifier {
     final userId = _authService.user?.id;
     if (userId == _authenticatedUserId) return;
     _authenticatedUserId = userId;
+    _generation++;
+    _pendingLoad = null;
     _portfolios = const [];
     _hasLoaded = false;
     _isLoading = false;
@@ -141,6 +155,7 @@ class PortfolioService extends ChangeNotifier {
 
   @override
   void dispose() {
+    _disposed = true;
     _authService.removeListener(_handleAuthChanged);
     super.dispose();
   }

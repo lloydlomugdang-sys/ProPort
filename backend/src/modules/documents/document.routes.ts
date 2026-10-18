@@ -3,6 +3,7 @@ import { Types } from 'mongoose';
 import { AppError } from '../../common/errors/app-error.js';
 import { successResponse } from '../../common/http/api-response.js';
 import type { AppConfig } from '../../config/env.types.js';
+import type { ScholasticDetails } from './scholastic-details.js';
 import type { AppServices } from '../../infrastructure/create-services.js';
 import { CurrentUserService, type CurrentUserIdentity } from '../users/user.service.js';
 import {
@@ -53,6 +54,7 @@ interface DocumentOcrPatchBody {
 }
 
 interface DocumentPatchBody {
+  readonly scholastic?: ScholasticDetails;
   readonly categoryKey?: string;
   readonly folderKey?: string;
   readonly title?: string;
@@ -68,6 +70,7 @@ const UPLOAD_FIELDS = new Set([
   'documentDate',
   'description',
   'reflection',
+  'scholastic',
 ]);
 
 const UNAUTHORIZED = new AppError(
@@ -171,6 +174,11 @@ async function parseFileParts(request: FastifyRequest, allowedFields: ReadonlySe
 async function parseUpload(request: FastifyRequest): Promise<DocumentUploadInput> {
   const { fields, files } = await parseFileParts(request, UPLOAD_FIELDS);
   const firstFile = files[0];
+  let scholastic;
+  if (fields.scholastic !== undefined) {
+    try { scholastic = JSON.parse(fields.scholastic) as ScholasticDetails; }
+    catch { throw uploadValidation('scholastic', 'must contain valid coverage details'); }
+  }
   if (files.length === 0 || firstFile === undefined) {
     throw uploadValidation('file', 'is required');
   }
@@ -181,6 +189,7 @@ async function parseUpload(request: FastifyRequest): Promise<DocumentUploadInput
     documentDate: requiredField(fields, 'documentDate'),
     ...(fields.description === undefined ? {} : { description: fields.description }),
     ...(fields.reflection === undefined ? {} : { reflection: fields.reflection }),
+    ...(scholastic === undefined ? {} : { scholastic }),
     ...(files.length === 1
       ? {
           originalFileName: firstFile.originalFileName,
@@ -529,7 +538,7 @@ export async function registerDocumentRoutes(
 export const documentMultipartLimits = {
   fileSize: MAX_DOCUMENT_FILE_SIZE_BYTES,
   files: 10,
-  fields: 6,
+  fields: UPLOAD_FIELDS.size,
   parts: 20,
   fieldSize: 5_000,
 } as const;

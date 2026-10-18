@@ -1,4 +1,5 @@
 import { Schema, type Types } from 'mongoose';
+import type { ScholasticDetails } from '../../modules/documents/scholastic-details.js';
 
 export const FILE_KINDS = ['image', 'pdf', 'docx'] as const;
 export type FileKind = (typeof FILE_KINDS)[number];
@@ -52,6 +53,7 @@ export interface Document {
   documentDate: Date;
   description?: string;
   reflection?: string;
+  scholastic?: ScholasticDetails;
   originalFileName: string;
   objectKey: string;
   mimeType: string;
@@ -74,6 +76,11 @@ export const documentSchema = new Schema<Document>(
     documentDate: { type: Date, required: true },
     description: { type: String, trim: true, maxlength: 2_000 },
     reflection: { type: String, trim: true, maxlength: 5_000 },
+    scholastic: { type: new Schema<ScholasticDetails>({
+      studyYear: { type: Number, min: 1, max: 20, validate: Number.isInteger },
+      semester: { type: String, enum: ['1st Semester', '2nd Semester'] },
+      reflectionIncluded: { type: Boolean, required: true },
+    }, { _id: false, strict: 'throw' }) },
     originalFileName: { type: String, required: true, trim: true, maxlength: 255 },
     objectKey: { type: String, required: true, trim: true, maxlength: 1024 },
     mimeType: { type: String, required: true, trim: true, maxlength: 150 },

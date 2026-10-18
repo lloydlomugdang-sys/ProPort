@@ -317,7 +317,17 @@ void main() {
     await tester.enterText(fields.at(2), 'Professor New');
     await tester.enterText(fields.at(3), 'Mobile Development');
     await tester.enterText(fields.at(4), 'CS401');
-    await tester.enterText(fields.at(5), 'First semester 2026-2027');
+    await tester.enterText(fields.at(5), '2026-2027');
+    final semester = find.byWidgetPredicate(
+      (widget) =>
+          widget is DropdownButtonFormField<String> &&
+          widget.decoration.labelText == 'Semester',
+    );
+    await tester.ensureVisible(semester);
+    await tester.tap(semester);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('1st Semester').last);
+    await tester.pumpAndSettle();
 
     await tester.ensureVisible(find.byKey(const Key('schedule-day')));
     await tester.tap(find.byKey(const Key('schedule-day')));

@@ -1,4 +1,5 @@
 import { randomUUID, createHash } from 'node:crypto';
+import { requireTorReflection, validateScholasticDetails, type ScholasticDetails } from './scholastic-details.js';
 import { extname, basename } from 'node:path';
 import { Readable } from 'node:stream';
 import type { Types } from 'mongoose';
@@ -12,6 +13,7 @@ import { OcrEngineError, type OcrEngine, type OcrPageText } from '../../infrastr
 import { COLLECTION_NAMES } from '../../database/collection-names.js';
 import type { AiMetadataService, MetadataAnalysis } from './ai-metadata.service.js';
 import {
+  hasConsistentClassification,
   isHeaderlessOrExplicitCv,
   resolveCanonicalTaxonomy,
   suggestDocumentMetadata,
@@ -48,6 +50,7 @@ export interface CompiledAnalysisResult {
 }
 
 export interface CompiledSplitSegment {
+  readonly scholastic?: ScholasticDetails;
   readonly startPage: number;
   readonly endPage: number;
   readonly categoryKey: string;
@@ -381,6 +384,7 @@ export class CompiledDocumentService {
       startPage: segment.startPage, endPage: segment.endPage, categoryKey: segment.categoryKey,
       folderKey: segment.folderKey, title: segment.title.trim(), documentDate: segment.documentDate,
       description: segment.description?.trim() ?? '', reflection: segment.reflection?.trim() ?? '',
+      ...(segment.scholastic === undefined ? {} : { scholastic: validateScholasticDetails(segment.scholastic) }),
     })))).digest('hex');
     // A cached success belongs to exactly this owner/session/key/payload.
     if (session.completedIdempotencyKey === input.idempotencyKey && session.completedDocuments) {
@@ -393,6 +397,7 @@ export class CompiledDocumentService {
       throw validationError('segments', 'must cover every source page exactly once, in order, without gaps or overlaps');
     }
     for (const seg of input.segments) {
+      requireTorReflection(seg.categoryKey, seg.folderKey, seg.reflection, validateScholasticDetails(seg.scholastic));
       const segmentPages = session.pageTexts.filter(
         (page) => page.pageNumber >= seg.startPage && page.pageNumber <= seg.endPage,
       );
@@ -523,6 +528,7 @@ export class CompiledDocumentService {
           documentDate: documentDate(seg.documentDate),
           ...(seg.description && seg.description.trim().length > 0 ? { description: seg.description.trim() } : {}),
           ...(seg.reflection && seg.reflection.trim().length > 0 ? { reflection: seg.reflection.trim() } : {}),
+          ...(seg.scholastic === undefined ? {} : { scholastic: seg.scholastic }),
           originalFileName,
           objectKey: stored.key,
           mimeType: 'application/pdf',
@@ -566,6 +572,7 @@ export class CompiledDocumentService {
           documentDate: created.documentDate.toISOString(),
           ...(created.description ? { description: created.description } : {}),
           ...(created.reflection ? { reflection: created.reflection } : {}),
+          ...(created.scholastic === undefined ? {} : { scholastic: created.scholastic }),
           originalFileName: created.originalFileName,
           mimeType: created.mimeType,
           fileKind: created.fileKind,
@@ -694,13 +701,19 @@ export class CompiledDocumentService {
         }
       }
 
+      const consistent = hasConsistentClassification({
+        ...(matchedCat ? { categoryKey: matchedCat.key } : {}),
+        ...(matchedFolder ? { folderKey: matchedFolder } : {}),
+        ...(typeof doc.title === 'string' ? { title: doc.title } : {}), confidence: 'low',
+      }, segText);
+      if (!consistent) { matchedCat = undefined; matchedFolder = undefined; }
       const isFullyCategorized = Boolean(matchedCat && matchedFolder) && !allUnresolved;
       if (isFullyCategorized) {
         validCategorizedCount += 1;
       }
 
       const meta = suggestDocumentMetadata({ rawText: segText }, categories);
-      let title = typeof doc.title === 'string' ? doc.title.trim().slice(0, 250) : '';
+      let title = consistent && typeof doc.title === 'string' ? doc.title.trim().slice(0, 250) : '';
       if (allUnresolved) {
         title = 'Unreadable page — retry required';
       } else if (!title) {

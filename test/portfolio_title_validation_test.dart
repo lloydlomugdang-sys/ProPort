@@ -1,4 +1,6 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:proport_app/screens/portfolio/models/academic_term.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:proport_app/screens/portfolio/models/portfolio_models.dart';
 import 'package:proport_app/screens/portfolio/portfolio_info_screen.dart';
@@ -20,6 +22,22 @@ const _valid = PortfolioInfo(
 );
 
 class _Auth extends AuthService {
+  Completer<Map<String, dynamic>>? pendingList;
+  @override
+  Future<Map<String, dynamic>> authenticatedGetJson(String path) async =>
+      pendingList?.future ??
+      {
+        'data': {
+          'portfolios': [
+            {
+              ..._valid.toMap(),
+              'id': 'saved',
+              'createdAt': '2026-01-01T00:00:00Z',
+              'updatedAt': '2026-01-01T00:00:00Z',
+            },
+          ],
+        },
+      };
   int writes = 0;
   Map<String, dynamic>? submitted;
   @override
@@ -50,6 +68,80 @@ Finder _field(String label) => find.descendant(
 );
 
 void main() {
+  for (final year in ['2026', '2026-2028', '2027-2026', 'year 2026-2027', '']) {
+    test(
+      'academic year rejects $year',
+      () => expect(AcademicTerm.validateYear(year), isNotNull),
+    );
+  }
+  test('academic year and legacy semester parsing', () {
+    expect(AcademicTerm.validateYear('2026-2027'), isNull);
+    expect(AcademicTerm.parse(_valid.semesterAndYear), (
+      '1st Semester',
+      '2026-2027',
+    ));
+    expect(AcademicTerm.semesters, ['1st Semester', '2nd Semester']);
+  });
+  for (final editWhileLoading in [false, true]) {
+    testWidgets(
+      'saved title prefills a fresh service; manual edit wins: $editWhileLoading',
+      (tester) async {
+        tester.view.physicalSize = const Size(360, 800);
+        tester.view.devicePixelRatio = 1;
+        addTearDown(tester.view.resetPhysicalSize);
+        addTearDown(tester.view.resetDevicePixelRatio);
+        final auth = _Auth();
+        if (editWhileLoading) auth.pendingList = Completer();
+        final service = PortfolioService(authService: auth);
+        await tester.pumpWidget(
+          PortfolioScope(
+            portfolioService: service,
+            child: const MaterialApp(home: PortfolioInfoScreen()),
+          ),
+        );
+        await tester.pumpAndSettle();
+        if (editWhileLoading) {
+          await tester.enterText(_field('Full Name'), 'Manual name');
+          auth.pendingList!.complete({
+            'data': {
+              'portfolios': [
+                {
+                  ..._valid.toMap(),
+                  'id': 'saved',
+                  'createdAt': '2026-01-01T00:00:00Z',
+                  'updatedAt': '2026-01-01T00:00:00Z',
+                },
+              ],
+            },
+          });
+          await tester.pumpAndSettle();
+        }
+        expect(
+          tester.widget<TextField>(_field('Full Name')).controller!.text,
+          editWhileLoading ? 'Manual name' : _valid.fullName,
+        );
+        expect(
+          tester.widget<TextField>(_field('Course Code')).controller!.text,
+          'CS401',
+        );
+        expect(
+          tester.widget<TextField>(_field('Academic Year')).controller!.text,
+          '2026-2027',
+        );
+        final semester = tester.widget<DropdownButtonFormField<String>>(
+          find.byWidgetPredicate(
+            (w) =>
+                w is DropdownButtonFormField<String> &&
+                w.key.toString().contains('portfolio-semester'),
+          ),
+        );
+        expect(semester.initialValue, '1st Semester');
+        await tester.pumpWidget(const SizedBox());
+        service.dispose();
+        auth.dispose();
+      },
+    );
+  }
   for (final key in PortfolioInfo.fieldLabels.keys) {
     for (final invalid in [
       '',
@@ -149,7 +241,10 @@ void main() {
     await tester.tap(find.text('Save Changes'));
     await tester.pumpAndSettle();
     expect(auth.writes, 1);
-    expect(auth.submitted, _valid.toMap());
+    expect(auth.submitted, {
+      ..._valid.toMap(),
+      'semesterAndYear': '1st Semester, A.Y. 2026-2027',
+    });
     expect(find.text('Open title page'), findsOneWidget);
     expect(find.text('Edit Portfolio'), findsNothing);
     await tester.pumpWidget(const SizedBox());

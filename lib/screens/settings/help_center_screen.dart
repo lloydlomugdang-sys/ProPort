@@ -16,11 +16,16 @@ class HelpCenterScreen extends StatefulWidget {
 
 class _HelpCenterScreenState extends State<HelpCenterScreen> {
   final _searchCtrl = TextEditingController();
-  String _query        = '';
-  String _selectedCat  = 'All';
+  String _query = '';
+  String _selectedCat = 'All';
 
   static const List<String> _categories = [
-    'All', 'Account', 'Files', 'Portfolio', 'OCR', 'General',
+    'All',
+    'Account',
+    'Files',
+    'Portfolio',
+    'OCR',
+    'General',
   ];
 
   // ─── FAQ data ─────────────────────────────────────────────────────────────
@@ -41,7 +46,7 @@ class _HelpCenterScreenState extends State<HelpCenterScreen> {
       category: 'Files',
       question: 'What file types are supported for upload?',
       answer:
-          'GradPort currently supports PDF, JPG, JPEG, DOCX and PNG files. Additional file formats will be added in future updates.',
+          'Upload PDF, JPG, JPEG and PNG documents. Choose independent files or explicitly add image pages to one document. DOCX is available as an editable export outline.',
     ),
     _Faq(
       category: 'Files',
@@ -71,7 +76,7 @@ class _HelpCenterScreenState extends State<HelpCenterScreen> {
       category: 'OCR',
       question: 'What is OCR and how does it work in GradPort?',
       answer:
-          'OCR (Optical Character Recognition) lets GradPort automatically extract text from scanned documents and images. OCR is powered by Google ML Kit.',
+          'OCR reads text from scanned documents and images. Review the extracted text and suggested details before saving; you can correct them manually.',
     ),
     _Faq(
       category: 'OCR',
@@ -83,7 +88,7 @@ class _HelpCenterScreenState extends State<HelpCenterScreen> {
       category: 'General',
       question: 'Is my data saved to the cloud?',
       answer:
-          'GradPort is currently in development mode. Data is stored temporarily in local memory and will not persist between app restarts. Full cloud storage via MongoDB will be connected in a future release.',
+          'Saved documents, profile details, portfolios and saved College Report responses are kept in your account and can be loaded again after signing in. Use Save Responses to keep questionnaire answers in your account. Download or share exported files to keep a copy outside the app cache.',
     ),
     _Faq(
       category: 'General',
@@ -101,9 +106,11 @@ class _HelpCenterScreenState extends State<HelpCenterScreen> {
     if (_query.isNotEmpty) {
       final q = _query.toLowerCase();
       list = list
-          .where((f) =>
-              f.question.toLowerCase().contains(q) ||
-              f.answer.toLowerCase().contains(q))
+          .where(
+            (f) =>
+                f.question.toLowerCase().contains(q) ||
+                f.answer.toLowerCase().contains(q),
+          )
           .toList();
     }
     return list;
@@ -166,16 +173,15 @@ class _HelpCenterScreenState extends State<HelpCenterScreen> {
                   return Padding(
                     padding: const EdgeInsets.only(right: 8),
                     child: GestureDetector(
-                      onTap: () =>
-                          setState(() => _selectedCat = cat),
+                      onTap: () => setState(() => _selectedCat = cat),
                       child: AnimatedContainer(
                         duration: const Duration(milliseconds: 200),
                         padding: const EdgeInsets.symmetric(
-                            horizontal: 16, vertical: 8),
+                          horizontal: 16,
+                          vertical: 8,
+                        ),
                         decoration: BoxDecoration(
-                          color: isSelected
-                              ? AppColors.primary
-                              : Colors.white,
+                          color: isSelected ? AppColors.primary : Colors.white,
                           borderRadius: BorderRadius.circular(20),
                           border: Border.all(
                             color: isSelected
@@ -218,10 +224,9 @@ class _HelpCenterScreenState extends State<HelpCenterScreen> {
             const SizedBox(height: 10),
 
             // ── FAQ cards ─────────────────────────────────────────
-            ...filtered.map((faq) => FaqCard(
-                  question: faq.question,
-                  answer: faq.answer,
-                )),
+            ...filtered.map(
+              (faq) => FaqCard(question: faq.question, answer: faq.answer),
+            ),
 
             const SizedBox(height: 24),
 
@@ -247,8 +252,11 @@ class _HelpCenterScreenState extends State<HelpCenterScreen> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  const Icon(Icons.support_agent_rounded,
-                      color: Colors.white, size: 28),
+                  const Icon(
+                    Icons.support_agent_rounded,
+                    color: Colors.white,
+                    size: 28,
+                  ),
                   const SizedBox(height: 10),
                   Text(
                     'Still need help?',
@@ -269,7 +277,9 @@ class _HelpCenterScreenState extends State<HelpCenterScreen> {
                   const SizedBox(height: 14),
                   Container(
                     padding: const EdgeInsets.symmetric(
-                        horizontal: 16, vertical: 10),
+                      horizontal: 16,
+                      vertical: 10,
+                    ),
                     decoration: BoxDecoration(
                       color: Colors.white.withValues(alpha: 0.20),
                       borderRadius: BorderRadius.circular(10),
@@ -277,15 +287,20 @@ class _HelpCenterScreenState extends State<HelpCenterScreen> {
                     child: Row(
                       mainAxisSize: MainAxisSize.min,
                       children: [
-                        const Icon(Icons.email_outlined,
-                            color: Colors.white, size: 18),
+                        const Icon(
+                          Icons.email_outlined,
+                          color: Colors.white,
+                          size: 18,
+                        ),
                         const SizedBox(width: 8),
-                        Text(
-                          'support@gradport.app',
-                          style: GoogleFonts.poppins(
-                            fontSize: 13,
-                            fontWeight: FontWeight.w600,
-                            color: Colors.white,
+                        Flexible(
+                          child: Text(
+                            'support@gradport.app',
+                            style: GoogleFonts.poppins(
+                              fontSize: 13,
+                              fontWeight: FontWeight.w600,
+                              color: Colors.white,
+                            ),
                           ),
                         ),
                       ],

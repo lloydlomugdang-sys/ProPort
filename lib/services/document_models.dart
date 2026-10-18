@@ -1,5 +1,7 @@
 import 'dart:io';
 import 'dart:typed_data';
+import 'scholastic_details.dart';
+export 'scholastic_details.dart';
 
 enum DocumentOcrStatus { notProcessed, processing, ready, failed }
 
@@ -347,6 +349,7 @@ class DocumentRecord {
     this.description,
     this.reflection,
     this.attachments,
+    this.scholastic,
   });
 
   final String id;
@@ -356,6 +359,7 @@ class DocumentRecord {
   final DateTime documentDate;
   final String? description;
   final String? reflection;
+  final ScholasticDetails? scholastic;
   final String originalFileName;
   final String mimeType;
   final String fileKind;
@@ -414,6 +418,11 @@ class DocumentRecord {
       documentDate: documentDate,
       description: _optionalString(json, 'description'),
       reflection: _optionalString(json, 'reflection'),
+      scholastic: json['scholastic'] is Map<String, dynamic>
+          ? ScholasticDetails.fromJson(
+              json['scholastic'] as Map<String, dynamic>,
+            )
+          : null,
       originalFileName: _requiredString(json, 'originalFileName'),
       mimeType: _requiredString(json, 'mimeType'),
       fileKind: _requiredString(json, 'fileKind'),
@@ -431,6 +440,7 @@ class DocumentSummary {
     required this.totalCount,
     required this.categoryCounts,
     required this.folderCounts,
+    this.scholasticCoverage,
   });
 
   static const empty = DocumentSummary(
@@ -442,6 +452,7 @@ class DocumentSummary {
   final int totalCount;
   final Map<String, int> categoryCounts;
   final Map<String, int> folderCounts;
+  final ScholasticCoverage? scholasticCoverage;
 
   int categoryCount(String categoryKey) => categoryCounts[categoryKey] ?? 0;
 
@@ -459,6 +470,11 @@ class DocumentSummary {
       totalCount: totalCount,
       categoryCounts: _countMap(json['categoryCounts']),
       folderCounts: _countMap(json['folderCounts']),
+      scholasticCoverage: json['scholasticCoverage'] is Map<String, dynamic>
+          ? ScholasticCoverage.fromJson(
+              json['scholasticCoverage'] as Map<String, dynamic>,
+            )
+          : null,
     );
   }
 
@@ -472,6 +488,14 @@ class DocumentSummary {
       totalCount: totalCount + 1,
       categoryCounts: categories,
       folderCounts: folders,
+      scholasticCoverage:
+          ScholasticDetails.isTor(document.categoryKey, document.folderKey)
+          ? scholasticCoverage?.adjust(
+              document.scholastic,
+              document.reflection,
+              1,
+            )
+          : scholasticCoverage,
     );
   }
 
@@ -484,6 +508,14 @@ class DocumentSummary {
       totalCount: totalCount > 0 ? totalCount - 1 : 0,
       categoryCounts: categories,
       folderCounts: folders,
+      scholasticCoverage:
+          ScholasticDetails.isTor(document.categoryKey, document.folderKey)
+          ? scholasticCoverage?.adjust(
+              document.scholastic,
+              document.reflection,
+              -1,
+            )
+          : scholasticCoverage,
     );
   }
 
@@ -694,6 +726,7 @@ class CompiledSplitSegment {
     this.documentDate,
     this.description,
     this.reflection,
+    this.scholastic,
   });
 
   final int startPage;
@@ -704,6 +737,7 @@ class CompiledSplitSegment {
   final DateTime? documentDate;
   final String? description;
   final String? reflection;
+  final ScholasticDetails? scholastic;
 
   Map<String, dynamic> toJson() {
     final date = documentDate ?? DateTime.now();
@@ -720,6 +754,7 @@ class CompiledSplitSegment {
         'description': description!.trim(),
       if (reflection != null && reflection!.trim().isNotEmpty)
         'reflection': reflection!.trim(),
+      if (scholastic != null) 'scholastic': scholastic!.toJson(),
     };
   }
 }

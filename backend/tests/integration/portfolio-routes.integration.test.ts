@@ -1,5 +1,6 @@
 import { Readable } from 'node:stream';
-import { PDFDocument, PDFRawStream, decodePDFRawStream } from 'pdf-lib';
+import { PDFDocument } from 'pdf-lib';
+import { getDocument, OPS } from 'pdfjs-dist/legacy/build/pdf.mjs';
 import type { FastifyInstance, LightMyRequestResponse } from 'fastify';
 import { Types } from 'mongoose';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
@@ -27,33 +28,17 @@ const SAMPLE_1X1_PNG = Buffer.from(
   'base64',
 );
 
-function hexToString(hex: string): string {
-  let str = '';
-  for (let i = 0; i < hex.length; i += 2) {
-    str += String.fromCharCode(parseInt(hex.slice(i, i + 2), 16));
-  }
-  return str;
-}
-
 async function extractAllPdfText(pdfBytes: Buffer): Promise<string> {
-  const raw = pdfBytes.toString('latin1');
-  let accumulated = raw;
-  const pdf = await PDFDocument.load(pdfBytes);
-  for (const [, object] of pdf.context.enumerateIndirectObjects()) {
-    if (!(object instanceof PDFRawStream)) continue;
-    try {
-      const decompressed = Buffer.from(decodePDFRawStream(object).decode()).toString('latin1');
-      accumulated += '\n' + decompressed;
-      const hexMatches = decompressed.matchAll(/<([0-9a-fA-F]+)>/g);
-      for (const h of hexMatches) {
-        const hex = h[1];
-        if (hex) accumulated += ' ' + hexToString(hex);
-      }
-    } catch {
-      // Ignore non-zlib streams
+  const task = getDocument({ data: new Uint8Array(pdfBytes), useSystemFonts: true });
+  try {
+    const pdf = await task.promise;
+    const pages: string[] = [];
+    for (let n = 1; n <= pdf.numPages; n++) {
+      const page = await pdf.getPage(n);
+      pages.push((await page.getTextContent()).items.filter((item) => 'str' in item).map((item) => item.str).join(' '));
     }
-  }
-  return accumulated;
+    return pages.join('\n');
+  } finally { await task.destroy(); }
 }
 
 import type {
@@ -525,6 +510,51 @@ describe.sequential('authenticated portfolio API with disposable MongoDB', () =>
     for (const record of records) expect(text).toContain(record.title);
     expect(text).not.toContain('Forbidden_Batch_Owner');
     expect((await PDFDocument.load(bytes)).getPageCount()).toBeGreaterThan(110);
+  });
+
+  it('physical POST export retrieves persisted attachments and embeds images plus every PDF page in order', async () => {
+    const source = await PDFDocument.create();
+    source.addPage([612, 792]).drawText('EVIDENCE PAGE ALPHA');
+    source.addPage([612, 792]).drawText('EVIDENCE PAGE BETA');
+    const sourceBytes = Buffer.from(await source.save());
+    const ownerId = new Types.ObjectId(firstUser.userId);
+    const imageKey = `users/${ownerId}/documents/qa-image.png`;
+    const pdfKey = `users/${ownerId}/documents/qa-source.pdf`;
+    const attachment = (key: string, order: number, kind: 'image' | 'pdf', sizeBytes: number) => ({
+      id: String(order), objectKey: key, order, fileKind: kind, originalFileName: kind === 'pdf' ? 'source.pdf' : 'source.png',
+      mimeType: kind === 'pdf' ? 'application/pdf' : 'image/png', extension: kind === 'pdf' ? 'pdf' : 'png', sizeBytes, sha256: 'a'.repeat(64),
+    });
+    await services!.storage.put(imageKey, Readable.from([SAMPLE_1X1_PNG]));
+    await services!.storage.put(pdfKey, Readable.from([sourceBytes]));
+    const record = portfolioDocument({ ownerId, title: 'Stored multipage evidence', objectKey: imageKey,
+      attachments: [attachment(pdfKey, 1, 'pdf', sourceBytes.length), attachment(imageKey, 0, 'image', SAMPLE_1X1_PNG.length)],
+    });
+    await disposable!.connection.db!.collection(COLLECTION_NAMES.documents).insertOne(record);
+    const exported = await app!.inject({ method: 'POST', url: '/api/v1/portfolios/export/pdf', headers: bearer(firstUser.accessToken), payload: PORTFOLIO_TEST_INFO });
+    expect(exported.statusCode).toBe(200);
+    expect(exported.headers['content-type']).toBe('application/pdf');
+    const task = getDocument({ data: new Uint8Array(exported.rawPayload), useSystemFonts: true });
+    try {
+      const pdf = await task.promise;
+      const pages: { text: string; images: number }[] = [];
+      for (let n = 1; n <= pdf.numPages; n++) {
+        const page = await pdf.getPage(n);
+        pages.push({ text: (await page.getTextContent()).items.filter((item) => 'str' in item).map((item) => item.str).join(' '),
+          images: (await page.getOperatorList()).fnArray.filter((op) => op === OPS.paintImageXObject || op === OPS.paintInlineImageXObject).length });
+      }
+      const imageIndex = pages.findIndex((page) => page.text.includes('Stored multipage evidence') && page.images > 0);
+      const alpha = pages.findIndex((page) => page.text.includes('EVIDENCE PAGE ALPHA'));
+      const beta = pages.findIndex((page) => page.text.includes('EVIDENCE PAGE BETA'));
+      expect(imageIndex).toBeGreaterThan(0);
+      expect(alpha).toBe(imageIndex + 1);
+      expect(beta).toBe(alpha + 1);
+      expect(pages.map((p) => p.text).join(' ')).not.toContain('not embedded');
+    } finally { await task.destroy(); }
+    // Missing storage must fail the whole export, never return metadata-only success.
+    await services!.storage.delete(pdfKey);
+    const missing = await app!.inject({ method: 'POST', url: '/api/v1/portfolios/export/pdf', headers: bearer(firstUser.accessToken), payload: PORTFOLIO_TEST_INFO });
+    expect(missing.statusCode).toBeGreaterThanOrEqual(400);
+    await services!.storage.put(pdfKey, Readable.from([sourceBytes]));
   });
 
   it('deletes only the authenticated owner portfolio', async () => {

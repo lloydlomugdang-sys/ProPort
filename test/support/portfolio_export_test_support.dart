@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/services.dart';
+import 'legacy_outline_pdf_fixture.dart';
 import 'package:proport_app/screens/portfolio/models/portfolio_models.dart';
 import 'package:proport_app/services/portfolio_export_service.dart';
 
@@ -34,7 +35,7 @@ class MemoryPortfolioExporter implements PortfolioExporter {
       throw StateError('private filesystem detail must not be displayed');
     }
     bytes = format == ExportFormat.pdf
-        ? await PortfolioFileRenderer.pdf(
+        ? await LegacyOutlinePdfFixture.pdf(
             content,
             await rootBundle.load('assets/fonts/NotoSans-Regular.ttf'),
             await rootBundle.load('assets/fonts/NotoSans-Bold.ttf'),

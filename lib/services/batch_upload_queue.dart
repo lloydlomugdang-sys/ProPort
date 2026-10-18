@@ -82,6 +82,55 @@ class BatchUploadQueue extends ChangeNotifier {
   // No document is saved until the user confirms its metadata.
   Future<void> prepare() => _preparation ??= _prepareItems();
 
+  /// Append independent files, preserving IDs, edits and saved items. Use the
+  /// same serial preview/OCR pipeline, only for newly added items.
+  void append(List<PickedDocument> files) {
+    if (_isDisposed || isSavingAll || hasActiveUploads) return;
+    validateFiles(files, remaining: maxBatchSize - totalCount);
+    if (files.isEmpty) return;
+    final added = [
+      for (var i = 0; i < files.length; i++)
+        BatchUploadItem(
+          id: 'batch_item_${DateTime.now().microsecondsSinceEpoch}_${totalCount + i}',
+          file: files[i],
+          title: _cleanFilename(files[i].name),
+          documentDate: DateTime.now(),
+        ),
+    ];
+    final previous = prepare();
+    _items.addAll(added);
+    _preparation = previous.then((_) async {
+      for (final item in added) {
+        if (_isDisposed) return;
+        await prepareItem(item.id);
+      }
+    });
+    notifyListeners();
+  }
+
+  static void validateFiles(List<PickedDocument> files, {int remaining = 20}) {
+    if (files.length > remaining) {
+      throw ApiException(
+        code: 'VALIDATION_ERROR',
+        message: 'You can add up to $remaining more documents (20 total).',
+      );
+    }
+    for (final file in files) {
+      if (!file.hasSupportedUploadType) {
+        throw const ApiException(
+          code: 'VALIDATION_ERROR',
+          message: 'Please select a PDF, JPG, JPEG, or PNG file.',
+        );
+      }
+      if (file.sizeBytes > DocumentService.maxUploadBytes) {
+        throw const ApiException(
+          code: 'VALIDATION_ERROR',
+          message: 'The selected file exceeds the 15 MB upload limit.',
+        );
+      }
+    }
+  }
+
   Future<void> _prepareItems() async {
     for (final item in List<BatchUploadItem>.of(_items)) {
       if (_isDisposed) return;
@@ -287,6 +336,7 @@ class BatchUploadQueue extends ChangeNotifier {
         documentDate: current.documentDate!,
         description: current.description?.trim(),
         reflection: current.reflection?.trim(),
+        scholastic: current.isTor ? current.scholastic : null,
       );
 
       // Immediately release in-memory bytes to free client RAM
@@ -579,6 +629,7 @@ class BatchUploadQueue extends ChangeNotifier {
     DateTime? documentDate,
     String? description,
     String? reflection,
+    ScholasticDetails? scholastic,
     bool isManual = true,
   }) {
     final index = _items.indexWhere((i) => i.id == itemId);
@@ -601,6 +652,7 @@ class BatchUploadQueue extends ChangeNotifier {
       documentDate: updatedDate,
       description: updatedDesc,
       reflection: updatedRefl,
+      scholastic: scholastic,
       isManualCategory: isManual ? true : current.isManualCategory,
       isAutoCategorized: isManual ? false : current.isAutoCategorized,
     );
@@ -616,6 +668,7 @@ class BatchUploadQueue extends ChangeNotifier {
             documentDate: updatedDate,
             description: updatedDesc,
             reflection: updatedRefl,
+            scholastic: scholastic,
           )
           .then((_) {}, onError: (_) {});
     }

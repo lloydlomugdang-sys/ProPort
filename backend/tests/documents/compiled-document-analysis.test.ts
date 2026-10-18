@@ -178,6 +178,23 @@ describe('Compiled document analysis service', () => {
     expect(result.pages[0]?.text).toContain('John Lloyd - Software Engineer and Researcher');
   });
 
+  it('rejects contradictory TOR/CV proposals for a graduation application in a multi-page PDF', async () => {
+    const pdf = await PDFDocument.create();
+    for (const text of ['APPLICATION FOR GRADUATION', 'Graduation application requirements: student name, degree, semester, attach transcript.']) {
+      pdf.addPage([612, 792]).drawText(text, { x: 30, y: 600, size: 10 });
+    }
+    const ai = new AiMetadataService({ recommend: async () => ({}), separateCompiled: async () => ({ documents: [
+      { startPage: 1, endPage: 2, categoryKey: 'scholastic-record', folderKey: 'unofficial-tor-with-reflections',
+        title: 'Curriculum Vitae', documentDate: null, confidence: 0.99 },
+    ] }) });
+    const service = new CompiledDocumentService(disposable.database, storage, ocrEngine, ai);
+    const result = await service.analyze(ownerId, { contents: Buffer.from(await pdf.save()),
+      mimeType: 'application/pdf', originalFileName: 'ordinary.pdf' });
+    expect(result.detection).toBe('needs_review');
+    expect(result.documents.every((d) => d.categoryKey !== 'scholastic-record' && d.categoryKey !== 'curriculum-vitae')).toBe(true);
+    expect(result.documents.some((d) => d.title === 'Curriculum Vitae')).toBe(false);
+  });
+
   it('validates and accepts valid AI separation proposals', async () => {
     const pdfBytes = await createMultiDocPdf();
 

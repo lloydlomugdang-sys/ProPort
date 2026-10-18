@@ -12,6 +12,7 @@ import '../../widgets/grad_app_bar.dart';
 import '../../widgets/primary_button.dart';
 import 'widgets/custom_dropdown.dart';
 import 'widgets/date_picker_field.dart';
+import 'widgets/scholastic_fields.dart';
 
 class _EditableSegment {
   _EditableSegment({
@@ -42,6 +43,8 @@ class _EditableSegment {
   final TextEditingController descCtrl;
   final TextEditingController reflCtrl;
   bool showDetails = false;
+  ScholasticDetails scholastic = const ScholasticDetails();
+  bool get isTor => ScholasticDetails.isTor(categoryKey, folderKey);
   bool confirmedUnresolved = false;
 
   void dispose() {
@@ -332,6 +335,12 @@ class _CompiledReviewScreenState extends State<CompiledReviewScreen> {
         _showSnack('Document ${i + 1}: Please select a valid folder.');
         return;
       }
+      if (seg.isTor && !seg.scholastic.reflectionSatisfied(seg.reflCtrl.text)) {
+        _showSnack(
+          'Document ${i + 1}: Enter a TOR reflection or confirm it is included in the file.',
+        );
+        return;
+      }
     }
     if (nextPage != totalPages + 1) {
       _showSnack('Include every page through page $totalPages before saving.');
@@ -344,6 +353,7 @@ class _CompiledReviewScreenState extends State<CompiledReviewScreen> {
       final service = DocumentScope.of(context);
       final splitSegments = _submittedSegments ??= _segments.map((seg) {
         return CompiledSplitSegment(
+          scholastic: seg.isTor ? seg.scholastic : null,
           startPage: seg.startPage,
           endPage: seg.endPage,
           categoryKey: seg.categoryKey!,
@@ -960,7 +970,14 @@ class _CompiledReviewScreenState extends State<CompiledReviewScreen> {
                   ),
                 ),
 
-                if (seg.showDetails) ...[
+                if (seg.isTor)
+                  ScholasticFields(
+                    value: seg.scholastic,
+                    enabled: !_isSubmitting,
+                    onChanged: (value) =>
+                        setState(() => seg.scholastic = value),
+                  ),
+                if (seg.showDetails || seg.isTor) ...[
                   const SizedBox(height: 8),
                   Text(
                     'Description',

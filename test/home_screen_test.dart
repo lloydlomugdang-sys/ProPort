@@ -6,6 +6,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:proport_app/screens/home/home_screen.dart';
+import 'package:proport_app/screens/profile/profile_screen.dart';
 import 'package:proport_app/screens/files/files_screen.dart';
 import 'package:proport_app/screens/files/view_files_screen.dart';
 import 'package:proport_app/screens/portfolio/portfolio_list_screen.dart';
@@ -21,6 +22,67 @@ import 'package:proport_app/services/document_service.dart';
 import 'package:proport_app/services/secure_token_store.dart';
 
 void main() {
+  for (final profile in [true, false]) {
+    testWidgets(
+      'dashboard card navigates to ${profile ? 'Profile' : 'Files'}',
+      (tester) async {
+        final auth = _DashboardAuthService(_user());
+        final documents = _DashboardDocumentService(auth);
+        await tester.pumpWidget(_testApp(auth, documents));
+        await tester.pumpAndSettle();
+        final card = profile
+            ? find.byKey(const Key('dashboard-profile-card'))
+            : find.text('Total Files');
+        await tester.ensureVisible(card);
+        await tester.tap(card);
+        await tester.pumpAndSettle();
+        expect(
+          find.byType(profile ? ProfileScreen : FilesScreen),
+          findsOneWidget,
+        );
+        await tester.pumpWidget(const SizedBox());
+        documents.dispose();
+        auth.dispose();
+      },
+    );
+  }
+  testWidgets('partial TOR shows concrete reflection and period requirements', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(360, 800);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    final auth = _DashboardAuthService(_user());
+    final documents = _DashboardDocumentService(
+      auth,
+      summary: const DocumentSummary(
+        totalCount: 1,
+        categoryCounts: {'scholastic-record': 1},
+        folderCounts: {'scholastic-record/unofficial-tor-with-reflections': 1},
+        scholasticCoverage: ScholasticCoverage(
+          missingReflection: 1,
+          missingPeriod: 1,
+        ),
+      ),
+    );
+    await tester.pumpWidget(_testApp(auth, documents));
+    await tester.pumpAndSettle();
+    await tester.ensureVisible(find.text('Scholastic Record'));
+    expect(find.textContaining('Missing: Creative Title'), findsOneWidget);
+    expect(find.textContaining('Missing: TOR reflection (1)'), findsOneWidget);
+    expect(
+      find.textContaining('Missing: TOR year / semester (1)'),
+      findsOneWidget,
+    );
+    expect(
+      find.textContaining('required semester coverage awaits confirmation'),
+      findsOneWidget,
+    );
+    await tester.pumpWidget(const SizedBox());
+    documents.dispose();
+    auth.dispose();
+  });
   const categoryLabels = {
     'Curriculum Vitae': 'curriculum-vitae',
     'Scholastic Record': 'scholastic-record',

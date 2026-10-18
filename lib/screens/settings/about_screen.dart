@@ -16,8 +16,8 @@ class AboutScreen extends StatefulWidget {
 class _AboutScreenState extends State<AboutScreen>
     with SingleTickerProviderStateMixin {
   late final AnimationController _entranceCtrl;
-  late final Animation<double>   _fadeAnim;
-  late final Animation<Offset>   _slideAnim;
+  late final Animation<double> _fadeAnim;
+  late final Animation<Offset> _slideAnim;
 
   @override
   void initState() {
@@ -30,13 +30,10 @@ class _AboutScreenState extends State<AboutScreen>
       parent: _entranceCtrl,
       curve: const Interval(0.0, 0.7, curve: Curves.easeOut),
     );
-    _slideAnim = Tween<Offset>(
-      begin: const Offset(0, 0.05),
-      end: Offset.zero,
-    ).animate(CurvedAnimation(
-      parent: _entranceCtrl,
-      curve: Curves.easeOutCubic,
-    ));
+    _slideAnim = Tween<Offset>(begin: const Offset(0, 0.05), end: Offset.zero)
+        .animate(
+          CurvedAnimation(parent: _entranceCtrl, curve: Curves.easeOutCubic),
+        );
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) _entranceCtrl.forward();
     });
@@ -139,24 +136,26 @@ class _AboutScreenState extends State<AboutScreen>
           ),
           const SizedBox(height: 14),
           RichText(
-            text: TextSpan(children: [
-              TextSpan(
-                text: 'Grad',
-                style: GoogleFonts.poppins(
-                  fontSize: 26,
-                  fontWeight: FontWeight.w700,
-                  color: AppColors.primary,
+            text: TextSpan(
+              children: [
+                TextSpan(
+                  text: 'Grad',
+                  style: GoogleFonts.poppins(
+                    fontSize: 26,
+                    fontWeight: FontWeight.w700,
+                    color: AppColors.primary,
+                  ),
                 ),
-              ),
-              TextSpan(
-                text: 'Port',
-                style: GoogleFonts.poppins(
-                  fontSize: 26,
-                  fontWeight: FontWeight.w400,
-                  color: AppColors.neutral,
+                TextSpan(
+                  text: 'Port',
+                  style: GoogleFonts.poppins(
+                    fontSize: 26,
+                    fontWeight: FontWeight.w400,
+                    color: AppColors.neutral,
+                  ),
                 ),
-              ),
-            ]),
+              ],
+            ),
           ),
           const SizedBox(height: 8),
           Container(
@@ -165,7 +164,8 @@ class _AboutScreenState extends State<AboutScreen>
               color: AppColors.primary.withValues(alpha: 0.10),
               borderRadius: BorderRadius.circular(20),
               border: Border.all(
-                  color: AppColors.primary.withValues(alpha: 0.25)),
+                color: AppColors.primary.withValues(alpha: 0.25),
+              ),
             ),
             child: Text(
               'Version 2.0.0',
@@ -211,7 +211,7 @@ class _AboutScreenState extends State<AboutScreen>
           ),
           const SizedBox(height: 8),
           Text(
-            'GradPort is a mobile portfolio tracker designed for CICS students. It helps students organise their academic documents, track career milestones, and generate professional portfolios — all from their smartphones.',
+            'GradPort is an academic portfolio and document management application for CICS students. Organise academic evidence, review extracted text, and prepare portfolios from your saved documents.',
             style: GoogleFonts.poppins(
               fontSize: 13,
               color: AppColors.textSecondary,
@@ -224,8 +224,11 @@ class _AboutScreenState extends State<AboutScreen>
           Row(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              const Icon(Icons.flag_rounded,
-                  color: AppColors.primary, size: 20),
+              const Icon(
+                Icons.flag_rounded,
+                color: AppColors.primary,
+                size: 20,
+              ),
               const SizedBox(width: 10),
               Expanded(
                 child: Column(
@@ -259,8 +262,11 @@ class _AboutScreenState extends State<AboutScreen>
           Row(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              const Icon(Icons.visibility_rounded,
-                  color: AppColors.secondary, size: 20),
+              const Icon(
+                Icons.visibility_rounded,
+                color: AppColors.secondary,
+                size: 20,
+              ),
               const SizedBox(width: 10),
               Expanded(
                 child: Column(
@@ -307,14 +313,14 @@ class _AboutScreenState extends State<AboutScreen>
         icon: Icons.auto_awesome_rounded,
         title: 'Portfolio Generation',
         description:
-            'Automatically compile your documents into a professional PDF or DOCX portfolio.',
+            'Compile saved document evidence into a PDF portfolio, or export an editable DOCX outline.',
         color: Color(0xFF7B2D8B),
       ),
       _Feature(
         icon: Icons.document_scanner_rounded,
         title: 'OCR Scanning',
         description:
-            'Extract text from scanned documents using Google ML Kit Optical Character Recognition.',
+            'Read text from scanned pages and images, then review suggested document details before saving.',
         color: Color(0xFF0288D1),
       ),
       _Feature(
@@ -324,10 +330,10 @@ class _AboutScreenState extends State<AboutScreen>
             'Maintain your academic profile with name, program, year level, and school details.',
         color: Color(0xFF388E3C),
       ),
-     
+
       _Feature(
         icon: Icons.track_changes_rounded,
-        title: 'Career Tracking',
+        title: 'Portfolio Organisation',
         description:
             'Monitor your academic milestones and progress across all portfolio sections.',
         color: Color(0xFFD32F2F),
@@ -336,15 +342,17 @@ class _AboutScreenState extends State<AboutScreen>
 
     return Column(
       children: features
-          .map((f) => Padding(
-                padding: const EdgeInsets.only(bottom: 10),
-                child: InfoCard(
-                  icon: f.icon,
-                  title: f.title,
-                  description: f.description,
-                  iconColor: f.color,
-                ),
-              ))
+          .map(
+            (f) => Padding(
+              padding: const EdgeInsets.only(bottom: 10),
+              child: InfoCard(
+                icon: f.icon,
+                title: f.title,
+                description: f.description,
+                iconColor: f.color,
+              ),
+            ),
+          )
           .toList(),
     );
   }
@@ -352,14 +360,13 @@ class _AboutScreenState extends State<AboutScreen>
   // ── Technology Stack ──────────────────────────────────────────────────────────
   Widget _buildTechStack() {
     const techs = [
-      _Tech(label: 'Flutter',          color: Color(0xFF0553B1)),
-      _Tech(label: 'MongoDB',          color: Color(0xFF116149)),
-      _Tech(label: 'Node.js',          color: Color(0xFF417E38)),
-      _Tech(label: 'Google ML Kit',    color: Color(0xFF1A73E8)),
-      _Tech(label: 'Gemini API',       color: Color(0xFF7B2D8B)),
-      _Tech(label: 'Firebase',         color: Color(0xFFF57C00)),
-      _Tech(label: 'Dart',             color: Color(0xFF00B4D8)),
-      _Tech(label: 'REST API',         color: Color(0xFF546E7A)),
+      _Tech(label: 'Flutter', color: Color(0xFF0553B1)),
+      _Tech(label: 'MongoDB', color: Color(0xFF116149)),
+      _Tech(label: 'Node.js', color: Color(0xFF417E38)),
+      _Tech(label: 'Tesseract OCR', color: Color(0xFF1A73E8)),
+      _Tech(label: 'Gemini text analysis', color: Color(0xFF7B2D8B)),
+      _Tech(label: 'Dart', color: Color(0xFF00B4D8)),
+      _Tech(label: 'REST API', color: Color(0xFF546E7A)),
     ];
 
     return Container(
@@ -409,22 +416,27 @@ class _AboutScreenState extends State<AboutScreen>
         children: [
           Row(
             children: [
-              const Icon(Icons.groups_rounded,
-                  color: AppColors.primary, size: 22),
+              const Icon(
+                Icons.groups_rounded,
+                color: AppColors.primary,
+                size: 22,
+              ),
               const SizedBox(width: 10),
-              Text(
-                'Capstone Development Team',
-                style: GoogleFonts.poppins(
-                  fontSize: 14,
-                  fontWeight: FontWeight.w700,
-                  color: AppColors.textPrimary,
+              Expanded(
+                child: Text(
+                  'Capstone Development Team',
+                  style: GoogleFonts.poppins(
+                    fontSize: 14,
+                    fontWeight: FontWeight.w700,
+                    color: AppColors.textPrimary,
+                  ),
                 ),
               ),
             ],
           ),
           const SizedBox(height: 12),
           Text(
-            'GradPort was developed as a capstone project by BSIT students dedicated to making career portfolio tracker accessible for every CICS students.',
+            'GradPort was developed as a capstone project by BSIT students to make academic portfolio and document management accessible to CICS students.',
             style: GoogleFonts.poppins(
               fontSize: 13,
               color: AppColors.textSecondary,
@@ -454,14 +466,11 @@ class _AboutScreenState extends State<AboutScreen>
         Text(
           '© 2025–2026 GradPort. All rights reserved.',
           textAlign: TextAlign.center,
-          style: GoogleFonts.poppins(
-            fontSize: 11,
-            color: AppColors.textMuted,
-          ),
+          style: GoogleFonts.poppins(fontSize: 11, color: AppColors.textMuted),
         ),
         const SizedBox(height: 4),
         Text(
-          'Privacy Notice: All data is handled in accordance with applicable privacy laws. In development mode, data is stored locally and not transmitted to any server.',
+          'Your saved documents and account details are stored in your GradPort account. Only upload information you are authorized to share.',
           textAlign: TextAlign.center,
           style: GoogleFonts.poppins(
             fontSize: 11,

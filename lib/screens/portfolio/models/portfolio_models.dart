@@ -217,9 +217,9 @@ extension ExportFormatExtension on ExportFormat {
   String get subtitle {
     switch (this) {
       case ExportFormat.pdf:
-        return 'Best for printing and sharing.';
+        return 'Includes saved image and PDF evidence.';
       case ExportFormat.docx:
-        return 'Best for editing.';
+        return 'Editable outline only; use PDF for evidence.';
     }
   }
 }

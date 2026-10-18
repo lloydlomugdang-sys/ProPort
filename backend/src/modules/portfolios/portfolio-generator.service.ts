@@ -9,6 +9,8 @@ import type { DatabaseConnection } from '../../infrastructure/database/database-
 import type { ObjectStorage } from '../../infrastructure/storage/object-storage.js';
 import { CollegeReportService, type OfficialReportView } from '../college-report/college-report.service.js';
 import { collegeReportPages } from '../college-report/college-report.pdf.js';
+import { flattenExportForm } from './flatten-export-form.js';
+import { standardTitlePage } from './portfolio-title-page.js';
 import {
   CONTENT_WIDTH, PORTFOLIO_LAYOUT as L, TEXT_LINES_PER_PAGE, fitPortfolioArtifact,
   loadPortfolioFallbackFonts, wrapPortfolioText,
@@ -36,7 +38,7 @@ interface Item { readonly document: DocumentRecord; readonly attachments: readon
 interface Subsection { readonly key: string; readonly name: string; readonly items: Item[] }
 interface Section { readonly key: string; readonly name: string; readonly subsections: Subsection[] }
 type PlannedPage =
-  | { readonly kind: 'text'; readonly lines: readonly TextLine[] }
+  | { readonly kind: 'text'; readonly lines: readonly TextLine[]; readonly centered?: boolean }
   | { readonly kind: 'image'; readonly image: PDFImage; readonly lines: readonly TextLine[] }
   | { readonly kind: 'pdf'; readonly page: PDFEmbeddedPage; readonly rotation: number };
 interface TocEntry { readonly title: string; readonly pageIndex: number; readonly level: number }
@@ -155,7 +157,7 @@ export class PortfolioGeneratorService {
     };
     const lines = (text: string, bold = false): TextLine[] =>
       wrapPortfolioText(text, bold ? fonts.bold : fonts.regular).map((text) => ({ text, bold, indent: 0 }));
-    const addTextPages = (content: readonly TextLine[]) => {
+    const addTextPages = (content: readonly TextLine[], centered = false) => {
       for (let start = 0; start < content.length;) {
         let end = Math.min(start + TEXT_LINES_PER_PAGE, content.length);
         if (end < content.length) {
@@ -163,20 +165,12 @@ export class PortfolioGeneratorService {
           while (end > start && content[end - 1]!.bold) end--;
           if (end === start) end = start + TEXT_LINES_PER_PAGE;
         }
-        addPage({ kind: 'text', lines: content.slice(start, end) });
+        addPage({ kind: 'text', lines: content.slice(start, end), centered });
         start = end;
       }
     };
     // Pass 1: measure all text and artifact pages using the same fonts as rendering.
-    addTextPages([
-      ...lines('ACADEMIC PORTFOLIO', true), ...lines('Standard Title'), ...lines(''),
-      ...[
-        ['Full Name', info.fullName], ['Year & Section', info.yearAndSection],
-        ['Schedule', info.schedule], ["Instructor's Name", info.instructorName],
-        ['Course', info.course], ['Course Code', info.courseCode],
-        ['Semester & Academic Year', info.semesterAndYear],
-      ].flatMap(([label, value]) => lines(`${label}: ${value || '-'}`)),
-    ]);
+    addTextPages(standardTitlePage(info).flatMap((value, index) => lines(value, index === 0)), true);
 
     const planSection = async (section: Section) => {
       entries.push({ title: section.name, pageIndex: pages.length, level: 0 });
@@ -203,12 +197,13 @@ export class PortfolioGeneratorService {
             const header = [
               ...lines(doc.title, true),
               ...(item.attachments.length > 1 ? lines(`Page ${index + 1} of ${item.attachments.length}`) : []),
-              ...lines(`${sub.name} | ${new Date(doc.documentDate).toISOString().slice(0, 10)}`),
+              ...(section.key === 'creative-title' ? [] : lines(`${sub.name} | ${new Date(doc.documentDate).toISOString().slice(0, 10)}`)),
             ];
             if (attachment.fileKind === 'pdf') {
               if (index === 0 && metadata.length) addTextPages([...header, ...metadata]);
               try {
                 const source = await PDFDocument.load(bytes);
+                flattenExportForm(source);
                 if (source.getPageCount() === 0) throw new Error('Empty PDF');
                 if (pages.length + source.getPageCount() > MAX_PORTFOLIO_TOTAL_PAGES) {
                   throw tooLarge('The maximum is 150 pages including front matter. Reduce the document/page count.');
@@ -225,7 +220,7 @@ export class PortfolioGeneratorService {
                   });
                   if (hasVisibleAnnotations) {
                     throw new AppError(422, 'PORTFOLIO_ARTIFACT_UNSUPPORTED',
-                      'A PDF contains form fields or annotations. Upload a flattened copy before exporting so their visible content is preserved. Your original file is unchanged.');
+                      'A PDF contains unsupported annotations. Open it in a PDF reader, print to PDF with visible annotations, and upload that copy. Your original file is unchanged.');
                   }
                   // Preserve the source's visible page boundary, including a
                   // pre-existing CropBox, rather than revealing hidden margins.
@@ -305,9 +300,10 @@ export class PortfolioGeneratorService {
     }
 
     // Pass 2: render the measured page plan, inserting the TOC after Creative Title.
-    const drawLines = (page: ReturnType<PDFDocument['addPage']>, content: readonly TextLine[]) => {
+    const drawLines = (page: ReturnType<PDFDocument['addPage']>, content: readonly TextLine[], centered = false) => {
       content.forEach((line, index) => page.drawText(line.text, {
-        x: L.left + line.indent, y: page.getHeight() - L.top - L.bodySize - index * L.lineHeight,
+        x: centered ? L.left + (CONTENT_WIDTH - (line.bold ? fonts.bold : fonts.regular).widthOfTextAtSize(line.text, L.bodySize)) / 2 : L.left + line.indent,
+        y: page.getHeight() - L.top - L.bodySize - index * L.lineHeight,
         size: L.bodySize, font: line.bold ? fonts.bold : fonts.regular,
         ...(line.bold ? { color: PRIMARY } : {}),
       }));
@@ -349,7 +345,7 @@ export class PortfolioGeneratorService {
         });
       } else {
         const page = pdf.addPage([L.width, L.height]);
-        drawLines(page, planned.lines);
+        drawLines(page, planned.lines, planned.kind === 'text' && planned.centered);
         if (planned.kind === 'image') {
           const fit = fitPortfolioArtifact(planned.image.width, planned.image.height, L.width, L.height,
             planned.lines.length * L.lineHeight + L.bodySize, L.lineHeight + L.bodySize);

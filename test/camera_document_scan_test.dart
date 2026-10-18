@@ -143,6 +143,7 @@ class _TestDocumentService extends DocumentService {
     required DateTime documentDate,
     String? description,
     String? reflection,
+    ScholasticDetails? scholastic,
   }) async {
     uploadCalls++;
     uploadedFiles = files ?? (file == null ? [] : [file]);

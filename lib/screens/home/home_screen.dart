@@ -17,6 +17,7 @@ import '../portfolio/portfolio_list_screen.dart';
 import '../portfolio/portfolio_info_screen.dart';
 import '../files/files_screen.dart';
 import '../profile/widgets/profile_avatar.dart';
+import '../profile/profile_screen.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -98,7 +99,15 @@ class _HomeScreenState extends State<HomeScreen>
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                _buildUserCard(currentUser, auth.avatarBytes),
+                InkWell(
+                  key: const Key('dashboard-profile-card'),
+                  onTap: () => Navigator.of(context).push(
+                    MaterialPageRoute<void>(
+                      builder: (_) => const ProfileScreen(),
+                    ),
+                  ),
+                  child: _buildUserCard(currentUser, auth.avatarBytes),
+                ),
                 const SizedBox(height: 20),
                 if (!documents.hasLoadedDocuments)
                   _DocumentMetricsState(
@@ -112,6 +121,7 @@ class _HomeScreenState extends State<HomeScreen>
                     label: 'Total Files',
                     value: documents.summary.totalCount.toString(),
                     icon: Icons.folder_copy_rounded,
+                    onTap: () => _openCategory('All Files'),
                   ),
                   const SizedBox(height: 22),
                   const SectionHeader(title: 'Portfolio Tracker'),
@@ -199,7 +209,6 @@ class _HomeScreenState extends State<HomeScreen>
       ),
     );
   }
-
 
   Widget _buildUserCard(AuthUser? user, [Uint8List? avatarBytes]) {
     final fullName = user == null
@@ -341,14 +350,30 @@ class _HomeScreenState extends State<HomeScreen>
       _TrackerItem(
         'Curriculum Vitae',
         _trackerStatus(summary.categoryCount('curriculum-vitae')),
+        summary.folderCount('curriculum-vitae', 'curriculum-vitae') == 0
+            ? 'Add your curriculum vitae evidence.'
+            : 'Evidence recorded; review it before export.',
       ),
       _TrackerItem(
         'Scholastic Record',
         _trackerStatus(summary.categoryCount('scholastic-record')),
+        [
+          if (summary.creativeTitleCount == 0) 'Missing: Creative Title',
+          if (summary.folderCount(
+                'scholastic-record',
+                'unofficial-tor-with-reflections',
+              ) ==
+              0)
+            'Missing: TOR record',
+          ...?summary.scholasticCoverage?.reasons,
+          if (summary.scholasticCoverage == null)
+            'Year / semester coverage needs review.',
+        ].join('\n'),
       ),
       _TrackerItem(
         'College Report',
         _trackerStatus(summary.categoryCount('college-report')),
+        'Optional questionnaire: use Save Responses to include answers in export.',
       ),
     ];
     return Container(
@@ -374,6 +399,7 @@ class _HomeScreenState extends State<HomeScreen>
               TrackerRow(
                 label: item.label,
                 status: item.status,
+                reason: item.reason,
                 onTap: () => _openCategory(item.label),
               ),
               if (idx < trackerItems.length - 1)
@@ -458,9 +484,10 @@ class _HomeScreenState extends State<HomeScreen>
 }
 
 class _TrackerItem {
-  const _TrackerItem(this.label, this.status);
+  const _TrackerItem(this.label, this.status, this.reason);
   final String label;
   final TrackerStatus status;
+  final String reason;
 }
 
 class _FileCountItem {

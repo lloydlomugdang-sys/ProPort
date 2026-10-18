@@ -9,6 +9,7 @@ import '../../services/portfolio_scope.dart';
 import '../../widgets/grad_app_bar.dart';
 import 'models/portfolio_models.dart';
 import 'models/portfolio_schedule.dart';
+import 'models/academic_term.dart';
 import 'portfolio_summary_screen.dart';
 import 'widgets/portfolio_schedule_picker.dart';
 import 'widgets/portfolio_text_field.dart';
@@ -49,6 +50,62 @@ class _PortfolioInfoScreenState extends State<PortfolioInfoScreen>
   final _courseCtrl = TextEditingController();
   final _courseCodeCtrl = TextEditingController();
   final _semesterYearCtrl = TextEditingController();
+  String? _semester;
+  String? _legacyTerm;
+  bool _prefillStarted = false;
+  final _edited = <String>{};
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (_prefillStarted || widget.portfolio != null) return;
+    _prefillStarted = true;
+    final service = PortfolioScope.of(context);
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      try {
+        final records = await service.loadPortfolios();
+        if (!mounted || records.isEmpty) return;
+        final sorted = records.toList()
+          ..sort((a, b) => b.updatedAt.compareTo(a.updatedAt));
+        setState(() => _prefill(sorted.first.info));
+      } catch (_) {
+        if (mounted) {
+          _showError(
+            'Saved title-page details could not be loaded. You can still enter them below.',
+          );
+        }
+      }
+    });
+  }
+
+  void _prefill(PortfolioInfo info) {
+    final values = info.normalizedMap;
+    final controllers = {
+      'fullName': _fullNameCtrl,
+      'yearAndSection': _yearSectionCtrl,
+      'instructorName': _instructorCtrl,
+      'course': _courseCtrl,
+      'courseCode': _courseCodeCtrl,
+    };
+    for (final entry in controllers.entries) {
+      if (!_edited.contains(entry.key)) entry.value.text = values[entry.key]!;
+    }
+    if (!_edited.contains('semesterAndYear')) {
+      final term = AcademicTerm.parse(info.semesterAndYear);
+      _semester = term.$1;
+      _semesterYearCtrl.text = term.$2;
+      _legacyTerm = term.$1 == null || term.$2.isEmpty
+          ? info.semesterAndYear
+          : null;
+    }
+    if (!_edited.contains('schedule')) {
+      final parsed = PortfolioSchedule.tryParse(info.schedule);
+      _legacySchedule = parsed == null ? info.schedule : null;
+      _scheduleDay = parsed?.day;
+      _scheduleStartTime = parsed?.startTime;
+      _scheduleEndTime = parsed?.endTime;
+    }
+  }
 
   // ─── Entrance animation ───────────────────────────────────────────────────────
   late final AnimationController _entranceCtrl;
@@ -73,7 +130,12 @@ class _PortfolioInfoScreenState extends State<PortfolioInfoScreen>
       _instructorCtrl.text = info.instructorName;
       _courseCtrl.text = info.course;
       _courseCodeCtrl.text = info.courseCode;
-      _semesterYearCtrl.text = info.semesterAndYear;
+      final term = AcademicTerm.parse(info.semesterAndYear);
+      _semester = term.$1;
+      _semesterYearCtrl.text = term.$2;
+      _legacyTerm = term.$1 == null || term.$2.isEmpty
+          ? info.semesterAndYear
+          : null;
     }
     _entranceCtrl = AnimationController(
       vsync: this,
@@ -130,10 +192,17 @@ class _PortfolioInfoScreenState extends State<PortfolioInfoScreen>
       instructorName: _instructorCtrl.text.trim(),
       course: _courseCtrl.text.trim(),
       courseCode: _courseCodeCtrl.text.trim(),
-      semesterAndYear: _semesterYearCtrl.text.trim(),
+      semesterAndYear:
+          '${_semester ?? ''}, A.Y. ${_semesterYearCtrl.text.trim()}',
     );
 
     final errors = info.validationErrors;
+    if (_semester == null) {
+      errors['semesterAndYear'] = 'Please select a semester.';
+    } else if (AcademicTerm.validateYear(_semesterYearCtrl.text)
+        case final String error) {
+      errors['semesterAndYear'] = error;
+    }
     final scheduleError = _scheduleDay == null
         ? 'Please select a schedule day.'
         : _scheduleStartTime == null
@@ -261,8 +330,10 @@ class _PortfolioInfoScreenState extends State<PortfolioInfoScreen>
                         key: _fieldKeys['fullName'],
                         focusNode: _focusNodes['fullName'],
                         errorText: _errors['fullName'],
-                        onChanged: (_) =>
-                            setState(() => _errors.remove('fullName')),
+                        onChanged: (_) => setState(() {
+                          _edited.add('fullName');
+                          _errors.remove('fullName');
+                        }),
                         label: 'Full Name',
                         hint: 'Dela Cruz, John',
                         required: true,
@@ -277,8 +348,10 @@ class _PortfolioInfoScreenState extends State<PortfolioInfoScreen>
                         key: _fieldKeys['yearAndSection'],
                         focusNode: _focusNodes['yearAndSection'],
                         errorText: _errors['yearAndSection'],
-                        onChanged: (_) =>
-                            setState(() => _errors.remove('yearAndSection')),
+                        onChanged: (_) => setState(() {
+                          _edited.add('yearAndSection');
+                          _errors.remove('yearAndSection');
+                        }),
                         label: 'Year & Section',
                         hint: 'e.g. 4BSIT-1',
                         required: true,
@@ -294,14 +367,17 @@ class _PortfolioInfoScreenState extends State<PortfolioInfoScreen>
                         endTime: _scheduleEndTime,
                         legacyValue: _legacySchedule,
                         onDayChanged: (value) => setState(() {
+                          _edited.add('schedule');
                           _scheduleDay = value;
                           _legacySchedule = null;
                         }),
                         onStartTimeChanged: (value) => setState(() {
+                          _edited.add('schedule');
                           _scheduleStartTime = value;
                           _legacySchedule = null;
                         }),
                         onEndTimeChanged: (value) => setState(() {
+                          _edited.add('schedule');
                           _scheduleEndTime = value;
                           _legacySchedule = null;
                         }),
@@ -322,8 +398,10 @@ class _PortfolioInfoScreenState extends State<PortfolioInfoScreen>
                         key: _fieldKeys['instructorName'],
                         focusNode: _focusNodes['instructorName'],
                         errorText: _errors['instructorName'],
-                        onChanged: (_) =>
-                            setState(() => _errors.remove('instructorName')),
+                        onChanged: (_) => setState(() {
+                          _edited.add('instructorName');
+                          _errors.remove('instructorName');
+                        }),
                         label: "Instructor's Name",
                         hint: 'First Name, Middle Initial, Last name',
                         required: true,
@@ -338,8 +416,10 @@ class _PortfolioInfoScreenState extends State<PortfolioInfoScreen>
                         key: _fieldKeys['course'],
                         focusNode: _focusNodes['course'],
                         errorText: _errors['course'],
-                        onChanged: (_) =>
-                            setState(() => _errors.remove('course')),
+                        onChanged: (_) => setState(() {
+                          _edited.add('course');
+                          _errors.remove('course');
+                        }),
                         required: true,
                         label: 'Course',
                         hint: 'Free Elective',
@@ -353,8 +433,10 @@ class _PortfolioInfoScreenState extends State<PortfolioInfoScreen>
                         key: _fieldKeys['courseCode'],
                         focusNode: _focusNodes['courseCode'],
                         errorText: _errors['courseCode'],
-                        onChanged: (_) =>
-                            setState(() => _errors.remove('courseCode')),
+                        onChanged: (_) => setState(() {
+                          _edited.add('courseCode');
+                          _errors.remove('courseCode');
+                        }),
                         required: true,
                         label: 'Course Code',
                         hint: 'e.g. CCSFE4-18',
@@ -363,16 +445,39 @@ class _PortfolioInfoScreenState extends State<PortfolioInfoScreen>
                       const SizedBox(height: 14),
 
                       // ── Semester & Academic Year ───────────────────
+                      if (_legacyTerm != null)
+                        Text(
+                          'Previously saved: $_legacyTerm. Select a semester and academic year to update it.',
+                        ),
+                      DropdownButtonFormField<String>(
+                        key: ValueKey('portfolio-semester-$_semester'),
+                        initialValue: _semester,
+                        decoration: const InputDecoration(
+                          labelText: 'Semester',
+                        ),
+                        items: [
+                          for (final value in AcademicTerm.semesters)
+                            DropdownMenuItem(value: value, child: Text(value)),
+                        ],
+                        onChanged: (value) => setState(() {
+                          _edited.add('semesterAndYear');
+                          _semester = value;
+                          _errors.remove('semesterAndYear');
+                        }),
+                      ),
+                      const SizedBox(height: 14),
                       PortfolioTextField(
                         controller: _semesterYearCtrl,
                         key: _fieldKeys['semesterAndYear'],
                         focusNode: _focusNodes['semesterAndYear'],
                         errorText: _errors['semesterAndYear'],
-                        onChanged: (_) =>
-                            setState(() => _errors.remove('semesterAndYear')),
+                        onChanged: (_) => setState(() {
+                          _edited.add('semesterAndYear');
+                          _errors.remove('semesterAndYear');
+                        }),
                         required: true,
-                        label: 'Semester & Academic Year',
-                        hint: 'e.g. 2nd Semester, A.Y. 2025-2026',
+                        label: 'Academic Year',
+                        hint: '2025-2026',
                         textInputAction: TextInputAction.done,
                         onSubmitted: (_) => _onNext(),
                       ),

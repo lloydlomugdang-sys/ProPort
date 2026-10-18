@@ -2,7 +2,7 @@ import type { FastifyBaseLogger } from 'fastify';
 import type { MetadataProvider } from '../../infrastructure/ai/metadata-provider.js';
 import { MetadataProviderError, metadataRecommendationSchema } from '../../infrastructure/ai/metadata-provider.js';
 import type { PublicDocumentCategory } from './document.service.js';
-import { resolveCanonicalTaxonomy, suggestDocumentMetadata, type MetadataSuggestions } from './metadata-suggestion.service.js';
+import { hasConsistentClassification, resolveCanonicalTaxonomy, suggestDocumentMetadata, type MetadataSuggestions } from './metadata-suggestion.service.js';
 
 export const AI_MAX_INPUT_LENGTH = 12_000;
 
@@ -56,6 +56,11 @@ export function validateAiMetadata(value: unknown, text: string, categories: rea
   const category = resolved.category;
   const matchedFolderKey = resolved.folderKey;
   const title = plainText(record.title, 250);
+  if (!hasConsistentClassification({
+    ...(category ? { categoryKey: category.key } : {}),
+    ...(matchedFolderKey ? { folderKey: matchedFolderKey } : {}),
+    ...(title ? { title } : {}),
+  }, text)) throw new MetadataProviderError('invalid_response', 'AI_GROUNDING_REJECTED');
   // Recipient lines are evidence of identity, not of an activity title.
   const recipients = [...text.matchAll(/(?:presented|awarded|issued)\s+to[^\S\n]*\n?([^\n]+)/gi)]
     .map((match) => comparable(match[1]!.split(/\s+for\b/i)[0]!));
@@ -149,7 +154,7 @@ export class AiMetadataService {
           const folderKey =
             aiSuggestions.folderKey ??
             (sameOrUnsetCategory ? fallback.folderKey : undefined);
-          const title = aiSuggestions.title ?? fallback.title;
+          const title = aiSuggestions.title ?? (sameOrUnsetCategory ? fallback.title : undefined);
           const documentDate = aiSuggestions.documentDate ?? fallback.documentDate;
           const description =
             aiSuggestions.description ??
@@ -168,6 +173,9 @@ export class AiMetadataService {
             ...(description === undefined ? {} : { description }),
             confidence,
           };
+          if (!hasConsistentClassification(metadataSuggestions, text)) {
+            throw new MetadataProviderError('invalid_response', 'AI_GROUNDING_REJECTED');
+          }
           this.logger?.info({
             requestId, provider: 'gemini', model: this.provider.model ?? 'unknown',
             code: 'AI_SUCCESS', httpStatus: 200, latencyMs: Math.round(performance.now() - startedAt),

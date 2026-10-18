@@ -9,6 +9,7 @@ import 'package:proport_app/services/batch_upload_queue.dart';
 import 'package:proport_app/services/document_models.dart';
 import 'package:proport_app/services/document_scope.dart';
 import 'package:proport_app/services/document_service.dart';
+import 'package:proport_app/services/document_picker.dart';
 import 'package:proport_app/services/secure_token_store.dart';
 import 'package:proport_app/screens/files/widgets/custom_dropdown.dart';
 import 'package:proport_app/screens/files/widgets/date_picker_field.dart';
@@ -130,6 +131,7 @@ class _TestDocService extends DocumentService {
     required DateTime documentDate,
     String? description,
     String? reflection,
+    ScholasticDetails? scholastic,
   }) async {
     uploadCalls++;
     if (file != null) {
@@ -162,6 +164,7 @@ class _TestDocService extends DocumentService {
     DateTime? documentDate,
     String? description,
     String? reflection,
+    ScholasticDetails? scholastic,
   }) async {
     return DocumentRecord(
       id: documentId,
@@ -194,7 +197,47 @@ Widget _wrap(Widget child, DocumentService service) {
   );
 }
 
+class _MorePicker extends DocumentPicker {
+  @override
+  Future<PickedDocument?> pickDocument() async => null;
+  @override
+  Future<List<PickedDocument>> pickDocuments({
+    bool allowMultiple = true,
+  }) async {
+    expect(allowMultiple, isTrue);
+    return [_makeDoc('additional-one.pdf'), _makeDoc('additional-two.pdf')];
+  }
+}
+
 void main() {
+  testWidgets(
+    'Add more appends independent documents on narrow Review Files without overflowing',
+    (tester) async {
+      tester.view.physicalSize = const Size(360, 800);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      final service = _TestDocService();
+      final queue = BatchUploadQueue(documentService: service);
+      queue.initialize([_makeDoc('${'Very-long-filename-' * 18}.pdf')]);
+      await tester.pumpWidget(
+        _wrap(BatchReviewScreen(queue: queue, picker: _MorePicker()), service),
+      );
+      await tester.pumpAndSettle();
+      expect(find.text('Review Files (0/1)'), findsOneWidget);
+      final id = queue.items.first.id;
+      await tester.tap(find.text('Add more files'));
+      await tester.pumpAndSettle();
+      expect(find.text('Review Files (0/3)'), findsOneWidget);
+      expect(queue.items.first.id, id);
+      expect(service.previewCalls, 3);
+      expect(service.uploadCalls, 0);
+      expect(tester.takeException(), isNull);
+      await tester.pumpWidget(const SizedBox());
+      queue.dispose();
+      service.dispose();
+    },
+  );
   testWidgets(
     'one JPEG shows progress, suggested metadata and Save Document completion without navigation assumptions',
     (tester) async {

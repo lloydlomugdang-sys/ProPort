@@ -39,6 +39,17 @@ class _CollegeReportScreenState extends State<CollegeReportScreen> {
     return Scaffold(
       backgroundColor: AppColors.background,
       appBar: const GradBackAppBar(title: 'College Report'),
+      bottomNavigationBar: service.loaded
+          ? SafeArea(
+              minimum: const EdgeInsets.fromLTRB(20, 8, 20, 12),
+              child: PrimaryButton(
+                label: 'Save Responses',
+                icon: Icons.save_outlined,
+                onPressed: () => _save(service),
+                isLoading: service.isSaving,
+              ),
+            )
+          : null,
       body: !service.loaded
           ? Center(
               child: service.errorMessage == null
@@ -71,6 +82,12 @@ class _CollegeReportScreenState extends State<CollegeReportScreen> {
                   const Text(
                     'All responses are optional. Tap a selected choice again to leave it unanswered. Only saved responses appear in a newly generated portfolio.',
                   ),
+                  const Padding(
+                    padding: EdgeInsets.only(top: 10),
+                    child: Text(
+                      'Best completed near the end of your program, especially 4th year / 2nd semester. You can start earlier and save optional responses at any time.',
+                    ),
+                  ),
                   if (service.hasLegacyReport)
                     const Padding(
                       padding: EdgeInsets.only(top: 12),
@@ -79,19 +96,10 @@ class _CollegeReportScreenState extends State<CollegeReportScreen> {
                       ),
                     ),
                   if (service.isLoading) const LinearProgressIndicator(),
-                  if (!service.templateReady)
-                    const Padding(
+                  if (service.draftWarning != null)
+                    Padding(
                       padding: EdgeInsets.only(top: 12),
-                      child: Text(
-                        'College Report is not configured yet. Please contact support. Your answers are still here; retry after setup is complete.',
-                      ),
-                    ),
-                  if (!service.templateReady)
-                    TextButton(
-                      onPressed: service.isLoading || service.isSaving
-                          ? null
-                          : () => service.load(force: true),
-                      child: const Text('Retry'),
+                      child: Text(service.draftWarning!),
                     ),
                   const SizedBox(height: 16),
                   for (final section in service.template!.sections)
@@ -138,13 +146,6 @@ class _CollegeReportScreenState extends State<CollegeReportScreen> {
                         : 'Saved to your account',
                   ),
                   const SizedBox(height: 16),
-                  if (service.templateReady)
-                    PrimaryButton(
-                      label: 'Save Report',
-                      icon: Icons.save_outlined,
-                      onPressed: () => _save(service),
-                      isLoading: service.isSaving,
-                    ),
                 ],
               ),
             ),

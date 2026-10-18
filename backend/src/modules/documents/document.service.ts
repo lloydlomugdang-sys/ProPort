@@ -18,6 +18,7 @@ import {
 import type { ObjectStorage } from '../../infrastructure/storage/object-storage.js';
 import { suggestDocumentMetadata, type MetadataSuggestions } from './metadata-suggestion.service.js';
 import { AiMetadataService, type MetadataAnalysis } from './ai-metadata.service.js';
+import { requireTorReflection, validateScholasticDetails, type ScholasticDetails } from './scholastic-details.js';
 
 export const MAX_DOCUMENT_FILE_SIZE_BYTES = 15 * 1024 * 1024;
 export const MAX_DOCUMENT_ATTACHMENTS = 10;
@@ -63,6 +64,7 @@ export interface DocumentFileInput {
 }
 
 export interface DocumentUploadInput {
+  readonly scholastic?: ScholasticDetails;
   readonly categoryKey: string;
   readonly folderKey: string;
   readonly title: string;
@@ -86,6 +88,7 @@ export interface PublicDocumentAttachment {
 }
 
 export interface PublicDocument {
+  readonly scholastic?: ScholasticDetails;
   readonly id: string;
   readonly categoryKey: string;
   readonly folderKey: string;
@@ -361,6 +364,7 @@ function publicDocument(document: DocumentRecord): PublicDocument {
     documentDate: document.documentDate.toISOString(),
     ...(document.description === undefined ? {} : { description: document.description }),
     ...(document.reflection === undefined ? {} : { reflection: document.reflection }),
+    ...(document.scholastic === undefined ? {} : { scholastic: document.scholastic }),
     originalFileName: document.originalFileName,
     mimeType: document.mimeType,
     fileKind: document.fileKind,
@@ -444,6 +448,8 @@ export class DocumentService {
     const title = normalizedRequired(input.title, 'title', 250);
     const description = normalizedOptional(input.description, 'description', 2_000);
     const reflection = normalizedOptional(input.reflection, 'reflection', 5_000);
+    const scholastic = validateScholasticDetails(input.scholastic);
+    requireTorReflection(categoryKey, folderKey, reflection, scholastic);
     const repositories = this.repositories();
 
     let category;
@@ -609,6 +615,7 @@ export class DocumentService {
         documentDate: documentDate(input.documentDate),
         ...(description === undefined ? {} : { description }),
         ...(reflection === undefined ? {} : { reflection }),
+        ...(scholastic === undefined ? {} : { scholastic }),
         originalFileName: primary.originalFileName,
         objectKey: primary.objectKey,
         mimeType: primary.mimeType,
@@ -1088,6 +1095,7 @@ export class DocumentService {
       readonly documentDate?: string;
       readonly description?: string;
       readonly reflection?: string;
+      readonly scholastic?: ScholasticDetails;
     },
   ): Promise<PublicDocument> {
     const document = await this.ownedDocument(ownerId, documentId);
@@ -1123,7 +1131,9 @@ export class DocumentService {
     const title = input.title !== undefined ? normalizedRequired(input.title, 'title', 250) : document.title;
     const date = input.documentDate !== undefined ? documentDate(input.documentDate) : document.documentDate;
     const description = input.description !== undefined ? normalizedOptional(input.description, 'description', 2_000) : document.description;
-    const reflection = input.reflection !== undefined ? normalizedOptional(input.reflection, 'reflection', 5_000) : document.reflection;
+    const reflection = input.reflection !== undefined ? (normalizedOptional(input.reflection, 'reflection', 5_000) ?? '') : document.reflection;
+    const scholastic = validateScholasticDetails(input.scholastic ?? document.scholastic);
+    requireTorReflection(categoryKey, folderKey, reflection, scholastic);
 
     const updated = await repositories.documents.updateByIdForOwner(ownerId, document._id, {
       categoryKey,
@@ -1132,6 +1142,7 @@ export class DocumentService {
       documentDate: date,
       ...(description !== undefined ? { description } : {}),
       ...(reflection !== undefined ? { reflection } : {}),
+      ...(scholastic !== undefined ? { scholastic } : {}),
     });
     if (updated === null) throw documentUnavailable();
     return publicDocument(updated);

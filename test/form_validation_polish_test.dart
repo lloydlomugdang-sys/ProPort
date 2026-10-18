@@ -83,6 +83,7 @@ class _TestDocService extends DocumentService {
     required DateTime documentDate,
     String? description,
     String? reflection,
+    ScholasticDetails? scholastic,
   }) async {
     uploadedTitle = title;
     uploadedDescription = description;
@@ -161,7 +162,11 @@ void main() {
     test('maps 429, 500, network, timeout, and 401 correctly', () {
       expect(
         portfolioExportError(
-          const ApiException(code: 'RATE_LIMITED', message: '', statusCode: 429),
+          const ApiException(
+            code: 'RATE_LIMITED',
+            message: '',
+            statusCode: 429,
+          ),
         ),
         'Too many export attempts. Please wait a moment and try again.',
       );
@@ -241,9 +246,7 @@ void main() {
     testWidgets('Forgot password email field validates > 320 characters', (
       tester,
     ) async {
-      await tester.pumpWidget(
-        const MaterialApp(home: ForgotPasswordScreen()),
-      );
+      await tester.pumpWidget(const MaterialApp(home: ForgotPasswordScreen()));
       await tester.pumpAndSettle();
 
       final longEmail = '${'a' * 315}@example.com';
@@ -258,13 +261,13 @@ void main() {
       tester,
     ) async {
       await tester.pumpWidget(
-        const MaterialApp(
-          home: NewPasswordScreen(resetToken: 'test-token'),
-        ),
+        const MaterialApp(home: NewPasswordScreen(resetToken: 'test-token')),
       );
       await tester.pumpAndSettle();
 
-      final fields = tester.widgetList<TextField>(find.byType(TextField)).toList();
+      final fields = tester
+          .widgetList<TextField>(find.byType(TextField))
+          .toList();
       expect(fields.length, 2);
       expect(fields[0].textInputAction, TextInputAction.next);
       expect(fields[1].textInputAction, TextInputAction.done);

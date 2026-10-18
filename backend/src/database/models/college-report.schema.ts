@@ -10,7 +10,7 @@ export interface CollegeReportAnswer {
 
 export interface CollegeReport {
   ownerId: Types.ObjectId;
-  templateId: Types.ObjectId;
+  templateId?: Types.ObjectId;
   academicYear: string;
   questionnaireVersion?: number;
   essay?: string;
@@ -40,7 +40,9 @@ const collegeReportAnswerSchema = new Schema<CollegeReportAnswer>(
 export const collegeReportSchema = new Schema<CollegeReport>(
   {
     ownerId: { type: Schema.Types.ObjectId, ref: 'User', required: true },
-    templateId: { type: Schema.Types.ObjectId, ref: 'ReportTemplate', required: true },
+    // Bundled, versioned questionnaires need no seeded template ID. Legacy
+    // reports retain their references and the existing owner/template/year index.
+    templateId: { type: Schema.Types.ObjectId, ref: 'ReportTemplate' },
     academicYear: {
       type: String,
       required: true,

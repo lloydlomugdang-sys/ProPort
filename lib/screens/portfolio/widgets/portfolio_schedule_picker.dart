@@ -162,7 +162,7 @@ class PortfolioSchedulePicker extends StatelessWidget {
 
   static Widget _fieldContainer({required Widget child}) {
     return Container(
-      height: 48,
+      constraints: const BoxConstraints(minHeight: 48),
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(10),
@@ -209,11 +209,12 @@ class _TimeField extends StatelessWidget {
       borderRadius: BorderRadius.circular(10),
       child: PortfolioSchedulePicker._fieldContainer(
         child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 12),
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
           child: Row(
             children: [
               Expanded(
                 child: Column(
+                  mainAxisSize: MainAxisSize.min,
                   mainAxisAlignment: MainAxisAlignment.center,
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [

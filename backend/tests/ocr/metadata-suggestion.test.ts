@@ -4,6 +4,7 @@ import {
   resolveCanonicalSection,
   resolveCanonicalTaxonomy,
   suggestDocumentMetadata,
+  hasConsistentClassification,
 } from '../../src/modules/documents/metadata-suggestion.service.js';
 
 export const certificateText = `CERTIFICATE OF COMPLETION
@@ -23,6 +24,23 @@ Certificate No.: GP-2026-0914-001`;
 const suggest = (rawText: string) => suggestDocumentMetadata({ rawText }, CATEGORY_SEEDS);
 
 describe('deterministic OCR metadata suggestions', () => {
+  it('does not classify graduation applications as TOR or CV from academic/bio terms', () => {
+    const application = 'APPLICATION FOR GRADUATION\nPersonal Information\nEducation\nSkills\nAcademic Year 2026\nCourse Units Grades Semester';
+    expect(suggest(application)).toEqual({ title: 'APPLICATION FOR GRADUATION', confidence: 'low' });
+    expect(hasConsistentClassification({ categoryKey: 'scholastic-record', title: 'Curriculum Vitae' }, application)).toBe(false);
+  });
+  it('rejects contradictory CV title with TOR category without CV evidence', () => {
+    expect(hasConsistentClassification({ categoryKey: 'scholastic-record', title: 'Curriculum Vitae' }, 'Transcript of Records\nGrades Units')).toBe(false);
+  });
+  it('requires transcript evidence, not merely generic school terms', () => {
+    expect(hasConsistentClassification({ categoryKey: 'scholastic-record' }, 'Student academic course semester application')).toBe(false);
+    expect(hasConsistentClassification({ categoryKey: 'scholastic-record' }, 'Transcript of Records')).toBe(true);
+  });
+  it('uses a recognizable event heading ahead of any screenshot filename fallback', () => {
+    expect(suggest('CERTIFICATE OF ATTENDANCE\nDigital Safety Seminar for Students\nPresented to\nA Student')).toMatchObject({
+      categoryKey: 'certificates', title: 'Digital Safety Seminar for Students',
+    });
+  });
   it('extracts the supplied certificate subject, date and grounded description, never its recipient or reflection', () => {
     expect(suggest(certificateText)).toEqual({
       categoryKey: 'certificates',

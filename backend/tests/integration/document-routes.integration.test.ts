@@ -1275,6 +1275,36 @@ describe.sequential('authenticated document API with disposable storage and Mong
     expect(del.statusCode).toBe(200);
   });
 
+  it('persists TOR period/reflection choices, validates them and isolates coverage by owner', async () => {
+    const scholastic = { studyYear: 2, semester: '1st Semester', reflectionIncluded: false };
+    const fields = { ...documentFields, categoryKey: 'scholastic-record',
+      folderKey: 'unofficial-tor-with-reflections', scholastic: JSON.stringify(scholastic) };
+    const request = (values: Record<string, string>) => {
+      const multipart = multipartUpload(values, { name: 'tor.png', mimeType: 'image/png', contents: png });
+      return app!.inject({ method: 'POST', url: '/api/v1/documents',
+        headers: { ...bearer(firstUser.accessToken), ...multipart.headers }, payload: multipart.payload });
+    };
+    expect((await request(fields)).statusCode).toBe(400);
+    const created = await request({ ...fields, reflection: 'Student-authored reflection' });
+    expect(created.statusCode).toBe(201);
+    const document = created.json().data.document;
+    expect(document.scholastic).toEqual(scholastic);
+    const url = `/api/v1/documents/${document.id}`;
+    expect((await app!.inject({ method: 'GET', url, headers: bearer(secondUser.accessToken) })).statusCode).toBe(404);
+    const patch = (payload: object) => app!.inject({ method: 'PATCH', url, headers: bearer(firstUser.accessToken), payload });
+    expect((await patch({ reflection: '' })).statusCode).toBe(400);
+    expect((await patch({ scholastic: { ...scholastic, ownerId: secondUser.userId } })).statusCode).toBe(400);
+    const updated = await patch({ reflection: '', scholastic: { ...scholastic, reflectionIncluded: true } });
+    expect(updated.statusCode).toBe(200);
+    const fresh = await app!.inject({ method: 'GET', url, headers: bearer(firstUser.accessToken) });
+    expect(fresh.json().data.document).toMatchObject({ reflection: '', scholastic: { ...scholastic, reflectionIncluded: true } });
+    const listed = await app!.inject({ method: 'GET', url: '/api/v1/documents', headers: bearer(firstUser.accessToken) });
+    expect(listed.json().data.summary.scholasticCoverage).toMatchObject({ missingReflection: 0, missingPeriod: 0,
+      periodCounts: { 'Year 2 / 1st Semester': 1 } });
+    const otherList = await app!.inject({ method: 'GET', url: '/api/v1/documents', headers: bearer(secondUser.accessToken) });
+    expect(otherList.json().data.summary.scholasticCoverage.periodCounts).toEqual({});
+  });
+
   it('tolerates partial OCR failure on multi-page images without discarding readable pages', async () => {
     const readablePage = Buffer.concat([jpeg, Buffer.from('partial-page-1-readable')]);
     const unreadablePage = Buffer.concat([png, Buffer.from('partial-page-2-unreadable')]);

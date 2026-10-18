@@ -103,7 +103,9 @@ class _PortfolioExportScreenState extends State<PortfolioExportScreen>
       }
       setState(() {
         _exportedFile = file;
-        _coverageNote = content.coverageNote;
+        _coverageNote = _selectedFormat == ExportFormat.pdf
+            ? 'Saved image and PDF pages are included, with saved College Report responses when available.'
+            : content.coverageNote;
       });
     } catch (error) {
       if (mounted) setState(() => _error = portfolioExportError(error));
@@ -187,10 +189,8 @@ class _PortfolioExportScreenState extends State<PortfolioExportScreen>
       await Navigator.push<void>(
         context,
         MaterialPageRoute(
-          builder: (_) => DocumentScope(
-            documentService: documents,
-            child: screen,
-          ),
+          builder: (_) =>
+              DocumentScope(documentService: documents, child: screen),
         ),
       );
     } finally {
@@ -267,10 +267,7 @@ class _PortfolioExportScreenState extends State<PortfolioExportScreen>
         Text(
           'Temporary copy. Use Save to Device or Share to keep your portfolio.',
           textAlign: TextAlign.center,
-          style: GoogleFonts.poppins(
-            fontSize: 11,
-            color: AppColors.textMuted,
-          ),
+          style: GoogleFonts.poppins(fontSize: 11, color: AppColors.textMuted),
         ),
         const SizedBox(height: 16),
         SizedBox(
@@ -354,23 +351,6 @@ class _PortfolioExportScreenState extends State<PortfolioExportScreen>
           ),
         ),
         const SizedBox(height: 8),
-        SizedBox(
-          width: double.infinity,
-          child: TextButton.icon(
-            onPressed: () => MainScreen.returnToDashboard(context),
-            icon: const Icon(Icons.dashboard_rounded, size: 18),
-            label: const Text('Back to Dashboard'),
-            style: TextButton.styleFrom(
-              foregroundColor: AppColors.primary,
-              shape: _roundedBorder(),
-              padding: const EdgeInsets.symmetric(vertical: 10),
-              textStyle: GoogleFonts.poppins(
-                fontSize: 13,
-                fontWeight: FontWeight.w600,
-              ),
-            ),
-          ),
-        ),
       ],
     ),
   );
@@ -420,7 +400,9 @@ class _PortfolioExportScreenState extends State<PortfolioExportScreen>
                               height: 16,
                               child: CircularProgressIndicator(
                                 strokeWidth: 2,
-                                valueColor: AlwaysStoppedAnimation(AppColors.primary),
+                                valueColor: AlwaysStoppedAnimation(
+                                  AppColors.primary,
+                                ),
                               ),
                             ),
                             const SizedBox(width: 8),
@@ -476,6 +458,19 @@ class _PortfolioExportScreenState extends State<PortfolioExportScreen>
                 ),
               ),
 
+              if (_exportedFile != null)
+                SafeArea(
+                  top: false,
+                  minimum: const EdgeInsets.symmetric(horizontal: 20),
+                  child: SizedBox(
+                    width: double.infinity,
+                    child: OutlinedButton.icon(
+                      onPressed: () => MainScreen.returnToDashboard(context),
+                      icon: const Icon(Icons.dashboard_rounded),
+                      label: const Text('Back to Dashboard'),
+                    ),
+                  ),
+                ),
               _buildStepBar(),
             ],
           ),
@@ -522,7 +517,9 @@ class _PortfolioExportScreenState extends State<PortfolioExportScreen>
           ),
           const SizedBox(height: 8),
           Text(
-            'Export your saved title page and current document details. Original uploaded images and PDF pages are not embedded.',
+            _selectedFormat == ExportFormat.pdf
+                ? 'PDF includes your saved title page, original image/PDF evidence and saved College Report responses.'
+                : 'DOCX is an editable metadata outline, not the final evidence portfolio. Choose PDF to include uploaded pages.',
             style: GoogleFonts.poppins(
               fontSize: 11,
               color: AppColors.textMuted,

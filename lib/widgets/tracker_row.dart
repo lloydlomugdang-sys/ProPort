@@ -12,29 +12,31 @@ class TrackerRow extends StatelessWidget {
     required this.label,
     required this.status,
     this.onTap,
+    this.reason,
   });
 
   final String label;
   final TrackerStatus status;
   final VoidCallback? onTap;
+  final String? reason;
 
   String get _statusText => switch (status) {
-        TrackerStatus.none       => 'None',
-        TrackerStatus.complete   => 'Complete',
-        TrackerStatus.incomplete => 'Incomplete',
-      };
+    TrackerStatus.none => 'None',
+    TrackerStatus.complete => 'Complete',
+    TrackerStatus.incomplete => 'Incomplete',
+  };
 
   Color get _chipBg => switch (status) {
-        TrackerStatus.none       => AppColors.statusNoneBg,
-        TrackerStatus.complete   => AppColors.statusCompleteBg,
-        TrackerStatus.incomplete => AppColors.statusIncompleteBg,
-      };
+    TrackerStatus.none => AppColors.statusNoneBg,
+    TrackerStatus.complete => AppColors.statusCompleteBg,
+    TrackerStatus.incomplete => AppColors.statusIncompleteBg,
+  };
 
   Color get _chipText => switch (status) {
-        TrackerStatus.none       => AppColors.statusNoneText,
-        TrackerStatus.complete   => AppColors.statusCompleteText,
-        TrackerStatus.incomplete => AppColors.statusIncompleteText,
-      };
+    TrackerStatus.none => AppColors.statusNoneText,
+    TrackerStatus.complete => AppColors.statusCompleteText,
+    TrackerStatus.incomplete => AppColors.statusIncompleteText,
+  };
 
   @override
   Widget build(BuildContext context) {
@@ -46,15 +48,25 @@ class TrackerRow extends StatelessWidget {
         child: Row(
           children: [
             Expanded(
-              child: Text(
-                label,
-                style: AppTextStyles.bodyMedium
-                    .copyWith(color: AppColors.textPrimary),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    label,
+                    style: AppTextStyles.bodyMedium.copyWith(
+                      color: AppColors.textPrimary,
+                    ),
+                  ),
+                  if (reason != null)
+                    Padding(
+                      padding: const EdgeInsets.only(top: 4, right: 8),
+                      child: Text(reason!, style: AppTextStyles.bodySmall),
+                    ),
+                ],
               ),
             ),
             Container(
-              padding: const EdgeInsets.symmetric(
-                  horizontal: 10, vertical: 3),
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 3),
               decoration: BoxDecoration(
                 color: _chipBg,
                 borderRadius: BorderRadius.circular(20),

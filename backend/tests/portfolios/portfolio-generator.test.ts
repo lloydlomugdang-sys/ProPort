@@ -1,5 +1,6 @@
 import { Readable } from 'node:stream';
-import { PDFDocument, PDFRawStream, decodePDFRawStream } from 'pdf-lib';
+import { PDFDocument } from 'pdf-lib';
+import { getDocument } from 'pdfjs-dist/legacy/build/pdf.mjs';
 import { describe, expect, it } from 'vitest';
 import {
   PortfolioGeneratorService,
@@ -10,33 +11,18 @@ import type { DocumentRecord } from '../../src/database/repositories/document.re
 import type { ServiceHealth } from '../../src/common/types/service-health.js';
 import { Types } from 'mongoose';
 
-function hexToString(hex: string): string {
-  let str = '';
-  for (let i = 0; i < hex.length; i += 2) {
-    str += String.fromCharCode(parseInt(hex.slice(i, i + 2), 16));
-  }
-  return str;
-}
-
 async function extractAllPdfText(pdfBytes: Buffer): Promise<string> {
-  const raw = pdfBytes.toString('latin1');
-  let accumulated = raw;
-  const pdf = await PDFDocument.load(pdfBytes);
-  for (const [, object] of pdf.context.enumerateIndirectObjects()) {
-    if (!(object instanceof PDFRawStream)) continue;
-    try {
-      const decompressed = Buffer.from(decodePDFRawStream(object).decode()).toString('latin1');
-      accumulated += '\n' + decompressed;
-      const hexMatches = decompressed.matchAll(/<([0-9a-fA-F]+)>/g);
-      for (const h of hexMatches) {
-        const hex = h[1];
-        if (hex) accumulated += ' ' + hexToString(hex);
-      }
-    } catch {
-      // Ignore non-text image streams. Use PDF lengths, not regex over binary data.
+  // Decode embedded-font CMaps rather than assuming raw stream bytes are ASCII.
+  const task = getDocument({ data: new Uint8Array(pdfBytes), useSystemFonts: true });
+  try {
+    const pdf = await task.promise;
+    const pages: string[] = [];
+    for (let i = 1; i <= pdf.numPages; i++) {
+      const content = await (await pdf.getPage(i)).getTextContent();
+      pages.push(content.items.filter((item) => 'str' in item).map((item) => item.str).join(' '));
     }
-  }
-  return accumulated;
+    return pages.join('\n');
+  } finally { await task.destroy(); }
 }
 
 const SAMPLE_1X1_PNG = Buffer.from(

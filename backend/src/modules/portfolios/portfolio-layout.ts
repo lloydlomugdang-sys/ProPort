@@ -1,4 +1,6 @@
-import { StandardFonts, type PDFDocument, type PDFFont } from 'pdf-lib';
+import { type PDFDocument, type PDFFont } from 'pdf-lib';
+import fontkit from '@pdf-lib/fontkit';
+import { readFile } from 'node:fs/promises';
 import { AppError } from '../../common/errors/app-error.js';
 
 export const PORTFOLIO_LAYOUT = {
@@ -16,10 +18,17 @@ export interface PortfolioFonts {
  * No approved Arial asset is currently supplied. This fallback is NOT Arial.
  */
 export type PortfolioFontLoader = (pdf: PDFDocument) => Promise<PortfolioFonts>;
-export const loadPortfolioFallbackFonts: PortfolioFontLoader = async (pdf) => ({
-  regular: await pdf.embedFont(StandardFonts.Helvetica),
-  bold: await pdf.embedFont(StandardFonts.HelveticaBold),
-});
+export const loadPortfolioFallbackFonts: PortfolioFontLoader = async (pdf) => {
+  pdf.registerFontkit(fontkit);
+  const asset = async (name: string) => {
+    try { return await readFile(new URL(`../../../../assets/fonts/${name}`, import.meta.url)); }
+    catch { return readFile(new URL(`../../../../../assets/fonts/${name}`, import.meta.url)); }
+  };
+  return {
+    regular: await pdf.embedFont(await asset('NotoSans-Regular.ttf'), { subset: true }),
+    bold: await pdf.embedFont(await asset('NotoSans-Bold.ttf'), { subset: true }),
+  };
+};
 
 export interface TextLine {
   readonly text: string;
@@ -52,6 +61,10 @@ export function wrapPortfolioText(text: string, font: PDFFont, width = CONTENT_W
     }, 0),
   );
   try {
+    const supported = new Set(font.getCharacterSet());
+    if ([...text].some((character) => !/\s/.test(character) && !supported.has(character.codePointAt(0)!))) {
+      throw new Error('Unsupported glyph');
+    }
     for (const paragraph of text.replaceAll('\r\n', '\n').replaceAll('\r', '\n').split('\n')) {
       let line = '';
       for (const word of paragraph.split(/\s+/).filter(Boolean)) {

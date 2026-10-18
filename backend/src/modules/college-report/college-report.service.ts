@@ -52,10 +52,9 @@ export class CollegeReportService {
   async current(ownerId: Types.ObjectId): Promise<{ report: OfficialReportView | null; hasLegacyReport: boolean; templateReady: boolean }> {
     try {
       const repositories = this.repositories();
-      const template = await repositories.reportTemplates.findByKeyVersion(OFFICIAL_COLLEGE_REPORT.key, OFFICIAL_COLLEGE_REPORT.version);
-      const record = template ? await repositories.collegeReports.findCurrentForOwner(ownerId, template._id) : null;
-      const hasLegacyReport = await repositories.collegeReports.hasLegacyForOwner(ownerId, template?._id);
-      if (!record) return { report: null, hasLegacyReport, templateReady: template !== null };
+      const record = await repositories.collegeReports.findCurrentForOwner(ownerId, OFFICIAL_COLLEGE_REPORT.version);
+      const hasLegacyReport = await repositories.collegeReports.hasLegacyForOwner(ownerId, OFFICIAL_COLLEGE_REPORT.version);
+      if (!record) return { report: null, hasLegacyReport, templateReady: true };
       const validated = validateOfficialAnswers({ questionnaireVersion: record.questionnaireVersion ?? -1, answers: record.answers, essay: record.essay ?? '' });
       const byKey = new Map(validated.map((answer) => [answer.questionKey, answer.value]));
       return { hasLegacyReport, templateReady: true, report: {
@@ -73,14 +72,12 @@ export class CollegeReportService {
     const validated = validateOfficialAnswers(input);
     try {
       const repositories = this.repositories();
-      const template = await repositories.reportTemplates.findByKeyVersion(OFFICIAL_COLLEGE_REPORT.key, OFFICIAL_COLLEGE_REPORT.version);
-      if (!template) throw new AppError(503, 'COLLEGE_REPORT_NOT_CONFIGURED', 'The official questionnaire has not been initialized. Please contact support.');
       const previous = merge ? (await this.current(ownerId)).report : null;
       const answers = new Map(previous?.answers.map((answer) => [answer.questionKey, answer.value]) ?? []);
       for (const answer of validated) answers.set(answer.questionKey, answer.value);
       const normalized = OFFICIAL_QUESTIONS.map((q) => ({ questionKey: q.key, value: answers.get(q.key) ?? null }));
       const essay = input.essay ?? previous?.essay ?? '';
-      const saved = await repositories.collegeReports.saveCurrentForOwner(ownerId, template._id, {
+      const saved = await repositories.collegeReports.saveCurrentForOwner(ownerId, OFFICIAL_COLLEGE_REPORT.version, {
         questionnaireVersion: OFFICIAL_COLLEGE_REPORT.version, answers: normalized, essay,
       });
       return { questionnaireVersion: OFFICIAL_COLLEGE_REPORT.version, answers: normalized, essay, updatedAt: saved.updatedAt.toISOString() };

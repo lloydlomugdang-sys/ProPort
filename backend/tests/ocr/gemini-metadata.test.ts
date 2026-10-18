@@ -242,7 +242,8 @@ describe('validated grounded recommendations and fallback', () => {
   it('maps internal document type aliases to canonical GradPort categories and folders', () => {
     expect(validateAiMetadata({ ...result, content: 'resume', folder: null }, text, CATEGORY_SEEDS))
       .toMatchObject({ categoryKey: 'curriculum-vitae', folderKey: 'curriculum-vitae' });
-    expect(validateAiMetadata({ ...result, content: 'transcripts', folder: null }, text, CATEGORY_SEEDS))
+    expect(validateAiMetadata({ ...result, content: 'transcripts', folder: null, title: 'Transcript of Records', date: null,
+      classificationEvidence: 'Transcript of Records', descriptionQuotes: [] }, 'Transcript of Records\nCourse Units Grades Semester', CATEGORY_SEEDS))
       .toMatchObject({ categoryKey: 'scholastic-record', folderKey: 'unofficial-tor-with-reflections' });
     expect(validateAiMetadata({ ...result, content: 'certifications', folder: null }, text, CATEGORY_SEEDS))
       .toMatchObject({ categoryKey: 'certificates', folderKey: 'trainings' });

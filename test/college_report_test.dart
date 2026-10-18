@@ -12,6 +12,7 @@ import 'package:proport_app/services/auth_service.dart';
 import 'package:proport_app/services/college_report_models.dart';
 import 'package:proport_app/services/college_report_scope.dart';
 import 'package:proport_app/services/college_report_service.dart';
+import 'package:proport_app/services/college_report_draft_store.dart';
 import 'package:proport_app/services/document_scope.dart';
 import 'package:proport_app/services/document_service.dart';
 import 'package:proport_app/widgets/college_report_preview_status.dart';
@@ -97,6 +98,20 @@ class _Documents extends DocumentService {
   Future<void> load({bool force = false}) async {}
 }
 
+class _Drafts implements CollegeReportDraftStore {
+  final values = <String, String>{};
+  @override
+  Future<String?> read(String owner) async => values[owner];
+  @override
+  Future<void> write(String owner, String? value) async {
+    if (value == null) {
+      values.remove(owner);
+    } else {
+      values[owner] = value;
+    }
+  }
+}
+
 Widget _app(
   CollegeReportService service, {
   Widget child = const CollegeReportScreen(),
@@ -108,6 +123,51 @@ Widget _app(
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
   GoogleFonts.config.allowRuntimeFetching = false;
+
+  test(
+    'secure draft survives restart, stays out of saved export, and is owner scoped',
+    () async {
+      final auth = _Auth();
+      final store = _Drafts();
+      final first = CollegeReportService(authService: auth, draftStore: store);
+      await first.load();
+      first.answer('s01-q01', 'often');
+      first.setEssay('Local unsaved essay');
+      await first.pendingDraftWrites;
+      expect(first.saved, isNull);
+      expect(auth.posts, 0);
+      first.dispose();
+      final restarted = CollegeReportService(
+        authService: auth,
+        draftStore: store,
+      );
+      await restarted.load();
+      expect(restarted.essay, 'Local unsaved essay');
+      expect(restarted.answers['s01-q01'], 'often');
+      expect(restarted.dirty, isTrue);
+      expect(restarted.saved, isNull);
+      auth.switchOwner('student-two');
+      await restarted.load();
+      expect(restarted.essay, isEmpty);
+      expect(restarted.dirty, isFalse);
+      auth.switchOwner('student-one');
+      await restarted.load();
+      expect(restarted.essay, 'Local unsaved essay');
+      expect(await restarted.save(), isTrue);
+      await restarted.pendingDraftWrites;
+      expect(store.values, isEmpty);
+      restarted.dispose();
+      final saved = CollegeReportService(authService: auth, draftStore: store);
+      await saved.load();
+      expect(saved.saved!.essay, 'Local unsaved essay');
+      expect(saved.dirty, isFalse);
+      saved.setEssay('New unsaved text');
+      await saved.pendingDraftWrites;
+      expect(saved.saved!.essay, 'Local unsaved essay');
+      saved.dispose();
+      auth.dispose();
+    },
+  );
 
   for (final entry in <(String, int?, String)>[
     ('ROUTE_NOT_FOUND', 404, 'not available on this server'),
@@ -130,7 +190,10 @@ void main() {
           statusCode: entry.$2,
           message: 'private provider details',
         );
-      final service = CollegeReportService(authService: auth);
+      final service = CollegeReportService(
+        authService: auth,
+        draftStore: _Drafts(),
+      );
       await service.load();
       expect(service.loaded, isFalse);
       expect(service.errorMessage, contains(entry.$3));
@@ -146,7 +209,10 @@ void main() {
 
   test('malformed response is not misreported as network failure', () async {
     final auth = _Auth()..malformed = true;
-    final service = CollegeReportService(authService: auth);
+    final service = CollegeReportService(
+      authService: auth,
+      draftStore: _Drafts(),
+    );
     await service.load();
     expect(service.errorMessage, contains('unexpected response'));
     expect(service.loaded, isFalse);
@@ -155,21 +221,20 @@ void main() {
   });
 
   testWidgets(
-    'unconfigured template retry preserves a draft and then permits save',
+    'bundled questionnaire ignores obsolete template ID gating and permits explicit save',
     (tester) async {
       final auth = _Auth()..templateReady = false;
-      final service = CollegeReportService(authService: auth);
+      final service = CollegeReportService(
+        authService: auth,
+        draftStore: _Drafts(),
+      );
       await service.load();
       service.answer('s01-q01', 'often');
       service.setEssay('Keep my unsaved essay');
       final revision = service.draftRevision;
       await tester.pumpWidget(_app(service));
-      expect(find.textContaining('not configured yet'), findsOneWidget);
-      expect(await service.save(), isFalse);
-      expect(auth.posts, 0);
-      auth.templateReady = true;
-      await tester.tap(find.text('Retry'));
-      await tester.pumpAndSettle();
+      expect(find.textContaining('not configured yet'), findsNothing);
+      expect(find.text('Save Responses'), findsOneWidget);
       expect(service.templateReady, isTrue);
       expect(service.draftRevision, revision);
       expect(service.essay, 'Keep my unsaved essay');
@@ -187,7 +252,10 @@ void main() {
     'failed and in-flight retries preserve saved answers and newer edits',
     () async {
       final auth = _Auth();
-      final service = CollegeReportService(authService: auth);
+      final service = CollegeReportService(
+        authService: auth,
+        draftStore: _Drafts(),
+      );
       await service.load();
       service.answer('s04-q01', 6);
       service.setEssay('Saved essay');
@@ -253,7 +321,10 @@ void main() {
     'save typed/null answers and student essay; fresh service reloads exact persisted values',
     () async {
       final auth = _Auth();
-      final service = CollegeReportService(authService: auth);
+      final service = CollegeReportService(
+        authService: auth,
+        draftStore: _Drafts(),
+      );
       await service.load();
       expect(service.answers.values.every((v) => v == null), isTrue);
       service.answer('s04-q01', 6);
@@ -267,7 +338,10 @@ void main() {
       );
       expect(service.saved!.answeredCount, 3);
       service.dispose();
-      final reopened = CollegeReportService(authService: auth);
+      final reopened = CollegeReportService(
+        authService: auth,
+        draftStore: _Drafts(),
+      );
       await reopened.load();
       expect(reopened.answers['s04-q01'], 6);
       expect(reopened.answers['s01-q01'], 'often');
@@ -286,7 +360,10 @@ void main() {
     'failed save keeps draft and retries; duplicate submissions cannot claim success',
     () async {
       final auth = _Auth();
-      final service = CollegeReportService(authService: auth);
+      final service = CollegeReportService(
+        authService: auth,
+        draftStore: _Drafts(),
+      );
       await service.load();
       service.answer('s05-q01', 'undecided');
       service.setEssay('Private draft');
@@ -316,7 +393,10 @@ void main() {
     'logout/account change clears private state and ignores stale load and save results',
     () async {
       final auth = _Auth();
-      final service = CollegeReportService(authService: auth);
+      final service = CollegeReportService(
+        authService: auth,
+        draftStore: _Drafts(),
+      );
       await service.load();
       service.setEssay('First student private draft');
       auth.pendingSave = Completer<void>();
@@ -351,8 +431,15 @@ void main() {
   testWidgets(
     'renders ten sections with correct controls, null clearing and no accidental rebuild changes',
     (tester) async {
+      tester.view.physicalSize = const Size(360, 800);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
       final auth = _Auth();
-      final service = CollegeReportService(authService: auth);
+      final service = CollegeReportService(
+        authService: auth,
+        draftStore: _Drafts(),
+      );
       await service.load();
       await tester.pumpWidget(_app(service));
       expect(find.byType(ExpansionTile), findsNWidgets(10));
@@ -386,7 +473,10 @@ void main() {
     'save progress has no premature success; failure preserves fields and retry succeeds',
     (tester) async {
       final auth = _Auth();
-      final service = CollegeReportService(authService: auth);
+      final service = CollegeReportService(
+        authService: auth,
+        draftStore: _Drafts(),
+      );
       await service.load();
       await tester.pumpWidget(_app(service));
       final essay = find.widgetWithText(
@@ -418,7 +508,10 @@ void main() {
       expect(find.text('College Report saved.'), findsOneWidget);
       await tester.pumpWidget(const SizedBox());
       service.dispose();
-      final reopened = CollegeReportService(authService: auth);
+      final reopened = CollegeReportService(
+        authService: auth,
+        draftStore: _Drafts(),
+      );
       await reopened.load();
       await tester.pumpWidget(_app(reopened));
       expect(find.text('Student entered reflection'), findsOneWidget);
@@ -432,7 +525,10 @@ void main() {
     'loading failure is retryable and normal Files navigation opens questionnaire',
     (tester) async {
       final auth = _Auth()..failLoad = true;
-      final service = CollegeReportService(authService: auth);
+      final service = CollegeReportService(
+        authService: auth,
+        draftStore: _Drafts(),
+      );
       final documents = _Documents(auth);
       await tester.pumpWidget(
         CollegeReportScope(
@@ -468,7 +564,10 @@ void main() {
     'preview distinguishes saved report, unsaved edits and unchanged PDF snapshots',
     (tester) async {
       final auth = _Auth();
-      final service = CollegeReportService(authService: auth);
+      final service = CollegeReportService(
+        authService: auth,
+        draftStore: _Drafts(),
+      );
       await service.load();
       await tester.pumpWidget(
         _app(
