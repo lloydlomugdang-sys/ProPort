@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
@@ -16,6 +17,9 @@ import 'package:proport_app/services/api_client.dart';
 import 'package:proport_app/services/auth_models.dart';
 import 'package:proport_app/services/auth_scope.dart';
 import 'package:proport_app/services/auth_service.dart';
+import 'package:proport_app/services/college_report_models.dart';
+import 'package:proport_app/services/college_report_scope.dart';
+import 'package:proport_app/services/college_report_service.dart';
 import 'package:proport_app/services/document_models.dart';
 import 'package:proport_app/services/document_scope.dart';
 import 'package:proport_app/services/document_service.dart';
@@ -97,11 +101,25 @@ void main() {
       (tester) async {
         final auth = _DashboardAuthService(_user());
         final documents = _DashboardDocumentService(auth);
+        final report = CollegeReportService(authService: auth)
+          ..template = CollegeReportTemplate.fromJson(
+            jsonDecode(
+                  File(
+                    'test/fixtures/college_report_template.json',
+                  ).readAsStringSync(),
+                )
+                as Map<String, dynamic>,
+          )
+          ..loaded = true
+          ..templateReady = true;
         addTearDown(() {
+          report.dispose();
           documents.dispose();
           auth.dispose();
         });
-        await tester.pumpWidget(_testApp(auth, documents));
+        await tester.pumpWidget(
+          CollegeReportScope(service: report, child: _testApp(auth, documents)),
+        );
         await tester.pumpAndSettle();
         expect(find.byTooltip('Back'), findsNothing);
         await tester.ensureVisible(find.text(category.key));
@@ -119,7 +137,14 @@ void main() {
               .categoryKey,
           category.value,
         );
-        expect(find.text('No files found.'), findsOneWidget);
+        if (category.value == 'college-report') {
+          expect(find.text('College Report Questionnaire'), findsOneWidget);
+          expect(find.text('Not saved yet'), findsOneWidget);
+          expect(find.text('No supporting files uploaded.'), findsOneWidget);
+          expect(find.text('No files found.'), findsNothing);
+        } else {
+          expect(find.text('No files found.'), findsOneWidget);
+        }
         expect(find.byTooltip('Back'), findsOneWidget);
         await tester.tap(find.byTooltip('Back'));
         await tester.pumpAndSettle();

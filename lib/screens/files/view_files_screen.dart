@@ -2,7 +2,10 @@ import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 
 import '../../constants/app_colors.dart';
+import '../../constants/app_text_styles.dart';
 import '../../services/api_client.dart';
+import '../../services/college_report_scope.dart';
+import '../../services/college_report_service.dart';
 import '../../services/document_models.dart';
 import '../../services/document_scope.dart';
 import '../../widgets/empty_state.dart';
@@ -45,6 +48,14 @@ class _ViewFilesScreenState extends State<ViewFilesScreen> {
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
+    if (widget.categoryKey == 'college-report') {
+      final report = CollegeReportScope.of(context);
+      if (!report.loaded && !report.isLoading && report.errorMessage == null) {
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (mounted) report.load();
+        });
+      }
+    }
     if (_loadRequested) return;
     _loadRequested = true;
     WidgetsBinding.instance.addPostFrameCallback((_) async {
@@ -141,104 +152,243 @@ class _ViewFilesScreenState extends State<ViewFilesScreen> {
     );
   }
 
+  Widget _questionnaireCard(CollegeReportService report) {
+    final checking = !report.loaded && report.errorMessage == null;
+    final status = report.isSaving
+        ? 'Saving responses...'
+        : report.dirty
+        ? 'Unsaved changes'
+        : report.saved != null
+        ? 'Saved'
+        : !report.loaded
+        ? checking
+              ? 'Checking saved responses...'
+              : 'Unable to check saved responses.'
+        : 'Not saved yet';
+    return Card(
+      color: Colors.white,
+      margin: const EdgeInsets.all(16),
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('College Report Questionnaire', style: AppTextStyles.h3),
+            const SizedBox(height: 8),
+            Row(
+              children: [
+                Icon(
+                  report.saved != null && !report.dirty
+                      ? Icons.check_circle_outline
+                      : Icons.fact_check_outlined,
+                  color: AppColors.primary,
+                  size: 20,
+                ),
+                const SizedBox(width: 8),
+                Expanded(child: Text(status, style: AppTextStyles.bodyMedium)),
+              ],
+            ),
+            const SizedBox(height: 8),
+            if (checking || report.isSaving) const LinearProgressIndicator(),
+            if (!report.loaded && report.errorMessage != null)
+              Text(report.errorMessage!, style: AppTextStyles.bodySmall)
+            else if (report.saved != null)
+              Text(
+                report.dirty
+                    ? 'Your previously saved responses will be included in your portfolio. Save your changes to update them.'
+                    : 'Your saved responses will be included in your portfolio.',
+                style: AppTextStyles.bodySmall,
+              )
+            else if (report.loaded)
+              Text(
+                'Use Save Responses to include your questionnaire in your portfolio. Supporting files are optional and stored separately.',
+                style: AppTextStyles.bodySmall,
+              ),
+            const SizedBox(height: 8),
+            OutlinedButton.icon(
+              icon: const Icon(Icons.fact_check_outlined),
+              label: Text(
+                report.dirty
+                    ? 'Continue Editing'
+                    : report.saved != null
+                    ? 'View / Edit Responses'
+                    : 'Answer College Report questionnaire',
+              ),
+              onPressed: () => Navigator.push(
+                context,
+                MaterialPageRoute<void>(
+                  builder: (_) => const CollegeReportScreen(),
+                ),
+              ),
+            ),
+            if (!report.loaded && report.errorMessage != null)
+              TextButton(
+                onPressed: () => report.load(force: true),
+                child: const Text('Retry'),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _fileItem(DocumentRecord document) => FileListItem(
+    fileName: document.originalFileName,
+    fileType: document.fileTypeLabel,
+    year: document.documentDate.year.toString(),
+    thumbnail: document.fileKind == 'image'
+        ? DocumentThumbnail(documentId: document.id)
+        : null,
+    onTap: () => Navigator.push(
+      context,
+      MaterialPageRoute<void>(
+        builder: (_) => document.fileKind == 'pdf'
+            ? DocumentPdfScreen(document: document)
+            : DocumentOcrScreen(document: document),
+      ),
+    ),
+    onDelete: _deleting.contains(document.id)
+        ? null
+        : () => _confirmDelete(document),
+  );
+
   @override
   Widget build(BuildContext context) {
     final service = DocumentScope.of(context);
+    final report = widget.categoryKey == 'college-report'
+        ? CollegeReportScope.of(context)
+        : null;
     final visible = _visibleFiles(service.documents);
     final title = widget.folderName == null
         ? widget.categoryName
         : '${widget.categoryName} • ${widget.folderName}';
 
-    return Scaffold(
-      backgroundColor: AppColors.background,
-      appBar: GradBackAppBar(title: title),
-      body: Column(
+    final searchAndFilters = Container(
+      color: Colors.white,
+      padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          if (widget.categoryKey == 'college-report')
-            Padding(
-              padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
-              child: OutlinedButton.icon(
-                icon: const Icon(Icons.fact_check_outlined),
-                label: const Text('Answer College Report questionnaire'),
-                onPressed: () => Navigator.push(
-                  context,
-                  MaterialPageRoute<void>(
-                    builder: (_) => const CollegeReportScreen(),
-                  ),
-                ),
-              ),
-            ),
-          Container(
-            color: Colors.white,
-            padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
-            child: Column(
-              children: [
-                SearchBarField(
-                  controller: _searchController,
-                  hintText: 'Search files...',
-                  onChanged: (value) => setState(() => _query = value),
-                ),
-                const SizedBox(height: 12),
-                FilterChipBar(
-                  options: _filterOptions,
-                  selected: _filter,
-                  onSelected: (value) => setState(() => _filter = value),
-                ),
-              ],
-            ),
+          if (report != null) ...[
+            Text('Supporting files', style: AppTextStyles.h3),
+            const SizedBox(height: 12),
+          ],
+          SearchBarField(
+            controller: _searchController,
+            hintText: 'Search files...',
+            onChanged: (value) => setState(() => _query = value),
           ),
-          const Divider(height: 1, color: AppColors.divider),
-          Expanded(
-            child: service.isLoading && !service.hasLoadedDocuments
-                ? const Center(
-                    child: CircularProgressIndicator(color: AppColors.primary),
-                  )
-                : visible.isEmpty
-                ? EmptyState(
-                    message: 'No files found.',
-                    icon: Icons.insert_drive_file_outlined,
-                    subtitle:
-                        service.errorMessage ??
-                        'Upload a PDF, JPG, JPEG, or PNG file to this folder.',
-                  )
-                : RefreshIndicator(
-                    color: AppColors.primary,
-                    onRefresh: () => service.load(force: true),
-                    child: ListView.separated(
-                      physics: const AlwaysScrollableScrollPhysics(
-                        parent: BouncingScrollPhysics(),
-                      ),
-                      padding: const EdgeInsets.fromLTRB(16, 16, 16, 32),
-                      itemCount: visible.length,
-                      separatorBuilder: (_, _) => const SizedBox(height: 10),
-                      itemBuilder: (_, index) {
-                        final document = visible[index];
-                        final isImage = document.fileKind == 'image';
-                        return FileListItem(
-                          fileName: document.originalFileName,
-                          fileType: document.fileTypeLabel,
-                          year: document.documentDate.year.toString(),
-                          thumbnail: isImage
-                              ? DocumentThumbnail(documentId: document.id)
-                              : null,
-                          onTap: () => Navigator.push(
-                            context,
-                            MaterialPageRoute<void>(
-                              builder: (_) => document.fileKind == 'pdf'
-                                  ? DocumentPdfScreen(document: document)
-                                  : DocumentOcrScreen(document: document),
-                            ),
-                          ),
-                          onDelete: _deleting.contains(document.id)
-                              ? null
-                              : () => _confirmDelete(document),
-                        );
-                      },
-                    ),
-                  ),
+          const SizedBox(height: 12),
+          FilterChipBar(
+            options: _filterOptions,
+            selected: _filter,
+            onSelected: (value) => setState(() => _filter = value),
           ),
         ],
       ),
+    );
+    final filtered = _query.trim().isNotEmpty || _filter != 'All';
+
+    return Scaffold(
+      backgroundColor: AppColors.background,
+      appBar: GradBackAppBar(title: title),
+      // Keep the questionnaire and attachments in one scrollable page so the
+      // status card remains usable on narrow screens and with the keyboard up.
+      body: report != null
+          ? RefreshIndicator(
+              color: AppColors.primary,
+              onRefresh: () async {
+                try {
+                  await Future.wait([
+                    service.load(force: true),
+                    report.load(force: true),
+                  ]);
+                } catch (_) {
+                  // Services retain existing content and expose safe errors.
+                }
+              },
+              child: CustomScrollView(
+                physics: const AlwaysScrollableScrollPhysics(),
+                slivers: [
+                  SliverToBoxAdapter(child: _questionnaireCard(report)),
+                  SliverToBoxAdapter(child: searchAndFilters),
+                  const SliverToBoxAdapter(
+                    child: Divider(height: 1, color: AppColors.divider),
+                  ),
+                  if (service.isLoading && !service.hasLoadedDocuments)
+                    const SliverToBoxAdapter(
+                      child: Padding(
+                        padding: EdgeInsets.all(24),
+                        child: Center(child: CircularProgressIndicator()),
+                      ),
+                    )
+                  else if (visible.isEmpty)
+                    SliverToBoxAdapter(
+                      child: EmptyState(
+                        message: service.errorMessage != null
+                            ? 'Unable to load supporting files.'
+                            : filtered
+                            ? 'No matching supporting files.'
+                            : 'No supporting files uploaded.',
+                        icon: Icons.insert_drive_file_outlined,
+                        subtitle:
+                            service.errorMessage ??
+                            (filtered
+                                ? 'Try a different search or filter. Questionnaire responses are stored separately.'
+                                : report.saved != null
+                                ? 'Your saved questionnaire responses are stored separately and will still be included in your portfolio.'
+                                : 'Questionnaire responses are stored separately. You can add optional PDF or image supporting files here.'),
+                      ),
+                    )
+                  else
+                    SliverPadding(
+                      padding: const EdgeInsets.fromLTRB(16, 16, 16, 32),
+                      sliver: SliverList.separated(
+                        itemCount: visible.length,
+                        separatorBuilder: (_, _) => const SizedBox(height: 10),
+                        itemBuilder: (_, index) => _fileItem(visible[index]),
+                      ),
+                    ),
+                ],
+              ),
+            )
+          : Column(
+              children: [
+                searchAndFilters,
+                const Divider(height: 1, color: AppColors.divider),
+                Expanded(
+                  child: service.isLoading && !service.hasLoadedDocuments
+                      ? const Center(
+                          child: CircularProgressIndicator(
+                            color: AppColors.primary,
+                          ),
+                        )
+                      : visible.isEmpty
+                      ? EmptyState(
+                          message: 'No files found.',
+                          icon: Icons.insert_drive_file_outlined,
+                          subtitle:
+                              service.errorMessage ??
+                              'Upload a PDF, JPG, JPEG, or PNG file to this folder.',
+                        )
+                      : RefreshIndicator(
+                          color: AppColors.primary,
+                          onRefresh: () => service.load(force: true),
+                          child: ListView.separated(
+                            physics: const AlwaysScrollableScrollPhysics(
+                              parent: BouncingScrollPhysics(),
+                            ),
+                            padding: const EdgeInsets.fromLTRB(16, 16, 16, 32),
+                            itemCount: visible.length,
+                            separatorBuilder: (_, _) =>
+                                const SizedBox(height: 10),
+                            itemBuilder: (_, index) =>
+                                _fileItem(visible[index]),
+                          ),
+                        ),
+                ),
+              ],
+            ),
     );
   }
 }

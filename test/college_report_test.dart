@@ -14,7 +14,9 @@ import 'package:proport_app/services/college_report_scope.dart';
 import 'package:proport_app/services/college_report_service.dart';
 import 'package:proport_app/services/college_report_draft_store.dart';
 import 'package:proport_app/services/document_scope.dart';
+import 'package:proport_app/services/document_models.dart';
 import 'package:proport_app/services/document_service.dart';
+import 'package:proport_app/widgets/file_list_item.dart';
 import 'package:proport_app/widgets/college_report_preview_status.dart';
 import 'package:proport_app/widgets/primary_button.dart';
 
@@ -93,7 +95,13 @@ class _Auth extends AuthService {
 }
 
 class _Documents extends DocumentService {
-  _Documents(AuthService auth) : super(authService: auth);
+  _Documents(AuthService auth, {this.files = const []})
+    : super(authService: auth);
+  final List<DocumentRecord> files;
+  @override
+  List<DocumentRecord> get documents => files;
+  @override
+  bool get hasLoadedDocuments => true;
   @override
   Future<void> load({bool force = false}) async {}
 }
@@ -120,9 +128,299 @@ Widget _app(
   child: MaterialApp(home: child),
 );
 
+Widget _folderApp(CollegeReportService service, DocumentService documents) =>
+    DocumentScope(
+      documentService: documents,
+      child: _app(
+        service,
+        child: const ViewFilesScreen(
+          categoryKey: 'college-report',
+          categoryName: 'College Report',
+        ),
+      ),
+    );
+
+Map<String, dynamic> _savedReport() => {
+  'questionnaireVersion': _fixture()['version'],
+  'answers': [
+    {'questionKey': 's01-q01', 'value': 'often'},
+  ],
+  'essay': 'Saved student essay',
+  'updatedAt': '2026-10-09T12:00:00.000Z',
+};
+
+DocumentRecord _supportingFile() => DocumentRecord(
+  id: 'supporting-report',
+  categoryKey: 'college-report',
+  folderKey: 'college-report',
+  title: 'Supporting report',
+  documentDate: DateTime(2026, 10, 9),
+  originalFileName: 'supporting-report.pdf',
+  mimeType: 'application/pdf',
+  fileKind: 'pdf',
+  extension: 'pdf',
+  sizeBytes: 128,
+  createdAt: DateTime(2026, 10, 9),
+  updatedAt: DateTime(2026, 10, 9),
+);
+
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
   GoogleFonts.config.allowRuntimeFetching = false;
+
+  testWidgets(
+    'folder loads saved responses separately from files and edits via the existing questionnaire',
+    (tester) async {
+      final auth = _Auth();
+      auth.reports[auth.owner!] = _savedReport();
+      final service = CollegeReportService(
+        authService: auth,
+        draftStore: _Drafts(),
+      );
+      final documents = _Documents(auth);
+      await tester.pumpWidget(_folderApp(service, documents));
+      await tester.pumpAndSettle();
+      expect(service.loaded, isTrue);
+      expect(find.text('College Report Questionnaire'), findsOneWidget);
+      expect(find.text('Saved'), findsOneWidget);
+      expect(
+        find.text('Your saved responses will be included in your portfolio.'),
+        findsOneWidget,
+      );
+      expect(find.text('No files found.'), findsNothing);
+      expect(
+        find.text('Upload a PDF, JPG, JPEG, or PNG file to this folder.'),
+        findsNothing,
+      );
+      expect(find.text('No supporting files uploaded.'), findsOneWidget);
+      expect(
+        find.text(
+          'Your saved questionnaire responses are stored separately and will still be included in your portfolio.',
+        ),
+        findsOneWidget,
+      );
+      expect(find.byType(FileListItem), findsNothing);
+      expect(
+        tester.getTopLeft(find.text('College Report Questionnaire')).dy,
+        lessThan(tester.getTopLeft(find.text('Supporting files')).dy),
+      );
+
+      await tester.tap(find.text('View / Edit Responses'));
+      await tester.pumpAndSettle();
+      expect(find.byType(CollegeReportScreen), findsOneWidget);
+      expect(find.byType(ExpansionTile), findsNWidgets(10));
+      expect(service.template!.questions.length, 62);
+      expect(service.answers['s01-q01'], 'often');
+      final essay = find.widgetWithText(
+        TextFormField,
+        'Your essay / objectives',
+      );
+      await tester.ensureVisible(essay);
+      await tester.enterText(essay, 'Edited saved essay');
+      await tester.tap(find.byType(PrimaryButton));
+      await tester.pumpAndSettle();
+      expect(auth.posts, 1);
+      expect(auth.reports[auth.owner]!['essay'], 'Edited saved essay');
+      Navigator.of(tester.element(find.byType(CollegeReportScreen))).pop();
+      await tester.pumpAndSettle();
+      expect(find.text('Saved'), findsOneWidget);
+      expect(find.text('Unsaved changes'), findsNothing);
+      expect(documents.documents, isEmpty); // No synthetic uploaded document.
+      await tester.pumpWidget(const SizedBox());
+      documents.dispose();
+      service.dispose();
+      auth.dispose();
+    },
+  );
+
+  testWidgets(
+    'saved questionnaire and supporting file both appear; filters affect files only',
+    (tester) async {
+      final auth = _Auth();
+      auth.reports[auth.owner!] = _savedReport();
+      final service = CollegeReportService(
+        authService: auth,
+        draftStore: _Drafts(),
+      );
+      final documents = _Documents(auth, files: [_supportingFile()]);
+      await tester.pumpWidget(_folderApp(service, documents));
+      await tester.pumpAndSettle();
+      expect(find.text('Saved'), findsOneWidget);
+      expect(find.byType(FileListItem), findsOneWidget);
+      expect(find.text('supporting-report.pdf'), findsOneWidget);
+      expect(find.text('No supporting files uploaded.'), findsNothing);
+      expect(
+        tester.getTopLeft(find.text('College Report Questionnaire')).dy,
+        lessThan(tester.getTopLeft(find.byType(FileListItem)).dy),
+      );
+      await tester.tap(find.text('Images'));
+      await tester.pumpAndSettle();
+      expect(find.text('No matching supporting files.'), findsOneWidget);
+      expect(find.text('No supporting files uploaded.'), findsNothing);
+      expect(find.text('Saved'), findsOneWidget);
+      await tester.tap(find.text('All'));
+      await tester.pumpAndSettle();
+      expect(find.text('supporting-report.pdf'), findsOneWidget);
+      await tester.pumpWidget(const SizedBox());
+      documents.dispose();
+      service.dispose();
+      auth.dispose();
+    },
+  );
+
+  testWidgets(
+    'folder without saved responses offers the questionnaire without claiming it is saved',
+    (tester) async {
+      final auth = _Auth();
+      final service = CollegeReportService(
+        authService: auth,
+        draftStore: _Drafts(),
+      );
+      final documents = _Documents(auth);
+      await tester.pumpWidget(_folderApp(service, documents));
+      await tester.pumpAndSettle();
+      expect(find.text('Not saved yet'), findsOneWidget);
+      expect(find.text('Saved'), findsNothing);
+      expect(find.text('No files found.'), findsNothing);
+      expect(find.text('No supporting files uploaded.'), findsOneWidget);
+      expect(
+        find.textContaining('Your saved questionnaire responses'),
+        findsNothing,
+      );
+      await tester.tap(find.text('Answer College Report questionnaire'));
+      await tester.pumpAndSettle();
+      expect(find.byType(CollegeReportScreen), findsOneWidget);
+      expect(auth.posts, 0);
+      await tester.pumpWidget(const SizedBox());
+      documents.dispose();
+      service.dispose();
+      auth.dispose();
+    },
+  );
+
+  for (final hasSaved in [false, true]) {
+    testWidgets(
+      'folder restores the existing local draft (saved report: $hasSaved) without autosaving it',
+      (tester) async {
+        final auth = _Auth();
+        if (hasSaved) auth.reports[auth.owner!] = _savedReport();
+        final store = _Drafts();
+        final original = CollegeReportService(
+          authService: auth,
+          draftStore: store,
+        );
+        await original.load();
+        original.setEssay('My local draft');
+        await original.pendingDraftWrites;
+        original.dispose();
+        final service = CollegeReportService(
+          authService: auth,
+          draftStore: store,
+        );
+        final documents = _Documents(auth);
+        await tester.pumpWidget(_folderApp(service, documents));
+        await tester.pumpAndSettle();
+        expect(find.text('Unsaved changes'), findsOneWidget);
+        expect(find.text('Saved'), findsNothing);
+        expect(service.essay, 'My local draft');
+        if (hasSaved) {
+          expect(
+            find.textContaining('Your previously saved responses'),
+            findsOneWidget,
+          );
+          expect(service.saved!.essay, 'Saved student essay');
+        } else {
+          expect(service.saved, isNull);
+          expect(find.textContaining('Use Save Responses'), findsOneWidget);
+        }
+        await tester.tap(find.text('Continue Editing'));
+        await tester.pumpAndSettle();
+        expect(find.byType(CollegeReportScreen), findsOneWidget);
+        expect(find.text('My local draft'), findsOneWidget);
+        expect(auth.posts, 0);
+        await tester.pumpWidget(const SizedBox());
+        documents.dispose();
+        service.dispose();
+        auth.dispose();
+      },
+    );
+  }
+
+  testWidgets(
+    'folder waits for the saved state instead of briefly reporting no responses',
+    (tester) async {
+      final auth = _Auth()..pendingRead = Completer<Map<String, dynamic>>();
+      final service = CollegeReportService(
+        authService: auth,
+        draftStore: _Drafts(),
+      );
+      final documents = _Documents(auth);
+      await tester.pumpWidget(_folderApp(service, documents));
+      await tester.pump();
+      expect(find.text('Checking saved responses...'), findsOneWidget);
+      expect(find.text('Not saved yet'), findsNothing);
+      expect(find.text('Saved'), findsNothing);
+      auth.pendingRead!.complete(
+        _envelope({
+          'report': _savedReport(),
+          'templateReady': true,
+          'hasLegacyReport': false,
+        }),
+      );
+      await tester.pumpAndSettle();
+      expect(find.text('Saved'), findsOneWidget);
+      await tester.pumpWidget(const SizedBox());
+      documents.dispose();
+      service.dispose();
+      auth.dispose();
+    },
+  );
+
+  for (final state in ['saved', 'draft', 'new']) {
+    testWidgets(
+      'College Report $state folder fits a narrow screen with large text and keyboard inset',
+      (tester) async {
+        tester.view.physicalSize = const Size(320, 568);
+        tester.view.devicePixelRatio = 1;
+        tester.view.viewInsets = const FakeViewPadding(bottom: 180);
+        tester.platformDispatcher.textScaleFactorTestValue = 1.5;
+        addTearDown(tester.view.resetPhysicalSize);
+        addTearDown(tester.view.resetDevicePixelRatio);
+        addTearDown(tester.view.resetViewInsets);
+        addTearDown(tester.platformDispatcher.clearTextScaleFactorTestValue);
+        final auth = _Auth();
+        if (state == 'saved') auth.reports[auth.owner!] = _savedReport();
+        final service = CollegeReportService(
+          authService: auth,
+          draftStore: _Drafts(),
+        );
+        await service.load();
+        if (state == 'draft') service.setEssay('Local draft');
+        final documents = _Documents(
+          auth,
+          files: state == 'saved' ? [_supportingFile()] : [],
+        );
+        await tester.pumpWidget(_folderApp(service, documents));
+        await tester.pumpAndSettle();
+        expect(tester.takeException(), isNull);
+        await tester.ensureVisible(find.byType(OutlinedButton));
+        await tester.pumpAndSettle();
+        expect(tester.takeException(), isNull);
+        await tester.drag(find.byType(CustomScrollView), const Offset(0, -700));
+        await tester.pumpAndSettle();
+        expect(tester.takeException(), isNull);
+        if (state == 'saved') {
+          expect(find.text('supporting-report.pdf'), findsOneWidget);
+        } else {
+          expect(find.text('No supporting files uploaded.'), findsOneWidget);
+        }
+        await tester.pumpWidget(const SizedBox());
+        documents.dispose();
+        service.dispose();
+        auth.dispose();
+      },
+    );
+  }
 
   test(
     'secure draft survives restart, stays out of saved export, and is owner scoped',
