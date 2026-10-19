@@ -1,7 +1,7 @@
-import { getDocument } from 'pdfjs-dist/legacy/build/pdf.mjs';
+import { getDocument, OPS } from 'pdfjs-dist/legacy/build/pdf.mjs';
 import { describe, expect, it } from 'vitest';
 import { PortfolioGeneratorService } from '../../src/modules/portfolios/portfolio-generator.service.js';
-import { OFFICIAL_QUESTIONS } from '../../src/modules/college-report/college-report.template.js';
+import { OFFICIAL_COLLEGE_REPORT, OFFICIAL_QUESTIONS } from '../../src/modules/college-report/college-report.template.js';
 import type { OfficialReportView } from '../../src/modules/college-report/college-report.service.js';
 import { portfolioMemoryStorage, PORTFOLIO_TEST_INFO } from '../helpers/portfolio-fixtures.js';
 
@@ -19,8 +19,11 @@ describe('saved College Report PDF rendering', () => {
     try {
       const pdf = await task.promise;
       const pages = [];
+      let shadedPages = 0;
       for (let number = 1; number <= pdf.numPages; number++) {
         const page = await pdf.getPage(number);
+        const ops = await page.getOperatorList();
+        if (ops.fnArray.some((op, i) => op === OPS.constructPath && ops.argsArray[i][0] === OPS.fill)) shadedPages++;
         expect(page.view).toEqual([0, 0, 612, 792]);
         const items = (await page.getTextContent()).items.filter((i) => 'str' in i);
         for (const item of items.filter((i) => i.str.trim())) {
@@ -33,6 +36,18 @@ describe('saved College Report PDF rendering', () => {
         pages.push({ text: items.map((i) => i.str).join(' ').replace(/\s+/g, ' '), items });
       }
       const text = pages.map((p) => p.text).join(' ');
+      expect(OFFICIAL_COLLEGE_REPORT.sections).toHaveLength(10);
+      expect(OFFICIAL_QUESTIONS).toHaveLength(62);
+      expect(shadedPages).toBeGreaterThanOrEqual(10);
+      expect(text).toContain(OFFICIAL_COLLEGE_REPORT.instructions);
+      expect(text).toContain('[x] Often');
+      expect(text).toContain('[ ] Never');
+      let previous = -1;
+      for (const section of OFFICIAL_COLLEGE_REPORT.sections) {
+        const at = text.indexOf(`${section.label} ${section.prompt}`);
+        expect(at).toBeGreaterThan(previous); previous = at;
+        for (const option of section.options) expect(text).toContain(option.label);
+      }
       for (const question of OFFICIAL_QUESTIONS) expect(text).toContain(question.text);
       for (const label of ['Often', 'Once', '6', 'Quite a bit']) expect(text).toContain(`Selected response: ${label}`);
       expect(text.match(/Response: Unanswered/g)).toHaveLength(57);

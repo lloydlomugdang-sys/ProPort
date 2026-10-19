@@ -24,6 +24,7 @@ import 'package:proport_app/services/document_service.dart';
 import 'package:proport_app/widgets/file_list_item.dart';
 import 'package:proport_app/widgets/college_report_preview_status.dart';
 import 'package:proport_app/widgets/primary_button.dart';
+import 'package:proport_app/widgets/tracker_row.dart';
 
 Map<String, dynamic> _fixture() =>
     jsonDecode(
@@ -108,6 +109,12 @@ class _Documents extends DocumentService {
   @override
   bool get hasLoadedDocuments => true;
   @override
+  DocumentSummary get summary => DocumentSummary(
+    totalCount: files.length,
+    categoryCounts: {'college-report': files.length},
+    folderCounts: {'college-report/college-report': files.length},
+  );
+  @override
   Future<void> load({bool force = false}) async {}
 }
 
@@ -180,6 +187,97 @@ DocumentRecord _supportingFile() => DocumentRecord(
 );
 
 void main() {
+  for (final savedCount in [-1, 0, 1, 62]) {
+    for (final hasAttachment in [false, true]) {
+      testWidgets(
+        'Dashboard questionnaire saved=$savedCount attachment=$hasAttachment uses optional-answer status',
+        (tester) async {
+          tester.view.physicalSize = const Size(390, 844);
+          tester.view.devicePixelRatio = 1;
+          addTearDown(tester.view.resetPhysicalSize);
+          addTearDown(tester.view.resetDevicePixelRatio);
+          final auth = _Auth();
+          if (savedCount >= 0) {
+            auth.reports[auth.owner!] = {
+              ..._savedReport(),
+              'answers': [
+                for (var i = 0; i < savedCount; i++)
+                  {'questionKey': 'saved-$i', 'value': 'answer'},
+              ],
+            };
+          }
+          final report = CollegeReportService(
+            authService: auth,
+            draftStore: _Drafts(),
+          );
+          final docs = _Documents(
+            auth,
+            files: hasAttachment ? [_supportingFile()] : [],
+          );
+          await tester.pumpWidget(
+            AuthScope(
+              authService: auth,
+              child: DocumentScope(
+                documentService: docs,
+                child: _app(report, child: const HomeScreen()),
+              ),
+            ),
+          );
+          await tester.pumpAndSettle();
+          final tracker = find.ancestor(
+            of: find.text('College Report'),
+            matching: find.byType(TrackerRow),
+          );
+          expect(
+            find.descendant(
+              of: tracker,
+              matching: find.text(
+                savedCount < 0 ? 'Not started' : 'Saved responses',
+              ),
+            ),
+            findsOneWidget,
+          );
+          expect(
+            find.descendant(of: tracker, matching: find.text('Complete')),
+            findsNothing,
+          );
+          expect(
+            find.descendant(of: tracker, matching: find.text('Incomplete')),
+            findsNothing,
+          );
+          report.setEssay('Unsaved local edit');
+          await tester.pumpAndSettle();
+          expect(
+            find.textContaining('Unsaved changes. Use Save Responses'),
+            findsOneWidget,
+          );
+          if (savedCount < 0) {
+            expect(
+              find.descendant(
+                of: tracker,
+                matching: find.text('Saved responses'),
+              ),
+              findsNothing,
+            );
+            expect(await report.save(), isTrue);
+            await tester.pumpAndSettle();
+            expect(
+              find.descendant(
+                of: tracker,
+                matching: find.text('Saved responses'),
+              ),
+              findsOneWidget,
+            );
+          }
+          await tester.pumpWidget(const SizedBox());
+          await report.pendingDraftWrites;
+          report.dispose();
+          docs.dispose();
+          auth.dispose();
+        },
+      );
+    }
+  }
   TestWidgetsFlutterBinding.ensureInitialized();
   GoogleFonts.config.allowRuntimeFetching = false;
 
@@ -342,18 +440,15 @@ void main() {
         find.text('Upload a PDF, JPG, JPEG, or PNG file to this folder.'),
         findsNothing,
       );
-      expect(find.text('No supporting files uploaded.'), findsOneWidget);
+      expect(find.text('No supporting files uploaded.'), findsNothing);
       expect(
         find.text(
           'Your saved questionnaire responses are stored separately and will still be included in your portfolio.',
         ),
-        findsOneWidget,
+        findsNothing,
       );
       expect(find.byType(FileListItem), findsNothing);
-      expect(
-        tester.getTopLeft(find.text('College Report Questionnaire')).dy,
-        lessThan(tester.getTopLeft(find.text('Supporting files')).dy),
-      );
+      expect(find.text('Supporting files'), findsNothing);
 
       await tester.tap(find.text('View / Edit Responses'));
       await tester.pumpAndSettle();
@@ -384,7 +479,7 @@ void main() {
   );
 
   testWidgets(
-    'saved questionnaire and supporting file both appear; filters affect files only',
+    'questionnaire page hides supporting files without deleting stored attachments',
     (tester) async {
       final auth = _Auth();
       auth.reports[auth.owner!] = _savedReport();
@@ -396,21 +491,15 @@ void main() {
       await tester.pumpWidget(_folderApp(service, documents));
       await tester.pumpAndSettle();
       expect(find.text('Saved'), findsOneWidget);
-      expect(find.byType(FileListItem), findsOneWidget);
-      expect(find.text('supporting-report.pdf'), findsOneWidget);
+      expect(find.byType(FileListItem), findsNothing);
+      expect(find.text('supporting-report.pdf'), findsNothing);
       expect(find.text('No supporting files uploaded.'), findsNothing);
+      expect(find.text('Images'), findsNothing);
+      expect(find.text('Supporting files'), findsNothing);
       expect(
-        tester.getTopLeft(find.text('College Report Questionnaire')).dy,
-        lessThan(tester.getTopLeft(find.byType(FileListItem)).dy),
+        documents.documents.single.originalFileName,
+        'supporting-report.pdf',
       );
-      await tester.tap(find.text('Images'));
-      await tester.pumpAndSettle();
-      expect(find.text('No matching supporting files.'), findsOneWidget);
-      expect(find.text('No supporting files uploaded.'), findsNothing);
-      expect(find.text('Saved'), findsOneWidget);
-      await tester.tap(find.text('All'));
-      await tester.pumpAndSettle();
-      expect(find.text('supporting-report.pdf'), findsOneWidget);
       await tester.pumpWidget(const SizedBox());
       documents.dispose();
       service.dispose();
@@ -429,10 +518,10 @@ void main() {
       final documents = _Documents(auth);
       await tester.pumpWidget(_folderApp(service, documents));
       await tester.pumpAndSettle();
-      expect(find.text('Not saved yet'), findsOneWidget);
+      expect(find.text('Not started'), findsOneWidget);
       expect(find.text('Saved'), findsNothing);
       expect(find.text('No files found.'), findsNothing);
-      expect(find.text('No supporting files uploaded.'), findsOneWidget);
+      expect(find.text('No supporting files uploaded.'), findsNothing);
       expect(
         find.textContaining('Your saved questionnaire responses'),
         findsNothing,
@@ -508,7 +597,7 @@ void main() {
       await tester.pumpWidget(_folderApp(service, documents));
       await tester.pump();
       expect(find.text('Checking saved responses...'), findsOneWidget);
-      expect(find.text('Not saved yet'), findsNothing);
+      expect(find.text('Not started'), findsNothing);
       expect(find.text('Saved'), findsNothing);
       auth.pendingRead!.complete(
         _envelope({
@@ -559,11 +648,8 @@ void main() {
         await tester.drag(find.byType(CustomScrollView), const Offset(0, -700));
         await tester.pumpAndSettle();
         expect(tester.takeException(), isNull);
-        if (state == 'saved') {
-          expect(find.text('supporting-report.pdf'), findsOneWidget);
-        } else {
-          expect(find.text('No supporting files uploaded.'), findsOneWidget);
-        }
+        expect(find.text('supporting-report.pdf'), findsNothing);
+        expect(find.text('No supporting files uploaded.'), findsNothing);
         await tester.pumpWidget(const SizedBox());
         documents.dispose();
         service.dispose();

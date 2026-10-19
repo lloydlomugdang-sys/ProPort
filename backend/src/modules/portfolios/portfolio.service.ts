@@ -119,6 +119,13 @@ export class PortfolioService {
     private readonly storage?: ObjectStorage,
   ) {}
 
+  async exportDocx(ownerId: Types.ObjectId, input: PortfolioInput): Promise<{ fileName: string; bytes: Buffer }> {
+    if (!this.storage) throw new AppError(503, 'STORAGE_UNAVAILABLE', 'Storage is unavailable for portfolio export.');
+    const info = normalizePortfolioInput(input);
+    const bytes = await new PortfolioGeneratorService(this.database, this.storage).generate(ownerId, info, 'docx');
+    return { fileName: sanitizedStudentFileName(info.fullName).replace(/\.pdf$/, '.docx'), bytes };
+  }
+
   async exportPdf(
     ownerId: Types.ObjectId,
     target: { portfolioId: string } | PortfolioInput,

@@ -9,6 +9,7 @@ import type { DatabaseConnection } from '../../infrastructure/database/database-
 import type { ObjectStorage } from '../../infrastructure/storage/object-storage.js';
 import { CollegeReportService, type OfficialReportView } from '../college-report/college-report.service.js';
 import { collegeReportPages } from '../college-report/college-report.pdf.js';
+import { generatePortfolioDocx } from './portfolio-docx.js';
 import { flattenExportForm } from './flatten-export-form.js';
 import { drawStandardTitlePage, planStandardTitlePages, type StandardTitlePagePlan } from './portfolio-title-page.js';
 import {
@@ -111,7 +112,7 @@ export class PortfolioGeneratorService {
     private readonly loadFonts: PortfolioFontLoader = loadPortfolioFallbackFonts,
   ) {}
 
-  async generate(ownerId: Types.ObjectId, info: PortfolioExportInfo): Promise<Buffer> {
+  async generate(ownerId: Types.ObjectId, info: PortfolioExportInfo, format: 'pdf' | 'docx' = 'pdf'): Promise<Buffer> {
     const repositories = this.repositories();
     const repository = repositories.documents;
     // Header facts come from the authenticated owner, never request fields or
@@ -129,6 +130,8 @@ export class PortfolioGeneratorService {
       afterId = batch[batch.length - 1]!._id;
     }
     const { report } = await new CollegeReportService(this.database!).current(ownerId);
+    if (format === 'docx') return generatePortfolioDocx(documents, info, report, user?.program ?? '',
+      (key) => this.fetchArtifactBytes(key));
     return this.generateFromDocuments(documents, info, report, user?.program ?? '');
   }
 
@@ -306,12 +309,18 @@ export class PortfolioGeneratorService {
 
     // Pass 2: render the measured page plan, inserting the TOC after Creative Title.
     const drawLines = (page: ReturnType<PDFDocument['addPage']>, content: readonly TextLine[], centered = false) => {
-      content.forEach((line, index) => page.drawText(line.text, {
+      content.forEach((line, index) => {
+        if (line.questionnaire) page.drawRectangle({ x: L.left,
+          y: page.getHeight() - L.top - (index + 1) * L.lineHeight + 4,
+          width: CONTENT_WIDTH, height: L.lineHeight,
+          color: line.questionnaire === 'section' ? rgb(0.9, 0.93, 0.95) : rgb(0.96, 0.96, 0.96) });
+        page.drawText(line.text, {
         x: centered ? L.left + (CONTENT_WIDTH - (line.bold ? fonts.bold : fonts.regular).widthOfTextAtSize(line.text, L.bodySize)) / 2 : L.left + line.indent,
         y: page.getHeight() - L.top - L.bodySize - index * L.lineHeight,
         size: L.bodySize, font: line.bold ? fonts.bold : fonts.regular,
-        ...(line.bold ? { color: PRIMARY } : {}),
-      }));
+        ...(line.questionnaire ? { color: rgb(0, 0, 0) } : line.bold ? { color: PRIMARY } : {}),
+      });
+      });
     };
     const footer = (page: ReturnType<PDFDocument['addPage']>) => page.drawText(`Page ${pdf.getPageCount()}`, {
       x: L.left, y: L.bottom + L.bodySize, size: L.bodySize, font: fonts.regular,

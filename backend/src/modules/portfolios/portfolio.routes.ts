@@ -62,6 +62,16 @@ export async function registerPortfolioRoutes(
     return identity.userId;
   }
 
+  app.post<{ Body: PortfolioInput }>('/api/v1/portfolios/export/docx', {
+    onRequest: requireCurrentUser,
+    schema: { body: portfolioCreateBodySchema, querystring: portfolioQuerySchema },
+  }, async (request, reply) => {
+    const { fileName, bytes } = await portfolios.exportDocx(ownerIdFor(request), request.body);
+    return reply.type('application/vnd.openxmlformats-officedocument.wordprocessingml.document')
+      .header('content-length', bytes.length)
+      .header('content-disposition', `attachment; filename="${fileName}"`).send(bytes);
+  });
+
   app.get(
     '/api/v1/portfolios',
     {

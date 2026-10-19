@@ -519,7 +519,7 @@ class _PortfolioExportScreenState extends State<PortfolioExportScreen>
           Text(
             _selectedFormat == ExportFormat.pdf
                 ? 'PDF includes your saved title page, original image/PDF evidence and saved College Report responses.'
-                : 'DOCX is an editable metadata outline, not the final evidence portfolio. Choose PDF to include uploaded pages.',
+                : 'DOCX includes editable text and questionnaire responses with uploaded evidence embedded as images. PDF preserves original PDF-page fidelity.',
             style: GoogleFonts.poppins(
               fontSize: 11,
               color: AppColors.textMuted,

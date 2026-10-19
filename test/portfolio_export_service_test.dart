@@ -8,10 +8,33 @@ import 'package:proport_app/screens/portfolio/models/portfolio_models.dart';
 import 'package:proport_app/services/portfolio_export_service.dart';
 import 'package:xml/xml.dart';
 import 'support/legacy_outline_pdf_fixture.dart';
+import 'support/legacy_outline_docx_fixture.dart';
 import 'package:proport_app/services/auth_service.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
+
+  test(
+    'production DOCX uses authenticated complete export, not cached metadata',
+    () async {
+      final root = await Directory.systemTemp.createTemp(
+        'gradport_docx_route_test_',
+      );
+      addTearDown(() => root.delete(recursive: true));
+      final bytes = Uint8List.fromList([80, 75, 3, 4, 1, 2, 3]);
+      final auth = _EvidenceAuth(bytes);
+      addTearDown(auth.dispose);
+      final file = await DevicePortfolioExporter(
+        authService: auth,
+        store: PortfolioExportStore(temporaryDirectory: () async => root),
+      ).generate(_content(total: 150), ExportFormat.docx);
+      expect(auth.path, '/api/v1/portfolios/export/docx');
+      expect(auth.body!.keys, unorderedEquals(PortfolioInfo.fieldLabels.keys));
+      expect(auth.body, isNot(contains('ownerId')));
+      expect(await File(file.path).readAsBytes(), bytes);
+      expect(file.format, ExportFormat.docx);
+    },
+  );
 
   test(
     'production PDF requests the authenticated evidence endpoint and stores its bytes unchanged',
@@ -54,46 +77,55 @@ void main() {
     );
   });
 
-  test('DOCX is a valid OOXML ZIP with equivalent safe public information', () {
-    final bytes = PortfolioFileRenderer.docx(_content());
-    expect(bytes.length, greaterThan(1000));
-    final archive = ZipDecoder().decodeBytes(bytes, verify: true);
-    expect(
-      archive.files.map((file) => file.name),
-      unorderedEquals([
-        '[Content_Types].xml',
-        '_rels/.rels',
-        'word/document.xml',
-      ]),
-    );
-    for (final file in archive.files) {
+  test(
+    'historical DOCX outline fixture preserves safe metadata for regression tests',
+    () {
+      final bytes = PortfolioFileRenderer.docx(_content());
+      expect(bytes.length, greaterThan(1000));
+      final archive = ZipDecoder().decodeBytes(bytes, verify: true);
       expect(
-        () => XmlDocument.parse(utf8.decode(file.content)),
-        returnsNormally,
+        archive.files.map((file) => file.name),
+        unorderedEquals([
+          '[Content_Types].xml',
+          '_rels/.rels',
+          'word/document.xml',
+        ]),
       );
-    }
-    final body = XmlDocument.parse(
-      utf8.decode(archive.findFile('word/document.xml')!.content),
-    );
-    final text = body
-        .findAllElements('w:t')
-        .map((node) => node.innerText)
-        .join('\n');
-    for (final expected in _expectedText.where(
-      (text) =>
-          !PortfolioSummary.categorySections.values.contains(text) &&
-          text != 'Creative Title',
-    )) {
-      expect(text, contains(expected));
-    }
-    expect(text, contains('A < B & C')); // XML escaping, not executable markup.
-    expect(text, isNot(contains('No stored documents in this section.')));
-    expect(body.findAllElements('w:pageBreakBefore').length, 1);
-    expect(body.findAllElements('w:pgSz').single.getAttribute('w:w'), '12240');
-    expect(text, isNot(contains('accessToken')));
-    expect(text, isNot(contains('ownerId')));
-    expect(text, isNot(contains('document-id')));
-  });
+      for (final file in archive.files) {
+        expect(
+          () => XmlDocument.parse(utf8.decode(file.content)),
+          returnsNormally,
+        );
+      }
+      final body = XmlDocument.parse(
+        utf8.decode(archive.findFile('word/document.xml')!.content),
+      );
+      final text = body
+          .findAllElements('w:t')
+          .map((node) => node.innerText)
+          .join('\n');
+      for (final expected in _expectedText.where(
+        (text) =>
+            !PortfolioSummary.categorySections.values.contains(text) &&
+            text != 'Creative Title',
+      )) {
+        expect(text, contains(expected));
+      }
+      expect(
+        text,
+        contains('A < B & C'),
+      ); // XML escaping, not executable markup.
+      expect(text, isNot(contains('No stored documents in this section.')));
+      expect(body.findAllElements('w:pageBreakBefore').length, 1);
+      expect(
+        body.findAllElements('w:pgSz').single.getAttribute('w:w'),
+        '12240',
+      );
+      expect(text, isNot(contains('accessToken')));
+      expect(text, isNot(contains('ownerId')));
+      expect(text, isNot(contains('document-id')));
+    },
+  );
 
   test(
     'historical metadata-only PDF fixture reproduces the exact QA warning',
@@ -198,13 +230,10 @@ void main() {
             ),
           );
         } else {
-          final generated = await exporter.generate(_content(), format);
-          expect(await File(generated.path).length(), greaterThan(1000));
-          expect(
-            ZipDecoder()
-                .decodeBytes(await File(generated.path).readAsBytes())
-                .findFile('word/document.xml'),
-            isNotNull,
+          // DOCX also requires the real authenticated backend, never an outline fallback.
+          await expectLater(
+            exporter.generate(_content(), format),
+            throwsA(isA<PortfolioExportException>()),
           );
         }
       }

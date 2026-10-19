@@ -7,6 +7,7 @@ import '../../services/auth_models.dart';
 import '../../services/auth_scope.dart';
 import '../../services/document_models.dart';
 import '../../services/document_scope.dart';
+import '../../services/college_report_scope.dart';
 import '../../widgets/grad_app_bar.dart';
 import '../../widgets/section_header.dart';
 import '../../widgets/tracker_row.dart';
@@ -70,6 +71,7 @@ class _HomeScreenState extends State<HomeScreen>
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
       DocumentScope.of(context).load().catchError((_) {});
+      CollegeReportScope.maybeOf(context)?.load();
     });
   }
 
@@ -346,6 +348,7 @@ class _HomeScreenState extends State<HomeScreen>
   }
 
   Widget _buildPortfolioTracker(DocumentSummary summary) {
+    final report = CollegeReportScope.maybeOf(context);
     final trackerItems = [
       _TrackerItem(
         'Curriculum Vitae',
@@ -372,8 +375,19 @@ class _HomeScreenState extends State<HomeScreen>
       ),
       _TrackerItem(
         'College Report',
-        _trackerStatus(summary.categoryCount('college-report')),
-        'Optional questionnaire: use Save Responses to include answers in export.',
+        TrackerStatus.none,
+        report?.dirty == true
+            ? 'Unsaved changes. Use Save Responses to update your exported questionnaire.'
+            : report?.saved != null
+            ? 'Saved questionnaire responses will be included in export. All answers are optional.'
+            : 'Optional questionnaire: use Save Responses to include answers in export.',
+        statusText: report?.saved != null
+            ? 'Saved responses'
+            : report == null || !report.loaded
+            ? report?.errorMessage != null
+                  ? 'Unavailable'
+                  : 'Loading...'
+            : 'Not started',
       ),
     ];
     return Container(
@@ -400,6 +414,7 @@ class _HomeScreenState extends State<HomeScreen>
                 label: item.label,
                 status: item.status,
                 reason: item.reason,
+                statusText: item.statusText,
                 onTap: () => _openCategory(item.label),
               ),
               if (idx < trackerItems.length - 1)
@@ -484,10 +499,11 @@ class _HomeScreenState extends State<HomeScreen>
 }
 
 class _TrackerItem {
-  const _TrackerItem(this.label, this.status, this.reason);
+  const _TrackerItem(this.label, this.status, this.reason, {this.statusText});
   final String label;
   final TrackerStatus status;
   final String reason;
+  final String? statusText;
 }
 
 class _FileCountItem {

@@ -23,8 +23,10 @@ export function collegeReportPages(report: OfficialReportView, fonts: PortfolioF
     },
   });
   const measured = { regular: measuringFont(fonts.regular), bold: measuringFont(fonts.bold) };
-  const lines = (text: string, bold = false): TextLine[] => wrapPortfolioText(text, bold ? measured.bold : measured.regular)
-    .map((text) => ({ text, bold, indent: 0 }));
+  const lines = (text: string, bold = false, questionnaire?: TextLine['questionnaire']): TextLine[] =>
+    wrapPortfolioText(text, bold ? measured.bold : measured.regular, questionnaire ? 408 : undefined)
+      .map((text) => ({ text, bold, indent: questionnaire ? 12 : 0,
+        ...(questionnaire ? { questionnaire } : {}) }));
   const block = (content: TextLine[], continuation: string) => {
     if (current.length && current.length + content.length > TEXT_LINES_PER_PAGE) flush();
     let remaining = content;
@@ -34,39 +36,42 @@ export function collegeReportPages(report: OfficialReportView, fonts: PortfolioF
       remaining = remaining.slice(capacity);
       if (remaining.length) {
         flush();
-        current.push(...lines(`${continuation} (continued)`, true));
+        current.push(...lines(`${continuation} (continued)`, true, 'section'));
       }
     }
   };
   const answers = new Map(report.answers.map((answer) => [answer.questionKey, answer.value]));
   for (const section of OFFICIAL_COLLEGE_REPORT.sections) {
-    flush(); // deterministic section starts, with no empty pages
+    // Flow short sections together. The first question's block keeps each
+    // source heading/options together instead of forcing almost-empty pages.
     const heading = `${section.label} ${section.prompt}`;
     let first = true;
     for (const question of section.questions) {
       const value = answers.get(question.key) ?? null;
       const questionHeading = `${question.label} ${question.text}`.trim();
       const prefix = first ? [
-        ...lines(heading, true), ...(section.note ? lines(section.note) : []), ...lines(''),
+        ...(section.id === 's01' ? [...lines(OFFICIAL_COLLEGE_REPORT.title, true),
+          ...lines(OFFICIAL_COLLEGE_REPORT.instructions)] : []),
+        ...lines(heading, true, 'section'), ...(section.note ? lines(section.note) : []), ...lines(''),
       ] : [];
       const selection = section.options.find((option) => option.value === value);
       block([
         ...prefix,
         ...(question.label ? lines(questionHeading, true) : []),
-        ...(section.options.length ? lines(`Options: ${section.options.map((option) => option.label).join(' | ')}`) : []),
+        ...(section.options.length ? lines(section.options.map((option) =>
+          `${option.value === value ? '[x]' : '[ ]'} ${option.label}`).join('   ')) : []),
         ...lines(value === null ? 'Response: Unanswered' :
-          section.responseType === 'text' ? `Response: ${value}` : `Selected response: ${selection!.label}`),
+          section.responseType === 'text' ? `Response: ${value}` : `Selected response: ${selection!.label}`,
+        value !== null && section.responseType !== 'text', 'response'),
         ...lines(''),
       ], `${section.label}${question.label ? ` ${question.label}` : ''} Response`);
       first = false;
     }
   }
-  flush();
   if (report.essay.trim()) {
-    block([...lines('Student-written essay / objectives', true), ...lines(report.essay)], 'Student-written essay / objectives');
-    flush();
+    block([...lines(''), ...lines('Student-written essay / objectives', true), ...lines(report.essay)], 'Student-written essay / objectives');
   }
-  block(lines(`Reference: ${OFFICIAL_COLLEGE_REPORT.reference}`), 'Reference');
+  block([...lines(''), ...lines(`Reference: ${OFFICIAL_COLLEGE_REPORT.reference}`)], 'Reference');
   flush();
   return pages;
 }

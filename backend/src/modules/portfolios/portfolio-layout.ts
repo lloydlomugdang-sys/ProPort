@@ -34,6 +34,7 @@ export interface TextLine {
   readonly text: string;
   readonly bold: boolean;
   readonly indent: number;
+  readonly questionnaire?: 'section' | 'response';
 }
 
 export const CONTENT_WIDTH = PORTFOLIO_LAYOUT.width - PORTFOLIO_LAYOUT.left - PORTFOLIO_LAYOUT.right;

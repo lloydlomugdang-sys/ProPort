@@ -219,7 +219,7 @@ extension ExportFormatExtension on ExportFormat {
       case ExportFormat.pdf:
         return 'Includes saved image and PDF evidence.';
       case ExportFormat.docx:
-        return 'Editable outline only; use PDF for evidence.';
+        return 'Editable text with embedded evidence images.';
     }
   }
 }

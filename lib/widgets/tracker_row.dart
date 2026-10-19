@@ -13,12 +13,14 @@ class TrackerRow extends StatelessWidget {
     required this.status,
     this.onTap,
     this.reason,
+    this.statusText,
   });
 
   final String label;
   final TrackerStatus status;
   final VoidCallback? onTap;
   final String? reason;
+  final String? statusText;
 
   String get _statusText => switch (status) {
     TrackerStatus.none => 'None',
@@ -72,7 +74,7 @@ class TrackerRow extends StatelessWidget {
                 borderRadius: BorderRadius.circular(20),
               ),
               child: Text(
-                _statusText,
+                statusText ?? _statusText,
                 style: AppTextStyles.chipText.copyWith(color: _chipText),
               ),
             ),

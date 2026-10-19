@@ -139,8 +139,8 @@ void main() {
         );
         if (category.value == 'college-report') {
           expect(find.text('College Report Questionnaire'), findsOneWidget);
-          expect(find.text('Not saved yet'), findsOneWidget);
-          expect(find.text('No supporting files uploaded.'), findsOneWidget);
+          expect(find.text('Not started'), findsOneWidget);
+          expect(find.text('No supporting files uploaded.'), findsNothing);
           expect(find.text('No files found.'), findsNothing);
         } else {
           expect(find.text('No files found.'), findsOneWidget);

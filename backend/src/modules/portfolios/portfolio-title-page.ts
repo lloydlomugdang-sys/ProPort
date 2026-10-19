@@ -38,6 +38,12 @@ export function standardTitlePage(info: PortfolioExportInfo): readonly string[] 
   ];
 }
 
+export async function officialNeuSealPng(): Promise<Buffer> {
+  const asset = await readFile(new URL('../../../../assets/images/neu_seal.webp', import.meta.url))
+    .catch(() => readFile(new URL('../../../../../assets/images/neu_seal.webp', import.meta.url)));
+  return sharp(asset).png().toBuffer();
+}
+
 export async function planStandardTitlePages(
   pdf: PDFDocument, info: PortfolioExportInfo, fonts: PortfolioFonts, program: string,
 ): Promise<StandardTitlePagePlan[]> {
@@ -45,9 +51,7 @@ export async function planStandardTitlePages(
     wrapPortfolioText(text, bold ? fonts.bold : fonts.regular, width).map((text) => ({ text, bold, indent: 0 }));
   // Exact official-site asset, no recoloring/cropping/redrawing. pdf-lib needs
   // PNG rather than WebP; lossless conversion happens only in memory.
-  const asset = await readFile(new URL('../../../../assets/images/neu_seal.webp', import.meta.url))
-    .catch(() => readFile(new URL('../../../../../assets/images/neu_seal.webp', import.meta.url)));
-  const seal = await pdf.embedPng(await sharp(asset).png().toBuffer());
+  const seal = await pdf.embedPng(await officialNeuSealPng());
   const headerLines = [
     ...lines('NEW ERA UNIVERSITY', true, WIDTH - 2 * (SEAL_SIZE + GAP)),
     ...(program.trim() ? lines(program.trim(), false, WIDTH - 2 * (SEAL_SIZE + GAP)) : []),

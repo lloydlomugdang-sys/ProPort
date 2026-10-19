@@ -55,6 +55,7 @@ class _ViewFilesScreenState extends State<ViewFilesScreen> {
           if (mounted) report.load();
         });
       }
+      return;
     }
     if (_loadRequested) return;
     _loadRequested = true;
@@ -164,7 +165,7 @@ class _ViewFilesScreenState extends State<ViewFilesScreen> {
         ? checking
               ? 'Checking saved responses...'
               : 'Unable to check saved responses.'
-        : 'Not saved yet';
+        : 'Not started';
     return Card(
       color: Colors.white,
       margin: const EdgeInsets.all(16),
@@ -201,7 +202,7 @@ class _ViewFilesScreenState extends State<ViewFilesScreen> {
               )
             else if (report.loaded)
               Text(
-                'Use Save Responses to include your questionnaire in your portfolio. Supporting files are optional and stored separately.',
+                'Use Save Responses to include your questionnaire in your portfolio. All answers are optional.',
                 style: AppTextStyles.bodySmall,
               ),
             const SizedBox(height: 8),
@@ -269,10 +270,6 @@ class _ViewFilesScreenState extends State<ViewFilesScreen> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          if (report != null) ...[
-            Text('Supporting files', style: AppTextStyles.h3),
-            const SizedBox(height: 12),
-          ],
           SearchBarField(
             controller: _searchController,
             hintText: 'Search files...',
@@ -287,68 +284,19 @@ class _ViewFilesScreenState extends State<ViewFilesScreen> {
         ],
       ),
     );
-    final filtered = _query.trim().isNotEmpty || _filter != 'All';
 
     return Scaffold(
       backgroundColor: AppColors.background,
       appBar: GradBackAppBar(title: title),
-      // Keep the questionnaire and attachments in one scrollable page so the
-      // status card remains usable on narrow screens and with the keyboard up.
+      // College Report is structured questionnaire data, not a file requirement.
       body: report != null
           ? RefreshIndicator(
               color: AppColors.primary,
-              onRefresh: () async {
-                try {
-                  await Future.wait([
-                    service.load(force: true),
-                    report.load(force: true),
-                  ]);
-                } catch (_) {
-                  // Services retain existing content and expose safe errors.
-                }
-              },
+              onRefresh: () => report.load(force: true),
               child: CustomScrollView(
                 physics: const AlwaysScrollableScrollPhysics(),
                 slivers: [
                   SliverToBoxAdapter(child: _questionnaireCard(report)),
-                  SliverToBoxAdapter(child: searchAndFilters),
-                  const SliverToBoxAdapter(
-                    child: Divider(height: 1, color: AppColors.divider),
-                  ),
-                  if (service.isLoading && !service.hasLoadedDocuments)
-                    const SliverToBoxAdapter(
-                      child: Padding(
-                        padding: EdgeInsets.all(24),
-                        child: Center(child: CircularProgressIndicator()),
-                      ),
-                    )
-                  else if (visible.isEmpty)
-                    SliverToBoxAdapter(
-                      child: EmptyState(
-                        message: service.errorMessage != null
-                            ? 'Unable to load supporting files.'
-                            : filtered
-                            ? 'No matching supporting files.'
-                            : 'No supporting files uploaded.',
-                        icon: Icons.insert_drive_file_outlined,
-                        subtitle:
-                            service.errorMessage ??
-                            (filtered
-                                ? 'Try a different search or filter. Questionnaire responses are stored separately.'
-                                : report.saved != null
-                                ? 'Your saved questionnaire responses are stored separately and will still be included in your portfolio.'
-                                : 'Questionnaire responses are stored separately. You can add optional PDF or image supporting files here.'),
-                      ),
-                    )
-                  else
-                    SliverPadding(
-                      padding: const EdgeInsets.fromLTRB(16, 16, 16, 32),
-                      sliver: SliverList.separated(
-                        itemCount: visible.length,
-                        separatorBuilder: (_, _) => const SizedBox(height: 10),
-                        itemBuilder: (_, index) => _fileItem(visible[index]),
-                      ),
-                    ),
                 ],
               ),
             )

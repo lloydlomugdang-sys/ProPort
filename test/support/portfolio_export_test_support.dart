@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/services.dart';
 import 'legacy_outline_pdf_fixture.dart';
+import 'legacy_outline_docx_fixture.dart';
 import 'package:proport_app/screens/portfolio/models/portfolio_models.dart';
 import 'package:proport_app/services/portfolio_export_service.dart';
 

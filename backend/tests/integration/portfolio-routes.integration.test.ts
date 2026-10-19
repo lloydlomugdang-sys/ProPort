@@ -11,6 +11,7 @@ import { createRepositories } from '../../src/database/repositories/index.js';
 import { PortfolioGeneratorService } from '../../src/modules/portfolios/portfolio-generator.service.js';
 import { PROFILE_OPTIONS } from '../../src/modules/users/profile-options.js';
 import { portfolioDocument, PORTFOLIO_TEST_INFO } from '../helpers/portfolio-fixtures.js';
+import { docxParts } from '../helpers/docx-parts.js';
 import { runMigrations } from '../../src/database/migrations/migration-runner.js';
 import type { AppServices } from '../../src/infrastructure/create-services.js';
 import type {
@@ -524,6 +525,27 @@ describe.sequential('authenticated portfolio API with disposable MongoDB', () =>
     for (const record of records) expect(text).toContain(record.title);
     expect(text).not.toContain('Forbidden_Batch_Owner');
     expect((await PDFDocument.load(bytes)).getPageCount()).toBeGreaterThan(110);
+  });
+
+  it('DOCX requires authentication and uses only the authenticated owner profile/evidence', async () => {
+    const url = '/api/v1/portfolios/export/docx';
+    expectError(await app!.inject({ method: 'POST', url, payload: portfolioInput }), 401, 'UNAUTHORIZED');
+    expectError(await app!.inject({ method: 'POST', url, headers: bearer(firstUser.accessToken),
+      payload: { ...portfolioInput, ownerId: secondUser.userId } }), 400, 'VALIDATION_ERROR');
+    for (const [owner, included, excluded] of [
+      [firstUser, 'FirstUser_AllowedDoc_Title', 'SecondUser_ForbiddenSecret_Title'],
+      [secondUser, 'SecondUser_ForbiddenSecret_Title', 'FirstUser_AllowedDoc_Title'],
+    ] as const) {
+      const result = await app!.inject({ method: 'POST', url, headers: bearer(owner.accessToken), payload: portfolioInput });
+      expect(result.statusCode, result.body.slice(0, 100)).toBe(200);
+      expect(result.headers['content-type']).toContain('wordprocessingml.document');
+      const parts = docxParts(result.rawPayload), body = parts.get('word/document.xml')!.toString();
+      expect(body).toContain('NEW ERA UNIVERSITY');
+      expect(body).toContain(included);
+      expect(body).not.toContain(excluded);
+      expect(body).not.toContain(`users/${owner.userId}`);
+      expect([...parts.keys()].filter((p) => p.startsWith('word/media/')).length).toBeGreaterThan(1);
+    }
   });
 
   it('physical POST export retrieves persisted attachments and embeds images plus every PDF page in order', async () => {

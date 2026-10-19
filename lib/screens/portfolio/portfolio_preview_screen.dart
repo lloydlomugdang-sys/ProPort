@@ -210,7 +210,7 @@ class _PortfolioPreviewScreenState extends State<PortfolioPreviewScreen> {
                   ),
                 ),
                 subtitle: Text(
-                  'Editable outline for Microsoft Word',
+                  'Editable portfolio with embedded evidence',
                   style: AppTextStyles.labelSmall,
                 ),
                 onTap: () => Navigator.pop(sheetContext, ExportFormat.docx),
