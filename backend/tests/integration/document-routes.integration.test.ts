@@ -1305,6 +1305,30 @@ describe.sequential('authenticated document API with disposable storage and Mong
     expect(otherList.json().data.summary.scholasticCoverage.periodCounts).toEqual({});
   });
 
+  it('persists explicit description provenance without guessing authorship or changing reflections', async () => {
+    const upload = multipartUpload({ ...documentFields, descriptionSource: 'suggested', reflection: 'My own reflection' },
+      { name: 'provenance.png', mimeType: 'image/png', contents: png });
+    const response = await app!.inject({ method: 'POST', url: '/api/v1/documents',
+      headers: { ...bearer(firstUser.accessToken), ...upload.headers }, payload: upload.payload });
+    expect(response.statusCode).toBe(201);
+    const id = response.json().data.document.id as string;
+    const url = `/api/v1/documents/${id}`;
+    const patch = (payload: object) => app!.inject({ method: 'PATCH', url, headers: bearer(firstUser.accessToken), payload });
+    const persisted = () => disposable!.connection.db!.collection(COLLECTION_NAMES.documents).findOne({ _id: new Types.ObjectId(id) });
+    expect(await persisted()).toMatchObject({ descriptionSource: 'suggested', reflection: 'My own reflection' });
+    expect((await patch({ descriptionSource: 'confirmed' })).statusCode).toBe(200);
+    expect((await patch({ title: 'Renamed evidence' })).statusCode).toBe(200);
+    expect(await persisted()).toMatchObject({ descriptionSource: 'confirmed', reflection: 'My own reflection' });
+    expect((await patch({ description: 'Changed by a legacy client' })).statusCode).toBe(200);
+    expect(await persisted()).toMatchObject({ descriptionSource: 'unknown' });
+    expect((await patch({ description: 'Explicit manual prose', descriptionSource: 'user' })).statusCode).toBe(200);
+    const read = await app!.inject({ method: 'GET', url, headers: bearer(firstUser.accessToken) });
+    expect(read.json().data.document).toMatchObject({ description: 'Explicit manual prose', descriptionSource: 'user', reflection: 'My own reflection' });
+    expect((await patch({ descriptionSource: 'invented' })).statusCode).toBe(400);
+    expect((await app!.inject({ method: 'PATCH', url, headers: bearer(secondUser.accessToken), payload: { descriptionSource: 'confirmed' } })).statusCode).toBe(404);
+    expect(await persisted()).toMatchObject({ descriptionSource: 'user' });
+  });
+
   it('tolerates partial OCR failure on multi-page images without discarding readable pages', async () => {
     const readablePage = Buffer.concat([jpeg, Buffer.from('partial-page-1-readable')]);
     const unreadablePage = Buffer.concat([png, Buffer.from('partial-page-2-unreadable')]);

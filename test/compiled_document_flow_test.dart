@@ -99,6 +99,7 @@ class _BatchTestDocService extends DocumentService {
 
   @override
   Future<DocumentRecord> upload({
+    String descriptionSource = 'unknown',
     PickedDocument? file,
     List<PickedDocument>? files,
     required String categoryKey,
@@ -138,6 +139,7 @@ class _BatchTestDocService extends DocumentService {
   @override
   Future<DocumentRecord> updateDocumentMetadata(
     String documentId, {
+    String? descriptionSource,
     String? categoryKey,
     String? folderKey,
     String? title,

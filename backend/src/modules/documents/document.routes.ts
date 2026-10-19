@@ -54,6 +54,7 @@ interface DocumentOcrPatchBody {
 }
 
 interface DocumentPatchBody {
+  readonly descriptionSource?: string;
   readonly scholastic?: ScholasticDetails;
   readonly categoryKey?: string;
   readonly folderKey?: string;
@@ -69,6 +70,7 @@ const UPLOAD_FIELDS = new Set([
   'title',
   'documentDate',
   'description',
+  'descriptionSource',
   'reflection',
   'scholastic',
 ]);
@@ -188,6 +190,7 @@ async function parseUpload(request: FastifyRequest): Promise<DocumentUploadInput
     title: requiredField(fields, 'title'),
     documentDate: requiredField(fields, 'documentDate'),
     ...(fields.description === undefined ? {} : { description: fields.description }),
+    ...(fields.descriptionSource === undefined ? {} : { descriptionSource: fields.descriptionSource }),
     ...(fields.reflection === undefined ? {} : { reflection: fields.reflection }),
     ...(scholastic === undefined ? {} : { scholastic }),
     ...(files.length === 1

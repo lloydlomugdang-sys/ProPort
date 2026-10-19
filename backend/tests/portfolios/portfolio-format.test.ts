@@ -20,7 +20,9 @@ async function inspect(bytes: Buffer) {
     for (let n = 1; n <= pdf.numPages; n++) {
       const page = await pdf.getPage(n);
       const items = (await page.getTextContent()).items.filter((item) => 'str' in item);
-      pages.push({ text: items.map((item) => item.str).join(' '), items, view: page.view });
+      const ops = await page.getOperatorList();
+      pages.push({ text: items.map((item) => item.str).join(' '), items, view: page.view,
+        images: ops.fnArray.filter(op => op === OPS.paintImageXObject).length });
     }
     return pages;
   } finally { await task.destroy(); }
@@ -148,7 +150,7 @@ describe('official Phase B portfolio formatting', () => {
     expect(reflectionPage.text).toContain('The first reflection line');
   });
 
-  it('uses the seeded official hierarchy, including Creative Title before TOC and College Report last', async () => {
+  it('uses seeded section order, with the saved Creative Title inside its own section after TOC', async () => {
     const pairs = [
       ['college-report', 'college-report'], ['other-achievements', 'projects'],
       ['accomplishments', 'assessments'], ['accomplishments', 'projects'],
@@ -163,29 +165,28 @@ describe('official Phase B portfolio formatting', () => {
     }));
     const sections = planPortfolioSections(documents);
     expect(sections.map((s) => s.key)).toEqual([
-      'creative-title', 'curriculum-vitae', 'scholastic-record', 'certificates',
+      'curriculum-vitae', 'scholastic-record', 'certificates',
       'accomplishments', 'other-achievements', 'college-report',
     ]);
     expect(sections.find((s) => s.key === 'certificates')!.subsections.map((s) => s.key))
-      .toEqual(['seminars', 'other-seminars', 'trainings']);
+      .toEqual(['creative-title', 'seminars', 'other-seminars', 'trainings']);
     expect(sections.find((s) => s.key === 'accomplishments')!.subsections.map((s) => s.key))
       .toEqual(['thesis-capstone', 'case-studies', 'projects', 'assessments']);
     const pages = await inspect(await generate(documents));
     expect(pages[0]!.text).toContain('Standard Title');
     expect(pages[0]!.text).toContain('NEW ERA UNIVERSITY');
     expect(pages[0]!.text).not.toMatch(/verified via|College of Informatics|Architecture/);
-    expect(pages[1]!.text).toContain('Evidence creative-title');
-    expect(pages[2]!.text).toContain('TABLE OF CONTENTS');
-    expect(pages.filter((p) => p.text.includes('Evidence creative-title') && !p.text.includes('TABLE OF CONTENTS'))).toHaveLength(1);
-    expect(pages.at(-1)!.text).toContain('Evidence college-report');
+    expect(pages[1]!.text).toContain('TABLE OF CONTENTS');
+    expect(pages.filter(p => p.images === 1)).toHaveLength(documents.length);
+    expect(pages.at(-1)!.images).toBe(1);
     expect(pages.find((p) => p.text.includes('My actual PO'))!.text).toContain('Student Reflection');
     for (const section of sections) {
       const target = tocTarget(pages, section.name);
-      expect(pages[target - 1]!.text).toContain(section.key === 'creative-title' ? 'Evidence creative-title' : section.name);
+      expect(pages[target - 1]!.images).toBe(1);
     }
     for (const folder of ['seminars', 'other-seminars', 'trainings', 'thesis-capstone', 'case-studies', 'projects', 'assessments']) {
       const target = tocTarget(pages, `Evidence ${folder}`);
-      expect(pages[target - 1]!.text).toContain(`Evidence ${folder}`);
+      expect(pages[target - 1]!.images).toBe(1);
     }
   });
 
@@ -221,13 +222,13 @@ describe('official Phase B portfolio formatting', () => {
   it('paginates complete image descriptions/reflections and updates every affected TOC number', async () => {
     const reflection = Array.from({ length: 65 }, (_, n) => `Student paragraph ${n}: actual reflection.`).join('\n');
     const pages = await inspect(await generate([
-      doc({ title: 'Long student reflection', description: 'Description '.repeat(50), reflection }),
+      doc({ title: 'Long student reflection', description: 'Description '.repeat(50), descriptionSource: 'user', reflection }),
       doc({ categoryKey: 'college-report', folderKey: 'college-report', title: 'Final report evidence' }),
     ]));
     const content = pages.filter((p) => !p.text.includes('TABLE OF CONTENTS')).map((p) => p.text).join(' ');
     for (let n = 0; n < 65; n++) expect(content).toContain(`Student paragraph ${n}: actual reflection.`);
-    expect(pages.length).toBeGreaterThan(8);
-    expect(pages[tocTarget(pages, 'Final report evidence') - 1]!.text).toContain('Final report evidence');
+    expect(pages.length).toBeGreaterThan(5);
+    expect(pages[tocTarget(pages, 'Final report evidence') - 1]!.images).toBe(1);
     expect(pages.every((page) => page.items.every((i) => !i.str.trim() || i.transform[5] >= 72))).toBe(true);
   });
 
@@ -239,7 +240,8 @@ describe('official Phase B portfolio formatting', () => {
     expect(pages.filter((p) => p.text.includes('TABLE OF CONTENTS')).length).toBeGreaterThan(1);
     for (let i = 0; i < 20; i++) {
       const prefix = `Entry${String(i).padStart(2, '0')}`;
-      expect(pages[tocTarget(pages, prefix) - 1]!.text).toContain(prefix);
+      expect(pages[tocTarget(pages, prefix) - 1]!.images).toBe(1);
+      expect(tocTarget(pages, prefix)).toBe(tocTarget(pages, 'Entry00') + i);
       expect(pages.map((p) => p.text).join(' ')).toContain(`END${i}`);
     }
     for (const page of pages) for (const item of page.items) {
@@ -288,12 +290,12 @@ describe('official Phase B portfolio formatting', () => {
     }
   });
 
-  it('places a real portrait image within margins, reserving caption and footer space', async () => {
+  it('places the original image before prose, reserving print margins and footer space', async () => {
     const bytes = await generate([doc({ description: 'Actual description', reflection: 'Actual reflection' })]);
     const task = getDocument({ data: new Uint8Array(bytes), useSystemFonts: true });
     try {
       const pdf = await task.promise;
-      const page = await pdf.getPage(pdf.numPages);
+      const page = await pdf.getPage(3);
       const operators = await page.getOperatorList();
       const imageIndex = operators.fnArray.indexOf(OPS.paintImageXObject);
       expect(imageIndex).toBeGreaterThan(0);
@@ -309,11 +311,11 @@ describe('official Phase B portfolio formatting', () => {
       expect(x).toBeGreaterThanOrEqual(108);
       expect(x + width).toBeLessThanOrEqual(540);
       expect(y).toBeGreaterThanOrEqual(108);
-      expect(y + height).toBeLessThanOrEqual(720 - 6 * 24);
+      expect(y + height).toBeLessThanOrEqual(720);
     } finally { await task.destroy(); }
   });
 
-  it('paginates PDF metadata before intact source pages and honors source CropBox offsets', async () => {
+  it('paginates reflection after intact source pages and honors source CropBox offsets', async () => {
     const source = await PDFDocument.create();
     const page = source.addPage([800, 1000]);
     page.setCropBox(100, 100, 600, 800);
@@ -325,10 +327,10 @@ describe('official Phase B portfolio formatting', () => {
       reflection: Array.from({ length: 60 }, (_, n) => `Reflection line ${n}`).join('\n'),
     })], info);
     const pages = await inspect(bytes);
-    expect(pages.length).toBeGreaterThan(6);
-    expect(pages.at(-1)!.text).toContain('VISIBLE SOURCE CONTENT');
-    expect(pages.at(-2)!.text).toContain('Reflection line 59');
-    const sourceText = pages.at(-1)!.items.find((i) => i.str.includes('VISIBLE SOURCE'))!;
+    expect(pages).toHaveLength(6);
+    expect(pages[2]!.text).toContain('VISIBLE SOURCE CONTENT');
+    expect(pages.at(-1)!.text).toContain('Reflection line 59');
+    const sourceText = pages[2]!.items.find((i) => i.str.includes('VISIBLE SOURCE'))!;
     expect(sourceText.transform[4]).toBeCloseTo(108 + 10 * 0.72);
     expect(sourceText.height).toBeCloseTo(12 * 0.72);
   });
@@ -363,15 +365,19 @@ describe('official Phase B portfolio formatting', () => {
     expect((await PDFDocument.load(original)).getForm().getFields()).toHaveLength(1);
   });
 
-  it('renders each creative title on its own evidence page before TOC', async () => {
+  it('puts one saved creative artifact directly before section evidence and rejects ambiguous covers', async () => {
     const pages = await inspect(await generate([
       doc({ folderKey: 'creative-title', title: 'Learning through practice' }),
-      doc({ folderKey: 'creative-title', title: 'Building with purpose' }),
+      doc({ title: 'Certificate evidence' }),
     ]));
-    expect(pages[1]!.text).toContain('Learning through practice');
-    expect(pages[2]!.text).toContain('Building with purpose');
-    expect(pages[3]!.text).toContain('TABLE OF CONTENTS');
+    expect(pages).toHaveLength(4);
+    expect(pages[1]!.text).toContain('TABLE OF CONTENTS');
+    expect(tocTarget(pages, 'Learning through practice')).toBe(3);
+    expect(tocTarget(pages, 'Certificate evidence')).toBe(4);
+    expect(pages.slice(2).map(p => p.images)).toEqual([1, 1]);
     expect(pages.map((page) => page.text).join(' ')).not.toContain('No stored documents');
+    await expect(generate([doc({ folderKey: 'creative-title' }), doc({ folderKey: 'creative-title' })]))
+      .rejects.toMatchObject({ code: 'PORTFOLIO_CREATIVE_TITLE_AMBIGUOUS' });
   });
 
   it.each(['annotation', 'xfa'])('fails actionably for unsupported %s without altering uploaded bytes', async (kind) => {

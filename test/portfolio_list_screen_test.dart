@@ -728,6 +728,7 @@ Map<String, dynamic> _document(
   'title': title,
   'documentDate': '2026-09-14',
   'description': 'A saved description',
+  'descriptionSource': 'user',
   'reflection': 'My own reflection',
   'originalFileName': '$id.pdf',
   'mimeType': 'application/pdf',

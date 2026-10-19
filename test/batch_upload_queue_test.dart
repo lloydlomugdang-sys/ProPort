@@ -98,10 +98,12 @@ class _FakeDocumentService extends DocumentService {
   int maxObservedConcurrentOcr = 0;
 
   final List<String> uploadedTitles = [];
+  final List<String> uploadedDescriptionSources = [];
   final List<String> uploadedIds = [];
 
   @override
   Future<DocumentRecord> upload({
+    String descriptionSource = 'unknown',
     PickedDocument? file,
     List<PickedDocument>? files,
     required String categoryKey,
@@ -142,6 +144,7 @@ class _FakeDocumentService extends DocumentService {
 
     final docId = 'doc_$uploadIndex';
     uploadedTitles.add(title);
+    uploadedDescriptionSources.add(descriptionSource);
     uploadedIds.add(docId);
 
     return DocumentRecord(
@@ -209,6 +212,7 @@ class _FakeDocumentService extends DocumentService {
   @override
   Future<DocumentRecord> updateDocumentMetadata(
     String documentId, {
+    String? descriptionSource,
     String? categoryKey,
     String? folderKey,
     String? title,
@@ -462,10 +466,12 @@ void main() {
         expect(item.title, 'My title');
         expect(item.documentDate, DateTime(2025, 3, 2));
         expect(item.description, 'My description');
+        expect(item.descriptionSource, 'user');
         expect(item.reflection, 'My reflection');
         expect(item.rawText, 'Automatic text');
         expect(item.isCompleted, isTrue);
         expect(service.uploadedTitles, ['My title']);
+        expect(service.uploadedDescriptionSources, ['user']);
       },
     );
 

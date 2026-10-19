@@ -2267,6 +2267,7 @@ class _ScreenDocumentService extends DocumentService {
 
   @override
   Future<DocumentRecord> upload({
+    String descriptionSource = 'unknown',
     PickedDocument? file,
     List<PickedDocument>? files,
     required String categoryKey,

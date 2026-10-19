@@ -13,7 +13,10 @@ export function docxParts(zip: Buffer): Map<string, Buffer> {
     const local = zip.readUInt32LE(cursor + 42);
     if (zip.readUInt32LE(local) !== 0x04034b50) throw new Error('Invalid local entry');
     const start = local + 30 + zip.readUInt16LE(local + 26) + zip.readUInt16LE(local + 28);
-    const bytes = inflateRawSync(zip.subarray(start, start + zip.readUInt32LE(cursor + 20)));
+    const packed = zip.subarray(start, start + zip.readUInt32LE(cursor + 20));
+    const method = zip.readUInt16LE(cursor + 10);
+    if (method !== 0 && method !== 8) throw new Error('Unsupported ZIP method');
+    const bytes = method === 0 ? packed : inflateRawSync(packed);
     if (crc32(bytes) !== zip.readUInt32LE(cursor + 16) || bytes.length !== zip.readUInt32LE(cursor + 24)) {
       throw new Error('Corrupt ZIP content');
     }

@@ -347,6 +347,7 @@ class DocumentRecord {
     required this.createdAt,
     required this.updatedAt,
     this.description,
+    this.descriptionSource = 'unknown',
     this.reflection,
     this.attachments,
     this.scholastic,
@@ -358,6 +359,7 @@ class DocumentRecord {
   final String title;
   final DateTime documentDate;
   final String? description;
+  final String descriptionSource;
   final String? reflection;
   final ScholasticDetails? scholastic;
   final String originalFileName;
@@ -417,6 +419,7 @@ class DocumentRecord {
       title: _requiredString(json, 'title'),
       documentDate: documentDate,
       description: _optionalString(json, 'description'),
+      descriptionSource: _optionalString(json, 'descriptionSource') ?? 'unknown',
       reflection: _optionalString(json, 'reflection'),
       scholastic: json['scholastic'] is Map<String, dynamic>
           ? ScholasticDetails.fromJson(
@@ -725,6 +728,7 @@ class CompiledSplitSegment {
     required this.title,
     this.documentDate,
     this.description,
+    this.descriptionSource = 'unknown',
     this.reflection,
     this.scholastic,
   });
@@ -736,6 +740,7 @@ class CompiledSplitSegment {
   final String title;
   final DateTime? documentDate;
   final String? description;
+  final String descriptionSource;
   final String? reflection;
   final ScholasticDetails? scholastic;
 
@@ -752,6 +757,8 @@ class CompiledSplitSegment {
       'documentDate': dateStr,
       if (description != null && description!.trim().isNotEmpty)
         'description': description!.trim(),
+      if (description != null && description!.trim().isNotEmpty)
+        'descriptionSource': descriptionSource,
       if (reflection != null && reflection!.trim().isNotEmpty)
         'reflection': reflection!.trim(),
       if (scholastic != null) 'scholastic': scholastic!.toJson(),

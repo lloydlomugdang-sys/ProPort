@@ -88,7 +88,9 @@ class _PortfolioExportScreenState extends State<PortfolioExportScreen>
       _exportedFile = null;
     });
     try {
-      await documents.load(force: true);
+      // Export itself retrieves fresh owner records. Reuse the presentation
+      // snapshot instead of making two redundant reads before that request.
+      await documents.load(force: documents.errorMessage != null);
       if (!mounted) return;
       final content = PortfolioExportContent.fromDocuments(
         widget.portfolioInfo,
@@ -103,9 +105,7 @@ class _PortfolioExportScreenState extends State<PortfolioExportScreen>
       }
       setState(() {
         _exportedFile = file;
-        _coverageNote = _selectedFormat == ExportFormat.pdf
-            ? 'Saved image and PDF pages are included, with saved College Report responses when available.'
-            : content.coverageNote;
+        _coverageNote = 'Saved image and PDF pages are included, with saved College Report responses when available.';
       });
     } catch (error) {
       if (mounted) setState(() => _error = portfolioExportError(error));

@@ -681,6 +681,9 @@ class _AddFileScreenState extends State<AddFileScreen>
         title: _titleCtrl.text.trim(),
         documentDate: _selectedDate!,
         description: _descriptionEnabled ? _descriptionCtrl.text : null,
+        descriptionSource: _manualFields.contains(_OcrField.description)
+            ? 'user'
+            : 'suggested',
         reflection: _reflectionEnabled || isTor ? _reflectionCtrl.text : null,
         scholastic: isTor ? _scholastic : null,
       );

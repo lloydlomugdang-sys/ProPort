@@ -1,5 +1,5 @@
 import { Readable } from 'node:stream';
-import { PDFDocument } from 'pdf-lib';
+import { PDFDocument, PDFDict, PDFName, PDFRawStream } from 'pdf-lib';
 import { getDocument } from 'pdfjs-dist/legacy/build/pdf.mjs';
 import { describe, expect, it } from 'vitest';
 import {
@@ -198,7 +198,7 @@ describe('PortfolioGeneratorService', () => {
     // 9: Accomplishments Section divider
     // 10: Accomplishments image artifact page
     // Total = 10 pages
-    expect(loaded.getPageCount()).toBe(10);
+    expect(loaded.getPageCount()).toBe(9); // front matter + 4 source pages + 3 reflections
   });
 
   it('embeds multi-page logical document preserving order and rendering page indicators', async () => {
@@ -396,7 +396,7 @@ describe('PortfolioGeneratorService', () => {
       const loaded = await PDFDocument.load(pdfBytes);
 
       // 1: Title page, 2: TOC, 3: CV divider, 4: CV metadata overview, 5: Page 1, 6: Page 2, 7: Page 3 = 7 pages total
-      expect(loaded.getPageCount()).toBe(7);
+      expect(loaded.getPageCount()).toBe(6); // front matter + 3 intact source pages + reflection
 
       const allText = await extractAllPdfText(pdfBytes);
       // All 3 vector text markers preserved from source PDF
@@ -456,14 +456,14 @@ describe('PortfolioGeneratorService', () => {
       // Title (1) + TOC (1) + Section Divider (1) + Page 1 (1) + Page 2 (1) = 5 pages
       expect(loaded.getPageCount()).toBe(5);
 
-      const allText = await extractAllPdfText(pdfBytes);
-      expect(allText).toContain('Page 1 of 2');
-      expect(allText).toContain('Page 2 of 2');
-
-      const page1Pos = allText.indexOf('Page 1 of 2');
-      const page2Pos = allText.indexOf('Page 2 of 2');
-      expect(page1Pos).toBeGreaterThan(-1);
-      expect(page2Pos).toBeGreaterThan(page1Pos);
+      // Inspect actual embedded image filters/order, not generated captions.
+      const imageFilters = loaded.getPages().slice(2, 4).map(page => {
+        const objects = page.node.Resources()?.lookup(PDFName.of('XObject'), PDFDict);
+        return objects?.entries().map(([, ref]) => loaded.context.lookup(ref)).map(o =>
+          o instanceof PDFRawStream ? o.dict.get(PDFName.of('Filter'))?.toString() : '').join(' ');
+      });
+      expect(imageFilters[0]).toContain('FlateDecode');
+      expect(imageFilters[1]).toContain('DCTDecode');
     });
 
     it('associates metadata and reflections with the correct distinct artifact', async () => {

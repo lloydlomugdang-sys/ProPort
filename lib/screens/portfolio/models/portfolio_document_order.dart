@@ -11,7 +11,6 @@ abstract final class PortfolioDocumentOrder {
     if (!PortfolioSummary.categorySections.containsKey(category)) {
       return category;
     }
-    if (document.folderKey == 'creative-title') return 'Creative Title';
     return PortfolioSummary.categorySections[category]!;
   }
 
@@ -24,7 +23,6 @@ abstract final class PortfolioDocumentOrder {
     List<DocumentCategory> categories,
   ) {
     final sections = [
-      'Creative Title',
       ...PortfolioSummary.categorySections.values,
     ];
     int sectionRank(DocumentRecord document) {
@@ -33,6 +31,7 @@ abstract final class PortfolioDocumentOrder {
     }
 
     int folderRank(DocumentRecord document) {
+      if (document.folderKey == 'creative-title') return -1;
       // Category API already returns folders in seeded sortOrder.
       final categoryKey = document.categoryKey == 'cv'
           ? 'curriculum-vitae'
@@ -49,13 +48,10 @@ abstract final class PortfolioDocumentOrder {
     return [...documents]..sort((a, b) {
       var result = sectionRank(a).compareTo(sectionRank(b));
       if (result != 0) return result;
-      // All creative titles form one front-matter group, regardless of category.
-      if (sectionFor(a) != 'Creative Title') {
-        result = folderRank(a).compareTo(folderRank(b));
-        if (result != 0) return result;
-        result = a.folderKey.compareTo(b.folderKey);
-        if (result != 0) return result;
-      }
+      result = folderRank(a).compareTo(folderRank(b));
+      if (result != 0) return result;
+      result = a.folderKey.compareTo(b.folderKey);
+      if (result != 0) return result;
       result = a.documentDate.compareTo(b.documentDate);
       if (result != 0) return result;
       result = a.createdAt.compareTo(b.createdAt);

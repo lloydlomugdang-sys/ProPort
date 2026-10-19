@@ -23,6 +23,7 @@ class BatchUploadItem {
     this.title,
     this.documentDate,
     this.description,
+    this.descriptionSource = 'unknown',
     this.reflection,
     this.scholastic = const ScholasticDetails(),
     this.confidence,
@@ -46,6 +47,7 @@ class BatchUploadItem {
   final String? title;
   final DateTime? documentDate;
   final String? description;
+  final String descriptionSource;
   final String? reflection;
   final ScholasticDetails scholastic;
   bool get isTor => ScholasticDetails.isTor(categoryKey, folderKey);
@@ -110,6 +112,7 @@ class BatchUploadItem {
     String? title,
     DateTime? documentDate,
     String? description,
+    String? descriptionSource,
     String? reflection,
     ScholasticDetails? scholastic,
     String? confidence,
@@ -136,6 +139,7 @@ class BatchUploadItem {
       title: title ?? this.title,
       documentDate: documentDate ?? this.documentDate,
       description: description ?? this.description,
+      descriptionSource: descriptionSource ?? this.descriptionSource,
       reflection: reflection ?? this.reflection,
       scholastic: scholastic ?? this.scholastic,
       confidence: confidence ?? this.confidence,

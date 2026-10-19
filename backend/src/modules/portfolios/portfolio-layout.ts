@@ -1,6 +1,6 @@
 import { type PDFDocument, type PDFFont } from 'pdf-lib';
 import fontkit from '@pdf-lib/fontkit';
-import { readFile } from 'node:fs/promises';
+import { portfolioFontBytes } from './portfolio-font-assets.js';
 import { AppError } from '../../common/errors/app-error.js';
 
 export const PORTFOLIO_LAYOUT = {
@@ -20,13 +20,9 @@ export interface PortfolioFonts {
 export type PortfolioFontLoader = (pdf: PDFDocument) => Promise<PortfolioFonts>;
 export const loadPortfolioFallbackFonts: PortfolioFontLoader = async (pdf) => {
   pdf.registerFontkit(fontkit);
-  const asset = async (name: string) => {
-    try { return await readFile(new URL(`../../../../assets/fonts/${name}`, import.meta.url)); }
-    catch { return readFile(new URL(`../../../../../assets/fonts/${name}`, import.meta.url)); }
-  };
   return {
-    regular: await pdf.embedFont(await asset('NotoSans-Regular.ttf'), { subset: true }),
-    bold: await pdf.embedFont(await asset('NotoSans-Bold.ttf'), { subset: true }),
+    regular: await pdf.embedFont(await portfolioFontBytes(false), { subset: true }),
+    bold: await pdf.embedFont(await portfolioFontBytes(true), { subset: true }),
   };
 };
 
@@ -45,12 +41,21 @@ export const TEXT_LINES_PER_PAGE = Math.floor(
 ) - 1;
 
 /** Wrap paragraphs and even unbroken words by measured font width; never ellipsize. */
+const fontMeasurements = new WeakMap<PDFFont, { glyphs: Map<string, number>; widths: Map<string, number>; supported: Set<number> }>();
 export function wrapPortfolioText(text: string, font: PDFFont, width = CONTENT_WIDTH): string[] {
   const lines: string[] = [];
   // Standard-font metrics include kerning; drawText emits individual glyph
   // advances. Reserve the larger width so actual output stays within margins.
-  const glyphWidths = new Map<string, number>();
-  const measuredWidth = (value: string) => Math.max(
+  let measurements = fontMeasurements.get(font);
+  if (!measurements) {
+    measurements = { glyphs: new Map(), widths: new Map(), supported: new Set(font.getCharacterSet()) };
+    fontMeasurements.set(font, measurements);
+  }
+  const { glyphs: glyphWidths, widths, supported } = measurements;
+  const measuredWidth = (value: string) => {
+    const cached = widths.get(value);
+    if (cached !== undefined) return cached;
+    const measured = Math.max(
     font.widthOfTextAtSize(value, PORTFOLIO_LAYOUT.bodySize),
     [...value].reduce((total, character) => {
       let advance = glyphWidths.get(character);
@@ -60,9 +65,12 @@ export function wrapPortfolioText(text: string, font: PDFFont, width = CONTENT_W
       }
       return total + advance;
     }, 0),
-  );
+    );
+    // Per-export font lifetime, bounded strings: never a cross-account cache.
+    if (widths.size < 4096) widths.set(value, measured);
+    return measured;
+  };
   try {
-    const supported = new Set(font.getCharacterSet());
     if ([...text].some((character) => !/\s/.test(character) && !supported.has(character.codePointAt(0)!))) {
       throw new Error('Unsupported glyph');
     }

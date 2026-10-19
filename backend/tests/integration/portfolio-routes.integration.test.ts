@@ -578,7 +578,8 @@ describe.sequential('authenticated portfolio API with disposable MongoDB', () =>
         pages.push({ text: (await page.getTextContent()).items.filter((item) => 'str' in item).map((item) => item.str).join(' '),
           images: (await page.getOperatorList()).fnArray.filter((op) => op === OPS.paintImageXObject || op === OPS.paintInlineImageXObject).length });
       }
-      const imageIndex = pages.findIndex((page) => page.text.includes('Stored multipage evidence') && page.images > 0);
+      expect(pages[1]!.text).toContain('Stored multipage evidence');
+      const imageIndex = pages.findIndex((page, i) => i > 1 && page.images > 0);
       const alpha = pages.findIndex((page) => page.text.includes('EVIDENCE PAGE ALPHA'));
       const beta = pages.findIndex((page) => page.text.includes('EVIDENCE PAGE BETA'));
       expect(imageIndex).toBeGreaterThan(0);

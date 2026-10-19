@@ -8,8 +8,10 @@ import { CATEGORY_SEEDS } from '../../database/seeds/categories.seed.js';
 import type { DatabaseConnection } from '../../infrastructure/database/database-connection.js';
 import type { ObjectStorage } from '../../infrastructure/storage/object-storage.js';
 import { CollegeReportService, type OfficialReportView } from '../college-report/college-report.service.js';
-import { collegeReportPages } from '../college-report/college-report.pdf.js';
+import { collegeReportPages, drawCollegeReportPage, type QuestionnairePage } from '../college-report/college-report.pdf.js';
 import { generatePortfolioDocx } from './portfolio-docx.js';
+import { exportDescription } from '../documents/description-source.js';
+import { measureExport, type ExportObserver } from './export-metrics.js';
 import { flattenExportForm } from './flatten-export-form.js';
 import { drawStandardTitlePage, planStandardTitlePages, type StandardTitlePagePlan } from './portfolio-title-page.js';
 import {
@@ -40,6 +42,7 @@ interface Subsection { readonly key: string; readonly name: string; readonly ite
 interface Section { readonly key: string; readonly name: string; readonly subsections: Subsection[] }
 type PlannedPage =
   | StandardTitlePagePlan
+  | { readonly kind: 'questionnaire'; readonly plan: QuestionnairePage }
   | { readonly kind: 'text'; readonly lines: readonly TextLine[]; readonly centered?: boolean }
   | { readonly kind: 'image'; readonly image: PDFImage; readonly lines: readonly TextLine[] }
   | { readonly kind: 'pdf'; readonly page: PDFEmbeddedPage; readonly rotation: number };
@@ -54,7 +57,6 @@ function tooLarge(detail: string): AppError {
 /** Uses the existing taxonomy; legacy folders stay under their known category. */
 export function planPortfolioSections(documents: readonly DocumentRecord[]): Section[] {
   const sections: Section[] = [
-    { key: 'creative-title', name: 'Creative Title', subsections: [] },
     ...[...CATEGORY_SEEDS].sort((a, b) => a.sortOrder - b.sortOrder).map((category) => ({
       key: category.key,
       name: category.key === 'scholastic-record'
@@ -70,7 +72,7 @@ export function planPortfolioSections(documents: readonly DocumentRecord[]): Sec
       throw new AppError(422, 'PORTFOLIO_CATEGORY_UNSUPPORTED',
         'A document has an unsupported category. Review its category before exporting; no source files have been changed.');
     }
-    const sectionKey = document.folderKey === 'creative-title' ? 'creative-title' : categoryKey;
+    const sectionKey = categoryKey;
     const section = sections.find((value) => value.key === sectionKey)!;
     let subsection = section.subsections.find((value) => value.key === document.folderKey);
     if (!subsection) {
@@ -92,6 +94,11 @@ export function planPortfolioSections(documents: readonly DocumentRecord[]): Sec
     });
   }
   for (const section of sections) {
+    const creative = section.subsections.find(s => s.key === 'creative-title');
+    if (creative && (creative.items.length !== 1 || creative.items[0]!.attachments.length !== 1)) {
+      throw new AppError(422, 'PORTFOLIO_CREATIVE_TITLE_AMBIGUOUS',
+        `Keep one single-page Creative Title for ${section.name} before exporting. No uploaded evidence has been omitted or changed.`);
+    }
     const folders = CATEGORY_SEEDS.find((value) => value.key === section.key)?.folders ?? [];
     const rank = (key: string) => folders.find((value) => value.key === key)?.sortOrder ?? Number.MAX_SAFE_INTEGER;
     section.subsections.sort((a, b) => rank(a.key) - rank(b.key) || a.key.localeCompare(b.key));
@@ -110,9 +117,11 @@ export class PortfolioGeneratorService {
     private readonly database: DatabaseConnection | undefined,
     private readonly storage: ObjectStorage,
     private readonly loadFonts: PortfolioFontLoader = loadPortfolioFallbackFonts,
+    private readonly observe?: ExportObserver,
   ) {}
 
   async generate(ownerId: Types.ObjectId, info: PortfolioExportInfo, format: 'pdf' | 'docx' = 'pdf'): Promise<Buffer> {
+    const recordStart = performance.now();
     const repositories = this.repositories();
     const repository = repositories.documents;
     // Header facts come from the authenticated owner, never request fields or
@@ -130,8 +139,9 @@ export class PortfolioGeneratorService {
       afterId = batch[batch.length - 1]!._id;
     }
     const { report } = await new CollegeReportService(this.database!).current(ownerId);
+    this.observe?.('records', performance.now() - recordStart);
     if (format === 'docx') return generatePortfolioDocx(documents, info, report, user?.program ?? '',
-      (key) => this.fetchArtifactBytes(key));
+      (key) => this.fetchArtifactBytes(key), this.observe);
     return this.generateFromDocuments(documents, info, report, user?.program ?? '');
   }
 
@@ -152,7 +162,7 @@ export class PortfolioGeneratorService {
     pdf.setTitle('GradPort Academic Portfolio');
     pdf.setAuthor(info.fullName);
     pdf.setCreator('GradPort Portfolio Builder');
-    const fonts = await this.loadFonts(pdf);
+    const fonts = await measureExport('fonts', this.observe, () => this.loadFonts(pdf));
     const pages: PlannedPage[] = [];
     const entries: TocEntry[] = [];
     let actualBytes = 0;
@@ -183,36 +193,35 @@ export class PortfolioGeneratorService {
     const planSection = async (section: Section) => {
       entries.push({ title: section.name, pageIndex: pages.length, level: 0 });
       // Creative Title is the supplied document itself, not an invented cover.
-      if (section.key !== 'creative-title') addTextPages(lines(section.name, true));
+      // The saved creative-title artifact (if present) is the section's cover.
+      // No invented heading-only page and no generated metadata before evidence.
       for (const sub of section.subsections) {
-        if (section.key !== 'creative-title' &&
+        if (sub.key !== 'creative-title' &&
             (section.key === 'certificates' || section.key === 'accomplishments' || section.subsections.length > 1)) {
           entries.push({ title: sub.name, pageIndex: pages.length, level: 1 });
         }
         for (const item of sub.items) {
           const doc = item.document;
-          entries.push({ title: doc.title, pageIndex: pages.length, level: 2 });
+          if (doc.title !== section.name && doc.title !== sub.name) entries.push({ title: doc.title, pageIndex: pages.length, level: 2 });
+          const description = exportDescription(doc);
           const metadata = [
-            ...(doc.description?.trim() ? [...lines('Description', true), ...lines(doc.description)] : []),
+            ...(description ? [...lines('Description', true), ...lines(description)] : []),
             ...(doc.reflection?.trim() ? [...lines('Student Reflection', true), ...lines(doc.reflection)] : []),
           ];
-          for (const [index, attachment] of item.attachments.entries()) {
-            const bytes = await this.fetchArtifactBytes(attachment.objectKey);
+          for (const attachment of item.attachments) {
+            const bytes = await measureExport('storage', this.observe, () => this.fetchArtifactBytes(attachment.objectKey));
+            const artifactStart = performance.now();
             actualBytes += bytes.length;
             if (actualBytes > MAX_PORTFOLIO_TOTAL_SOURCE_BYTES) {
               throw tooLarge('Reduce source file sizes to a combined 50 MiB or less.');
             }
-            const header = [
-              ...lines(doc.title, true),
-              ...(item.attachments.length > 1 ? lines(`Page ${index + 1} of ${item.attachments.length}`) : []),
-              ...(section.key === 'creative-title' ? [] : lines(`${sub.name} | ${new Date(doc.documentDate).toISOString().slice(0, 10)}`)),
-            ];
             if (attachment.fileKind === 'pdf') {
-              if (index === 0 && metadata.length) addTextPages([...header, ...metadata]);
               try {
                 const source = await PDFDocument.load(bytes);
                 flattenExportForm(source);
                 if (source.getPageCount() === 0) throw new Error('Empty PDF');
+                if (sub.key === 'creative-title' && source.getPageCount() !== 1) throw new AppError(422,
+                  'PORTFOLIO_CREATIVE_TITLE_AMBIGUOUS', 'A Creative Title must be one page. Review the uploaded title; no source pages were omitted.');
                 if (pages.length + source.getPageCount() > MAX_PORTFOLIO_TOTAL_PAGES) {
                   throw tooLarge('The maximum is 150 pages including front matter. Reduce the document/page count.');
                 }
@@ -249,33 +258,27 @@ export class PortfolioGeneratorService {
                 throw new AppError(422, 'PORTFOLIO_ARTIFACT_CORRUPT', 'This portfolio file could not be processed.');
               }
             } else {
-              let caption = [...header, ...(index === 0 ? metadata : [])];
-              // Keep short captions on the image page; paginate longer student text.
-              if (caption.length > 10) {
-                addTextPages(caption);
-                caption = []; // Full title/metadata already precedes the image; never truncate.
-              }
               try {
                 const normalized = new Uint8Array(bytes);
                 const image = bytes.subarray(0, 4).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47]))
                   ? await pdf.embedPng(normalized) : await pdf.embedJpg(normalized);
-                addPage({ kind: 'image', image, lines: caption });
+                addPage({ kind: 'image', image, lines: [] });
               } catch (error) {
                 if (error instanceof AppError) throw error;
                 throw new AppError(422, 'PORTFOLIO_ARTIFACT_CORRUPT', 'This portfolio file could not be processed.');
               }
             }
+            this.observe?.(attachment.fileKind === 'pdf' ? 'pdf-evidence' : 'image-evidence', performance.now() - artifactStart);
           }
+          if (metadata.length) addTextPages(metadata);
         }
       }
     };
-    const creative = sections.find((section) => section.key === 'creative-title');
-    if (creative) await planSection(creative);
     const tocIndex = pages.length;
-    for (const section of sections.filter((section) => section.key !== 'creative-title')) {
+    for (const section of sections) {
       await planSection(section);
       if (section.key === 'college-report' && collegeReport) {
-        for (const content of collegeReportPages(collegeReport, fonts)) addPage({ kind: 'text', lines: content });
+        for (const plan of await measureExport('questionnaire-plan', this.observe, () => collegeReportPages(collegeReport, fonts))) addPage({ kind: 'questionnaire', plan });
       }
     }
 
@@ -307,7 +310,8 @@ export class PortfolioGeneratorService {
       throw tooLarge('The maximum is 150 pages including front matter. Reduce the document/page count.');
     }
 
-    // Pass 2: render the measured page plan, inserting the TOC after Creative Title.
+    // Pass 2: insert the measured TOC after Standard Title; each Creative Title
+    // remains inside its category immediately before that category's evidence.
     const drawLines = (page: ReturnType<PDFDocument['addPage']>, content: readonly TextLine[], centered = false) => {
       content.forEach((line, index) => {
         if (line.questionnaire) page.drawRectangle({ x: L.left,
@@ -360,6 +364,7 @@ export class PortfolioGeneratorService {
       } else {
         const page = pdf.addPage([L.width, L.height]);
         if (planned.kind === 'title') drawStandardTitlePage(page, planned, fonts);
+        else if (planned.kind === 'questionnaire') drawCollegeReportPage(page, planned.plan, fonts);
         else drawLines(page, planned.lines, planned.kind === 'text' && planned.centered);
         if (planned.kind === 'image') {
           const fit = fitPortfolioArtifact(planned.image.width, planned.image.height, L.width, L.height,
@@ -370,7 +375,7 @@ export class PortfolioGeneratorService {
         footer(page);
       }
     }
-    return Buffer.from(await pdf.save());
+    return Buffer.from(await measureExport('pdf-save', this.observe, () => pdf.save()));
   }
 
   private async fetchArtifactBytes(objectKey: string): Promise<Buffer> {

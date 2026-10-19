@@ -5,7 +5,7 @@ const unsupported = () => new AppError(422, 'PORTFOLIO_ARTIFACT_UNSUPPORTED',
   'A PDF contains unsupported form fields or annotations. Open it in a PDF reader, print to PDF with visible annotations, and upload that copy. The original is unchanged.');
 
 /** Only mutates the in-memory export copy. Never rewrites stored evidence. */
-export function flattenExportForm(source: PDFDocument): void {
+export function flattenExportForm(source: PDFDocument): boolean {
   try {
     // getForm() itself discards XFA in pdf-lib. Inspect the catalog first so
     // unsupported dynamic forms fail instead of silently losing their content.
@@ -20,7 +20,9 @@ export function flattenExportForm(source: PDFDocument): void {
       for (const field of fields) form.markFieldAsDirty(field.ref);
       form.updateFieldAppearances();
       form.flatten({ updateFieldAppearances: false });
+      return true;
     }
+    return false;
   } catch {
     throw unsupported();
   }

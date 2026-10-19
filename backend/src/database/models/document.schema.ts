@@ -1,5 +1,6 @@
 import { Schema, type Types } from 'mongoose';
 import type { ScholasticDetails } from '../../modules/documents/scholastic-details.js';
+import { DESCRIPTION_SOURCES, type DescriptionSource } from '../../modules/documents/description-source.js';
 
 export const FILE_KINDS = ['image', 'pdf', 'docx'] as const;
 export type FileKind = (typeof FILE_KINDS)[number];
@@ -52,6 +53,7 @@ export interface Document {
   title: string;
   documentDate: Date;
   description?: string;
+  descriptionSource?: DescriptionSource;
   reflection?: string;
   scholastic?: ScholasticDetails;
   originalFileName: string;
@@ -75,6 +77,7 @@ export const documentSchema = new Schema<Document>(
     title: { type: String, required: true, trim: true, minlength: 1, maxlength: 250 },
     documentDate: { type: Date, required: true },
     description: { type: String, trim: true, maxlength: 2_000 },
+    descriptionSource: { type: String, enum: DESCRIPTION_SOURCES },
     reflection: { type: String, trim: true, maxlength: 5_000 },
     scholastic: { type: new Schema<ScholasticDetails>({
       studyYear: { type: Number, min: 1, max: 20, validate: Number.isInteger },

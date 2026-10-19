@@ -19,6 +19,7 @@ import type { ObjectStorage } from '../../infrastructure/storage/object-storage.
 import { suggestDocumentMetadata, type MetadataSuggestions } from './metadata-suggestion.service.js';
 import { AiMetadataService, type MetadataAnalysis } from './ai-metadata.service.js';
 import { requireTorReflection, validateScholasticDetails, type ScholasticDetails } from './scholastic-details.js';
+import { descriptionSource, type DescriptionSource } from './description-source.js';
 
 export const MAX_DOCUMENT_FILE_SIZE_BYTES = 15 * 1024 * 1024;
 export const MAX_DOCUMENT_ATTACHMENTS = 10;
@@ -64,6 +65,7 @@ export interface DocumentFileInput {
 }
 
 export interface DocumentUploadInput {
+  readonly descriptionSource?: string;
   readonly scholastic?: ScholasticDetails;
   readonly categoryKey: string;
   readonly folderKey: string;
@@ -88,6 +90,7 @@ export interface PublicDocumentAttachment {
 }
 
 export interface PublicDocument {
+  readonly descriptionSource?: DescriptionSource;
   readonly scholastic?: ScholasticDetails;
   readonly id: string;
   readonly categoryKey: string;
@@ -363,6 +366,7 @@ function publicDocument(document: DocumentRecord): PublicDocument {
     title: document.title,
     documentDate: document.documentDate.toISOString(),
     ...(document.description === undefined ? {} : { description: document.description }),
+    ...(document.descriptionSource === undefined ? {} : { descriptionSource: document.descriptionSource }),
     ...(document.reflection === undefined ? {} : { reflection: document.reflection }),
     ...(document.scholastic === undefined ? {} : { scholastic: document.scholastic }),
     originalFileName: document.originalFileName,
@@ -447,6 +451,7 @@ export class DocumentService {
     const folderKey = normalizedRequired(input.folderKey, 'folderKey', 100);
     const title = normalizedRequired(input.title, 'title', 250);
     const description = normalizedOptional(input.description, 'description', 2_000);
+    const source = descriptionSource(input.descriptionSource);
     const reflection = normalizedOptional(input.reflection, 'reflection', 5_000);
     const scholastic = validateScholasticDetails(input.scholastic);
     requireTorReflection(categoryKey, folderKey, reflection, scholastic);
@@ -614,6 +619,7 @@ export class DocumentService {
         title,
         documentDate: documentDate(input.documentDate),
         ...(description === undefined ? {} : { description }),
+        descriptionSource: source,
         ...(reflection === undefined ? {} : { reflection }),
         ...(scholastic === undefined ? {} : { scholastic }),
         originalFileName: primary.originalFileName,
@@ -1094,6 +1100,7 @@ export class DocumentService {
       readonly title?: string;
       readonly documentDate?: string;
       readonly description?: string;
+      readonly descriptionSource?: string;
       readonly reflection?: string;
       readonly scholastic?: ScholasticDetails;
     },
@@ -1131,6 +1138,8 @@ export class DocumentService {
     const title = input.title !== undefined ? normalizedRequired(input.title, 'title', 250) : document.title;
     const date = input.documentDate !== undefined ? documentDate(input.documentDate) : document.documentDate;
     const description = input.description !== undefined ? normalizedOptional(input.description, 'description', 2_000) : document.description;
+    const source = input.descriptionSource !== undefined ? descriptionSource(input.descriptionSource) :
+      input.description !== undefined && input.description.trim() !== document.description ? 'unknown' : document.descriptionSource;
     const reflection = input.reflection !== undefined ? (normalizedOptional(input.reflection, 'reflection', 5_000) ?? '') : document.reflection;
     const scholastic = validateScholasticDetails(input.scholastic ?? document.scholastic);
     requireTorReflection(categoryKey, folderKey, reflection, scholastic);
@@ -1141,6 +1150,7 @@ export class DocumentService {
       title,
       documentDate: date,
       ...(description !== undefined ? { description } : {}),
+      ...(source !== undefined ? { descriptionSource: source } : {}),
       ...(reflection !== undefined ? { reflection } : {}),
       ...(scholastic !== undefined ? { scholastic } : {}),
     });

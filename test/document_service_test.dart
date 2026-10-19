@@ -222,6 +222,7 @@ void main() {
         title: 'PNG Award',
         documentDate: DateTime(2026, 9, 11),
         description: 'kept as metadata',
+        descriptionSource: 'user',
       );
 
       expect(uploaded.id, 'document-2');
@@ -235,6 +236,7 @@ void main() {
         'title': 'PNG Award',
         'documentDate': '2026-09-11',
         'description': 'kept as metadata',
+        'descriptionSource': 'user',
       });
       expect(auth.uploadFields, isNot(contains('ownerId')));
       expect(auth.uploadFields, isNot(contains('fileBytes')));

@@ -7,16 +7,19 @@ export function docxZip(parts: ReadonlyMap<string, Buffer>): Buffer {
   const local: Buffer[] = [], central: Buffer[] = [];
   let offset = 0, directorySize = 0;
   for (const [path, bytes] of parts) {
-    const name = Buffer.from(path), packed = deflateRawSync(bytes), crc = crc32(bytes);
+    // PNG is already losslessly compressed. Store unchanged bytes instead of
+    // allocating/recompressing every rendered page a second time.
+    const method = path.endsWith('.png') ? 0 : 8;
+    const name = Buffer.from(path), packed = method === 0 ? bytes : deflateRawSync(bytes), crc = crc32(bytes);
     const header = Buffer.alloc(30);
     header.writeUInt32LE(0x04034b50); header.writeUInt16LE(20, 4);
-    header.writeUInt16LE(8, 8); header.writeUInt16LE(33, 12); // 1980-01-01
+    header.writeUInt16LE(method, 8); header.writeUInt16LE(33, 12); // 1980-01-01
     header.writeUInt32LE(crc, 14); header.writeUInt32LE(packed.length, 18);
     header.writeUInt32LE(bytes.length, 22); header.writeUInt16LE(name.length, 26);
     local.push(header, name, packed);
     const entry = Buffer.alloc(46);
     entry.writeUInt32LE(0x02014b50); entry.writeUInt16LE(20, 4); entry.writeUInt16LE(20, 6);
-    entry.writeUInt16LE(8, 10); entry.writeUInt16LE(33, 14);
+    entry.writeUInt16LE(method, 10); entry.writeUInt16LE(33, 14);
     entry.writeUInt32LE(crc, 16); entry.writeUInt32LE(packed.length, 20);
     entry.writeUInt32LE(bytes.length, 24); entry.writeUInt16LE(name.length, 28);
     entry.writeUInt32LE(offset, 42);
@@ -41,6 +44,13 @@ const R = 'http://schemas.openxmlformats.org/officeDocument/2006/relationships';
 export const paragraph = (text: string, style = 'Normal', properties = ''): string =>
   `<w:p><w:pPr><w:pStyle w:val="${style}"/>${properties}</w:pPr><w:r>${text.split(/\r?\n/).map((line, i) => `${i ? '<w:br/>' : ''}<w:t xml:space="preserve">${xml(line)}</w:t>`).join('')}</w:r></w:p>`;
 export const pageBreak = '<w:p><w:r><w:br w:type="page"/></w:r></w:p>';
+
+/** Explicit fixed column geometry, expanding rows, repeating scale headers. */
+export function questionnaireTable(rows: readonly (readonly string[])[], widths: readonly number[]): string {
+  const rowXml = rows.map((cells, r) => `<w:tr><w:trPr><w:cantSplit/>${r === 0 ? '<w:tblHeader/>' : ''}</w:trPr>${cells.map((text, c) =>
+    `<w:tc><w:tcPr><w:tcW w:w="${widths[c]}" w:type="dxa"/><w:vAlign w:val="center"/>${r === 0 ? '<w:shd w:fill="F2F2F2"/>' : ''}</w:tcPr>${paragraph(text, 'TableCell', c === 1 ? '' : '<w:jc w:val="center"/>')}</w:tc>`).join('')}</w:tr>`).join('');
+  return `<w:tbl><w:tblPr><w:tblW w:w="8640" w:type="dxa"/><w:tblInd w:w="100" w:type="dxa"/><w:tblBorders>${['top','left','bottom','right','insideH','insideV'].map(side => `<w:${side} w:val="single" w:sz="4" w:color="666666"/>`).join('')}</w:tblBorders><w:tblLayout w:type="fixed"/><w:tblCellMar><w:top w:w="100" w:type="dxa"/><w:left w:w="100" w:type="dxa"/><w:bottom w:w="100" w:type="dxa"/><w:right w:w="100" w:type="dxa"/></w:tblCellMar></w:tblPr><w:tblGrid>${widths.map(w => `<w:gridCol w:w="${w}"/>`).join('')}</w:tblGrid>${rowXml}</w:tbl>`;
+}
 
 export class DocxPackage {
   readonly parts = new Map<string, Buffer>();
@@ -91,6 +101,8 @@ export class DocxPackage {
       ['Heading2', '<w:keepNext/><w:spacing w:before="160" w:after="120"/><w:outlineLvl w:val="1"/>', '<w:b/>'],
       ['Question', '<w:keepNext/><w:spacing w:before="160" w:after="80"/>', '<w:b/>'],
       ['Response', '<w:shd w:fill="F2F4F6"/><w:spacing w:after="160"/><w:ind w:left="240"/>', ''],
+      ['TableCell', '<w:spacing w:before="0" w:after="0" w:line="320" w:lineRule="exact"/>', ''],
+      ['TitleField', '<w:keepLines/><w:spacing w:before="0" w:after="100" w:line="360" w:lineRule="exact"/><w:jc w:val="center"/>', ''],
     ].map(([id, p, r]) => `<w:style w:type="paragraph" w:styleId="${id}"><w:name w:val="${id}"/>${id === 'Normal' ? '' : '<w:basedOn w:val="Normal"/>'}<w:pPr>${p}</w:pPr><w:rPr>${r}</w:rPr></w:style>`).join('');
     add('word/styles.xml', `<w:styles xmlns:w="${W}"><w:docDefaults><w:rPrDefault><w:rPr><w:rFonts w:ascii="Noto Sans" w:hAnsi="Noto Sans" w:cs="Noto Sans"/><w:sz w:val="24"/></w:rPr></w:rPrDefault></w:docDefaults>${styles}</w:styles>`);
     return docxZip(this.parts);

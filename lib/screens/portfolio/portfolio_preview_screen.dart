@@ -97,7 +97,7 @@ class _PortfolioPreviewScreenState extends State<PortfolioPreviewScreen> {
 
     setState(() => _isGenerating = true);
     try {
-      await docService.load(force: true);
+      await docService.load(force: docService.errorMessage != null);
       if (!mounted) return null;
       final content = PortfolioExportContent.fromDocuments(
         widget.portfolioInfo,
@@ -478,19 +478,6 @@ class _PreviewSheet extends StatelessWidget {
               return Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  if (documents.documents.any(
-                    (doc) =>
-                        PortfolioDocumentOrder.sectionFor(doc) ==
-                        'Creative Title',
-                  )) ...[
-                    _buildDocuments(
-                      context,
-                      documents,
-                      summary,
-                      creativeOnly: true,
-                    ),
-                    const SizedBox(height: 24),
-                  ],
                   _buildSectionsIncluded(summary.sections),
                   const SizedBox(height: 24),
                   _buildDocuments(context, documents, summary),
@@ -621,17 +608,10 @@ class _PreviewSheet extends StatelessWidget {
   Widget _buildDocuments(
     BuildContext context,
     DocumentService service,
-    PortfolioSummary summary, {
-    bool creativeOnly = false,
-  }) {
+    PortfolioSummary summary,
+  ) {
     final documents =
         PortfolioDocumentOrder.sorted(service.documents, service.categories)
-            .where(
-              (doc) =>
-                  (PortfolioDocumentOrder.sectionFor(doc) ==
-                      'Creative Title') ==
-                  creativeOnly,
-            )
             .toList();
     final groups = <String>{
       ...summary.sections.map((section) => section.name),
@@ -640,7 +620,6 @@ class _PreviewSheet extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        if (!creativeOnly)
           Text(
             'Document Details',
             style: AppTextStyles.sectionHeader.copyWith(
@@ -648,14 +627,14 @@ class _PreviewSheet extends StatelessWidget {
             ),
           ),
         const SizedBox(height: 12),
-        if (service.documents.isEmpty && !creativeOnly)
+        if (service.documents.isEmpty)
           const AppEmptyState(
             isCompact: true,
             title: 'No documents yet',
             description: 'No stored documents to include yet.',
             icon: Icons.description_outlined,
           ),
-        if (!creativeOnly && service.documents.length < summary.totalItems)
+        if (service.documents.length < summary.totalItems)
           Text(
             'Showing ${service.documents.length} of ${summary.totalItems} documents returned by the current list. Section counts include all stored documents. The server PDF export retrieves all documents within its export limits.',
             style: AppTextStyles.bodySmall,
@@ -907,7 +886,9 @@ class _PreviewSheet extends StatelessWidget {
                     ),
                   ],
                 ),
-                if (document.description?.trim().isNotEmpty ?? false) ...[
+                if ((document.descriptionSource == 'user' ||
+                        document.descriptionSource == 'confirmed') &&
+                    (document.description?.trim().isNotEmpty ?? false)) ...[
                   const SizedBox(height: 10),
                   Container(
                     width: double.infinity,

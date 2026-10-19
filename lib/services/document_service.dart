@@ -155,6 +155,7 @@ class DocumentService extends ChangeNotifier {
   }
 
   Future<DocumentRecord> upload({
+    String descriptionSource = 'unknown',
     ScholasticDetails? scholastic,
     PickedDocument? file,
     List<PickedDocument>? files,
@@ -183,6 +184,8 @@ class DocumentService extends ChangeNotifier {
       if (scholastic != null) 'scholastic': jsonEncode(scholastic.toJson()),
       if (description != null && description.trim().isNotEmpty)
         'description': description,
+      if (description != null && description.trim().isNotEmpty)
+        'descriptionSource': descriptionSource,
       if (reflection != null && reflection.trim().isNotEmpty)
         'reflection': reflection,
     };
@@ -430,6 +433,7 @@ class DocumentService extends ChangeNotifier {
 
   Future<DocumentRecord> updateDocumentMetadata(
     String documentId, {
+    String? descriptionSource,
     ScholasticDetails? scholastic,
     String? categoryKey,
     String? folderKey,
@@ -446,6 +450,7 @@ class DocumentService extends ChangeNotifier {
       body['documentDate'] = _dateOnly(documentDate);
     }
     if (description != null) body['description'] = description;
+    if (descriptionSource != null) body['descriptionSource'] = descriptionSource;
     if (reflection != null) body['reflection'] = reflection;
     if (scholastic != null) body['scholastic'] = scholastic.toJson();
 

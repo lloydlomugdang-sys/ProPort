@@ -124,9 +124,9 @@ void main() {
         _categories.map(DocumentCategory.fromJson).toList(),
       );
       expect(ordered.map((d) => d.folderKey), [
-        'creative-title',
         'curriculum-vitae',
         'unofficial-tor-with-reflections',
+        'creative-title',
         'seminars',
         'other-seminars',
         'trainings',
@@ -155,7 +155,7 @@ void main() {
       addTearDown(auth.dispose);
       await service.load();
       final content = PortfolioExportContent.fromDocuments(_info, service);
-      expect(content.sections.first.name, 'Creative Title');
+      expect(content.sections.first.name, 'Curriculum Vitae');
       expect(content.sections.last.name, 'College Report');
       expect(content.sections.first.documents, hasLength(1));
       expect(
@@ -163,13 +163,13 @@ void main() {
             .firstWhere((s) => s.name == 'Certificates')
             .documents
             .map((d) => d['Folder']),
-        ['seminars', 'other-seminars', 'trainings'],
+        ['creative-title', 'seminars', 'other-seminars', 'trainings'],
       );
     },
   );
 
   testWidgets(
-    'preview places actual Creative Title before the contents indicator and all major sections in official order',
+    'preview keeps Creative Title with its category after contents and preceding sections',
     (tester) async {
       final auth = _Auth();
       final service = DocumentService(authService: auth);
@@ -216,7 +216,7 @@ void main() {
             ),
           )
           .dy;
-      expect(creativeY, lessThan(indicatorY));
+      expect(cvY, lessThan(creativeY));
       expect(indicatorY, lessThan(cvY));
       expect(find.text('NEW ERA UNIVERSITY'), findsNothing);
       expect(

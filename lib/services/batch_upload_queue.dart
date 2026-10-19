@@ -182,6 +182,7 @@ class BatchUploadQueue extends ChangeNotifier {
         title: apply ? suggestions?.title : null,
         documentDate: apply ? suggestions?.documentDate : null,
         description: apply ? suggestions?.description : null,
+        descriptionSource: apply && suggestions?.description != null ? 'suggested' : null,
         confidence: suggestions?.confidence,
         isAutoCategorized: apply && suggestions?.categoryKey != null,
       );
@@ -335,6 +336,7 @@ class BatchUploadQueue extends ChangeNotifier {
         title: current.title!.trim(),
         documentDate: current.documentDate!,
         description: current.description?.trim(),
+        descriptionSource: current.descriptionSource,
         reflection: current.reflection?.trim(),
         scholastic: current.isTor ? current.scholastic : null,
       );
@@ -491,6 +493,7 @@ class BatchUploadQueue extends ChangeNotifier {
                 title: updatedTitle,
                 documentDate: updatedDate,
                 description: updatedDescription,
+                descriptionSource: 'suggested',
               );
             } catch (_) {
               // Best-effort metadata sync
@@ -508,6 +511,7 @@ class BatchUploadQueue extends ChangeNotifier {
           title: updatedTitle,
           documentDate: updatedDate,
           description: updatedDescription,
+          descriptionSource: !existing.isManualCategory && hasCategorySuggestion && suggestions.description != null ? 'suggested' : existing.descriptionSource,
           confidence: suggestions?.confidence ?? existing.confidence,
           isAutoCategorized: isAutoCategorized,
           errorMessage: null,
@@ -643,6 +647,7 @@ class BatchUploadQueue extends ChangeNotifier {
     final updatedTitle = title ?? current.title;
     final updatedDate = documentDate ?? current.documentDate;
     final updatedDesc = description ?? current.description;
+    final descriptionSource = description != null && isManual ? 'user' : current.descriptionSource;
     final updatedRefl = reflection ?? current.reflection;
 
     _items[index] = current.copyWith(
@@ -651,6 +656,7 @@ class BatchUploadQueue extends ChangeNotifier {
       title: updatedTitle,
       documentDate: updatedDate,
       description: updatedDesc,
+      descriptionSource: descriptionSource,
       reflection: updatedRefl,
       scholastic: scholastic,
       isManualCategory: isManual ? true : current.isManualCategory,
@@ -667,6 +673,7 @@ class BatchUploadQueue extends ChangeNotifier {
             title: updatedTitle,
             documentDate: updatedDate,
             description: updatedDesc,
+            descriptionSource: descriptionSource,
             reflection: updatedRefl,
             scholastic: scholastic,
           )

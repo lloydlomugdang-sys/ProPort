@@ -1,4 +1,5 @@
 import { randomUUID, createHash } from 'node:crypto';
+import { descriptionSource } from './description-source.js';
 import { requireTorReflection, validateScholasticDetails, type ScholasticDetails } from './scholastic-details.js';
 import { extname, basename } from 'node:path';
 import { Readable } from 'node:stream';
@@ -50,6 +51,7 @@ export interface CompiledAnalysisResult {
 }
 
 export interface CompiledSplitSegment {
+  readonly descriptionSource?: string;
   readonly scholastic?: ScholasticDetails;
   readonly startPage: number;
   readonly endPage: number;
@@ -527,6 +529,7 @@ export class CompiledDocumentService {
           title: seg.title.trim(),
           documentDate: documentDate(seg.documentDate),
           ...(seg.description && seg.description.trim().length > 0 ? { description: seg.description.trim() } : {}),
+          descriptionSource: descriptionSource(seg.descriptionSource),
           ...(seg.reflection && seg.reflection.trim().length > 0 ? { reflection: seg.reflection.trim() } : {}),
           ...(seg.scholastic === undefined ? {} : { scholastic: seg.scholastic }),
           originalFileName,
@@ -571,6 +574,7 @@ export class CompiledDocumentService {
           title: created.title,
           documentDate: created.documentDate.toISOString(),
           ...(created.description ? { description: created.description } : {}),
+          ...(created.descriptionSource ? { descriptionSource: created.descriptionSource } : {}),
           ...(created.reflection ? { reflection: created.reflection } : {}),
           ...(created.scholastic === undefined ? {} : { scholastic: created.scholastic }),
           originalFileName: created.originalFileName,

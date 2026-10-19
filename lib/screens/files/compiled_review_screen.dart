@@ -363,6 +363,7 @@ class _CompiledReviewScreenState extends State<CompiledReviewScreen> {
           description: seg.descCtrl.text.trim().isNotEmpty
               ? seg.descCtrl.text.trim()
               : null,
+          descriptionSource: 'user',
           reflection: seg.reflCtrl.text.trim().isNotEmpty
               ? seg.reflCtrl.text.trim()
               : null,

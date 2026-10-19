@@ -48,9 +48,14 @@ describe('editable evidence portfolio DOCX', () => {
       for (const q of s.questions) expect(body).toContain(xml(q.text));
       for (const o of s.options) expect(body).toContain(xml(o.label));
     }
-    expect(body.match(/Response: Unanswered/g)).toHaveLength(60);
-    expect(body).toContain('[x] Often');
-    expect(body).toContain('Selected response: Often');
+    expect(body.match(/<w:tblHeader\/>/g)).toHaveLength(8);
+    expect(body.match(/<w:t xml:space="preserve">X<\/w:t>/g)).toHaveLength(1);
+    const firstRow = body.split('Asked questions in class')[1]!.split('</w:tr>')[0]!;
+    const cells = firstRow.split('</w:tc>');
+    expect(cells[1]).not.toContain('>X<'); // Very Often unselected
+    expect(cells[2]).toContain('>X<'); // saved Often, aligned to its column
+    expect(cells[3]).not.toContain('>X<');
+    expect(body.match(/Response: Unanswered/g)).toHaveLength(1); // only written response 10
     expect(body).toContain('My own written answer.');
     expect(body).toContain('My saved objectives &amp; reflection.');
   });
@@ -73,18 +78,20 @@ describe('editable evidence portfolio DOCX', () => {
     const parts = docxParts(await generatePortfolioDocx(docs.reverse(), PORTFOLIO_TEST_INFO, report, '', async (key) => key === 'pdf' ? source : png));
     const body = parts.get('word/document.xml')!.toString();
     const headings = [...body.matchAll(/<w:pStyle w:val="Heading1"\/>.*?<w:t[^>]*>(.*?)<\/w:t>/gs)].map((m) => m[1]);
-    expect(headings).toEqual(['Creative Title', 'TABLE OF CONTENTS', 'Curriculum Vitae',
-      'Unofficial TOR - Bachelor&apos;s Degree with Reflection', 'Certificates', 'Accomplishments', 'Other Achievements', 'College Report']);
-    expect(body.indexOf('Creative Art')).toBeLessThan(body.indexOf('TABLE OF CONTENTS'));
+    expect(headings).toEqual(['TABLE OF CONTENTS']); // no generic heading-only cover pages
+    const order = [...body.matchAll(/<w:hyperlink[^>]+>.*?<w:t>(.*?)<\/w:t>/gs)].map(m => m[1]);
+    expect(order).toEqual(['Curriculum Vitae', 'Unofficial TOR - Bachelor&apos;s Degree with Reflection', 'Certificates', 'Accomplishments', 'Other Achievements', 'College Report']);
+    expect(body.indexOf('Creative Art')).toBeGreaterThan(body.indexOf('TOR Source, PDF page 2 of 2'));
+    expect(body.indexOf('Creative Art')).toBeLessThan(body.indexOf('Certificate Source, image 1'));
     expect(body).toContain('My editable TOR reflection.');
-    expect(body.indexOf('TOR Source — PDF page 1 of 2')).toBeLessThan(body.indexOf('TOR Source — PDF page 2 of 2'));
+    expect(body.indexOf('TOR Source, PDF page 1 of 2')).toBeLessThan(body.indexOf('TOR Source, PDF page 2 of 2'));
     const media = [...parts].filter(([name]) => name.startsWith('word/media/'));
     expect(media).toHaveLength(8); // seal + five uploaded images + two PDF pages
     const green = await sharp(parts.get('word/media/image2.png')).stats();
     expect(green.channels[1]!.mean).toBeGreaterThan(100);
     expect(green.channels[0]!.mean).toBe(0);
-    const red = await sharp(parts.get('word/media/image4.png')).stats();
-    const blue = await sharp(parts.get('word/media/image5.png')).stats();
+    const red = await sharp(parts.get('word/media/image3.png')).stats();
+    const blue = await sharp(parts.get('word/media/image4.png')).stats();
     expect(red.channels[0]!.mean).toBeGreaterThan(250);
     expect(red.channels[2]!.mean).toBeLessThan(1);
     expect(blue.channels[2]!.mean).toBeGreaterThan(250);

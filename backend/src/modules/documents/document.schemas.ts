@@ -1,4 +1,5 @@
 import { scholasticDetailsSchema } from './scholastic-details.js';
+import { descriptionSourceSchema } from './description-source.js';
 
 export const documentPathParamsSchema = {
   type: 'object',
@@ -72,6 +73,7 @@ const documentSchema = {
     title: { type: 'string' },
     documentDate: { type: 'string', format: 'date-time' },
     description: { type: 'string' },
+    descriptionSource: descriptionSourceSchema,
     reflection: { type: 'string' },
     scholastic: scholasticDetailsSchema,
     originalFileName: { type: 'string' },
@@ -280,6 +282,7 @@ export const documentPatchSchema = {
     title: { type: 'string', minLength: 1, maxLength: 250 },
     documentDate: { type: 'string', pattern: '^\\d{4}-\\d{2}-\\d{2}$' },
     description: { type: 'string', maxLength: 2_000 },
+    descriptionSource: descriptionSourceSchema,
     reflection: { type: 'string', maxLength: 5_000 },
     scholastic: scholasticDetailsSchema,
   },
@@ -359,6 +362,7 @@ export const compiledSplitSchema = {
           title: { type: 'string', minLength: 1, maxLength: 250 },
           documentDate: { type: 'string', pattern: '^\\d{4}-\\d{2}-\\d{2}$' },
           description: { type: 'string', maxLength: 2_000 },
+          descriptionSource: descriptionSourceSchema,
           reflection: { type: 'string', maxLength: 5_000 },
           scholastic: scholasticDetailsSchema,
         },

@@ -60,7 +60,8 @@ class PortfolioExportContent {
     }
     final summary = PortfolioSummary.fromDocumentSummary(service.summary);
     final groups = <String, List<Map<String, String>>>{
-      for (final section in summary.sections) section.name: [],
+      for (final section in summary.sections)
+        if (section.name != 'Creative Title') section.name: [],
     };
     for (final document in PortfolioDocumentOrder.sorted(
       service.documents,
@@ -79,7 +80,8 @@ class PortfolioExportContent {
         'Category': category?.name ?? section,
         'Folder': folder?.name ?? document.folderKey,
         'File': document.originalFileName,
-        if (document.description?.trim().isNotEmpty ?? false)
+        if ((document.descriptionSource == 'user' || document.descriptionSource == 'confirmed') &&
+            (document.description?.trim().isNotEmpty ?? false))
           'Description': document.description!,
         if (document.reflection?.trim().isNotEmpty ?? false)
           'Reflection': document.reflection!,
@@ -188,6 +190,11 @@ class DevicePortfolioExporter implements PortfolioExporter {
         requestTimeout: const Duration(seconds: 90),
       );
     } on ApiException catch (error) {
+      if (error.code == 'NETWORK_TIMEOUT' || error.code == 'COLD_START_TIMEOUT') {
+        throw const PortfolioExportException(
+          'Portfolio generation took too long. Keep the app connected and retry. If it happens again, export fewer or smaller source files.',
+        );
+      }
       if (error.statusCode == 0 ||
           error.code == 'NETWORK_ERROR' ||
           error.message.contains('reach the server') ||
