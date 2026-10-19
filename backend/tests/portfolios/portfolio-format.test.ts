@@ -1,5 +1,7 @@
 import { PDFDocument, PDFName, PDFString, StandardFonts, degrees } from 'pdf-lib';
-import { getDocument, OPS } from 'pdfjs-dist/legacy/build/pdf.mjs';
+import { getDocument, OPS, Util } from 'pdfjs-dist/legacy/build/pdf.mjs';
+import { readFile } from 'node:fs/promises';
+import { createHash } from 'node:crypto';
 import sharp from 'sharp';
 import { describe, expect, it, vi } from 'vitest';
 import { PortfolioGeneratorService, planPortfolioSections } from '../../src/modules/portfolios/portfolio-generator.service.js';
@@ -8,6 +10,7 @@ import {
 } from '../../src/modules/portfolios/portfolio-layout.js';
 import { portfolioDocument as doc, portfolioMemoryStorage, PORTFOLIO_TEST_INFO as info } from '../helpers/portfolio-fixtures.js';
 import type { DocumentRecord } from '../../src/database/repositories/document.repository.js';
+import { PROFILE_OPTIONS } from '../../src/modules/users/profile-options.js';
 
 async function inspect(bytes: Buffer) {
   const task = getDocument({ data: new Uint8Array(bytes), useSystemFonts: true });
@@ -45,6 +48,90 @@ function tocTarget(pages: Awaited<ReturnType<typeof inspect>>, prefix: string) {
 }
 
 describe('official Phase B portfolio formatting', () => {
+  it('renders the identical official seal twice, a centered profile header and solid black divider inside Letter margins', async () => {
+    const asset = await readFile(new URL('../../../assets/images/neu_seal.webp', import.meta.url));
+    expect(createHash('sha256').update(asset).digest('hex')).toBe('e3606fcd9814af99d29187bb60fd8a2d4b00e99a724eee0867cad9022554406d');
+    const source = await sharp(asset).metadata();
+    const bytes = await new PortfolioGeneratorService(undefined, portfolioMemoryStorage())
+      .generateFromDocuments([], info, null, PROFILE_OPTIONS.programs[0]!);
+    const pages = await inspect(bytes);
+    const first = pages[0]!;
+    expect(first.view).toEqual([0, 0, 612, 792]);
+    const university = first.items.find((item) => item.str === 'NEW ERA UNIVERSITY')!;
+    expect(university).toBeDefined();
+    expect(university.transform[4] + university.width / 2).toBeCloseTo(306, 1);
+    const task = getDocument({ data: new Uint8Array(bytes), useSystemFonts: true });
+    try {
+      const pdf = await task.promise;
+      const page = await pdf.getPage(1);
+      const operators = await page.getOperatorList();
+      let matrix = [1, 0, 0, 1, 0, 0];
+      const stack: number[][] = [];
+      const images: { id: string; matrix: number[]; width: number; height: number }[] = [];
+      let strokeColor: string | undefined;
+      let strokeWidth: number | undefined;
+      let divider: number[] | undefined;
+      for (const [i, op] of operators.fnArray.entries()) {
+        const args = operators.argsArray[i];
+        if (op === OPS.save) stack.push([...matrix]);
+        if (op === OPS.restore) matrix = stack.pop()!;
+        if (op === OPS.transform) matrix = Util.transform(matrix, args);
+        if (op === OPS.paintImageXObject) images.push({ id: args[0], matrix: [...matrix], width: args[1], height: args[2] });
+        if (op === OPS.setStrokeRGBColor) strokeColor = args[0];
+        if (op === OPS.setLineWidth) strokeWidth = args[0];
+        if (op === OPS.constructPath && args[0] === OPS.stroke) {
+          expect(strokeColor).toBe('#000000');
+          expect(strokeWidth).toBe(2);
+          divider = Array.from(args[2] as Float32Array);
+        }
+      }
+      expect(images).toHaveLength(2);
+      expect(images[0]!.id).toBe(images[1]!.id); // One embedded asset, painted twice.
+      for (const image of images) {
+        expect(image.width).toBe(source.width);
+        expect(image.height).toBe(source.height);
+        expect(image.matrix.slice(0, 4)).toEqual([60, 0, 0, 60]);
+        expect(image.matrix[4]).toBeGreaterThanOrEqual(108);
+        expect(image.matrix[4]! + 60).toBeLessThanOrEqual(540);
+        expect(image.matrix[5]).toBeGreaterThanOrEqual(72);
+        expect(image.matrix[5]! + 60).toBeLessThanOrEqual(720);
+      }
+      expect(images[0]!.matrix[5]).toBe(images[1]!.matrix[5]);
+      expect((images[0]!.matrix[4]! + images[1]!.matrix[4]! + 60) / 2).toBe(306);
+      expect(divider).toEqual([108, 630, 504, 630]);
+      const title = first.items.find((item) => item.str === 'ACADEMIC PORTFOLIO')!;
+      expect(title.transform[5] + title.height).toBeLessThan(630);
+      for (const value of Object.values(info)) {
+        expect(first.text).toContain(value);
+        const field = first.items.find((item) => item.str === value)!;
+        expect(field.transform[5] + field.height).toBeLessThan(630);
+      }
+      for (const item of first.items.filter((item) => item.str.trim())) {
+        expect(item.transform[4]).toBeGreaterThanOrEqual(108);
+        expect(item.transform[4] + item.width).toBeLessThanOrEqual(504.01);
+      }
+    } finally { await task.destroy(); }
+  });
+
+  it.each([...PROFILE_OPTIONS.programs, '', 'A long stored program '.repeat(9).trim()])('uses only dynamic profile program text (%s)', async (program) => {
+    const bytes = await new PortfolioGeneratorService(undefined, portfolioMemoryStorage())
+      .generateFromDocuments([], info, null, program);
+    const pages = await inspect(bytes);
+    const first = pages[0]!;
+    expect(first.text).toContain('NEW ERA UNIVERSITY');
+    if (program) expect(first.text).toContain(program);
+    else expect(first.text).not.toMatch(/Bachelor|Program description/);
+    expect(pages.map((page) => page.text).join(' ')).not.toMatch(/Architecture|College of Engineering|Volume no\.|THESIS TITLE/);
+    const heading = first.items.find((item) => item.str === 'ACADEMIC PORTFOLIO')!;
+    const headerItems = first.items.filter((item) => item.transform[5] > heading.transform[5] && item.str.trim());
+    for (const item of headerItems) {
+      expect(item.transform[4] + item.width / 2).toBeCloseTo(306, 1);
+      expect(item.transform[4]).toBeGreaterThanOrEqual(180);
+      expect(item.transform[4] + item.width).toBeLessThanOrEqual(432.01);
+    }
+    for (const value of Object.values(info)) expect(pages.map((page) => page.text).join(' ')).toContain(value);
+  });
+
   it('measures actual glyph advances so kerning pairs cannot overflow the right margin', async () => {
     const pages = await inspect(await generate([doc({ title: 'AV'.repeat(90) })]));
     for (const page of pages) for (const item of page.items.filter((item) => item.str.trim())) {
@@ -85,7 +172,8 @@ describe('official Phase B portfolio formatting', () => {
       .toEqual(['thesis-capstone', 'case-studies', 'projects', 'assessments']);
     const pages = await inspect(await generate(documents));
     expect(pages[0]!.text).toContain('Standard Title');
-    expect(pages[0]!.text).not.toMatch(/NEW ERA|verified via|College of Informatics/);
+    expect(pages[0]!.text).toContain('NEW ERA UNIVERSITY');
+    expect(pages[0]!.text).not.toMatch(/verified via|College of Informatics|Architecture/);
     expect(pages[1]!.text).toContain('Evidence creative-title');
     expect(pages[2]!.text).toContain('TABLE OF CONTENTS');
     expect(pages.filter((p) => p.text.includes('Evidence creative-title') && !p.text.includes('TABLE OF CONTENTS'))).toHaveLength(1);
@@ -123,6 +211,7 @@ describe('official Phase B portfolio formatting', () => {
       }
     }
     const title = pages[0]!.items.filter((i) => i.str.trim());
+    title.splice(0, title.findIndex((item) => item.str === 'ACADEMIC PORTFOLIO'));
     expect(title[0]!.transform[5] - title[1]!.transform[5]).toBe(24);
     const fontNames = parsed.context.enumerateIndirectObjects().map(([, object]) => object.toString()).join(' ');
     expect(fontNames).toContain('/Courier');

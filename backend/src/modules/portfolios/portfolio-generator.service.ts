@@ -10,7 +10,7 @@ import type { ObjectStorage } from '../../infrastructure/storage/object-storage.
 import { CollegeReportService, type OfficialReportView } from '../college-report/college-report.service.js';
 import { collegeReportPages } from '../college-report/college-report.pdf.js';
 import { flattenExportForm } from './flatten-export-form.js';
-import { standardTitlePage } from './portfolio-title-page.js';
+import { drawStandardTitlePage, planStandardTitlePages, type StandardTitlePagePlan } from './portfolio-title-page.js';
 import {
   CONTENT_WIDTH, PORTFOLIO_LAYOUT as L, TEXT_LINES_PER_PAGE, fitPortfolioArtifact,
   loadPortfolioFallbackFonts, wrapPortfolioText,
@@ -38,6 +38,7 @@ interface Item { readonly document: DocumentRecord; readonly attachments: readon
 interface Subsection { readonly key: string; readonly name: string; readonly items: Item[] }
 interface Section { readonly key: string; readonly name: string; readonly subsections: Subsection[] }
 type PlannedPage =
+  | StandardTitlePagePlan
   | { readonly kind: 'text'; readonly lines: readonly TextLine[]; readonly centered?: boolean }
   | { readonly kind: 'image'; readonly image: PDFImage; readonly lines: readonly TextLine[] }
   | { readonly kind: 'pdf'; readonly page: PDFEmbeddedPage; readonly rotation: number };
@@ -111,7 +112,11 @@ export class PortfolioGeneratorService {
   ) {}
 
   async generate(ownerId: Types.ObjectId, info: PortfolioExportInfo): Promise<Buffer> {
-    const repository = this.repositories().documents;
+    const repositories = this.repositories();
+    const repository = repositories.documents;
+    // Header facts come from the authenticated owner, never request fields or
+    // another user's portfolio. Existing seven-field API/persistence is unchanged.
+    const user = await repositories.users.findById(ownerId);
     const documents: DocumentRecord[] = [];
     let afterId: Types.ObjectId | undefined;
     for (;;) {
@@ -124,10 +129,10 @@ export class PortfolioGeneratorService {
       afterId = batch[batch.length - 1]!._id;
     }
     const { report } = await new CollegeReportService(this.database!).current(ownerId);
-    return this.generateFromDocuments(documents, info, report);
+    return this.generateFromDocuments(documents, info, report, user?.program ?? '');
   }
 
-  async generateFromDocuments(documents: readonly DocumentRecord[], info: PortfolioExportInfo, collegeReport: OfficialReportView | null = null): Promise<Buffer> {
+  async generateFromDocuments(documents: readonly DocumentRecord[], info: PortfolioExportInfo, collegeReport: OfficialReportView | null = null, program = ''): Promise<Buffer> {
     if (documents.length > MAX_PORTFOLIO_DOCUMENTS) {
       throw tooLarge(`At most ${MAX_PORTFOLIO_DOCUMENTS} documents can be exported at once.`);
     }
@@ -170,7 +175,7 @@ export class PortfolioGeneratorService {
       }
     };
     // Pass 1: measure all text and artifact pages using the same fonts as rendering.
-    addTextPages(standardTitlePage(info).flatMap((value, index) => lines(value, index === 0)), true);
+    for (const page of await planStandardTitlePages(pdf, info, fonts, program)) addPage(page);
 
     const planSection = async (section: Section) => {
       entries.push({ title: section.name, pageIndex: pages.length, level: 0 });
@@ -345,7 +350,8 @@ export class PortfolioGeneratorService {
         });
       } else {
         const page = pdf.addPage([L.width, L.height]);
-        drawLines(page, planned.lines, planned.kind === 'text' && planned.centered);
+        if (planned.kind === 'title') drawStandardTitlePage(page, planned, fonts);
+        else drawLines(page, planned.lines, planned.kind === 'text' && planned.centered);
         if (planned.kind === 'image') {
           const fit = fitPortfolioArtifact(planned.image.width, planned.image.height, L.width, L.height,
             planned.lines.length * L.lineHeight + L.bodySize, L.lineHeight + L.bodySize);

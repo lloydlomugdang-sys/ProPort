@@ -9,6 +9,7 @@ import { loadConfig } from '../../src/config/env.js';
 import { COLLECTION_NAMES } from '../../src/database/collection-names.js';
 import { createRepositories } from '../../src/database/repositories/index.js';
 import { PortfolioGeneratorService } from '../../src/modules/portfolios/portfolio-generator.service.js';
+import { PROFILE_OPTIONS } from '../../src/modules/users/profile-options.js';
 import { portfolioDocument, PORTFOLIO_TEST_INFO } from '../helpers/portfolio-fixtures.js';
 import { runMigrations } from '../../src/database/migrations/migration-runner.js';
 import type { AppServices } from '../../src/infrastructure/create-services.js';
@@ -378,6 +379,11 @@ describe.sequential('authenticated portfolio API with disposable MongoDB', () =>
   });
 
   it('enforces owner-scoped PDF export security on GET and POST endpoints', async () => {
+    const firstProgram = PROFILE_OPTIONS.programs[0]!;
+    const secondProgram = PROFILE_OPTIONS.programs[1]!;
+    const users = disposable!.connection.db!.collection(COLLECTION_NAMES.users);
+    await users.updateOne({ _id: new Types.ObjectId(firstUser.userId) }, { $set: { program: firstProgram } });
+    await users.updateOne({ _id: new Types.ObjectId(secondUser.userId) }, { $set: { program: secondProgram } });
     // 1. Unauthenticated requests are rejected
     expectError(
       await app!.inject({ method: 'GET', url: `/api/v1/portfolios/${portfolioId}/export/pdf` }),
@@ -414,6 +420,9 @@ describe.sequential('authenticated portfolio API with disposable MongoDB', () =>
     expect(firstExport.statusCode).toBe(200);
     expect(firstExport.headers['content-type']).toBe('application/pdf');
     expect(firstExport.rawPayload.subarray(0, 5).toString()).toBe('%PDF-');
+    const firstText = await extractAllPdfText(firstExport.rawPayload);
+    expect(firstText).toContain(firstProgram);
+    expect(firstText).not.toContain(secondProgram);
 
     // 4. Seed documents for both users and test POST /api/v1/portfolios/export/pdf
     const storage = services!.storage;
@@ -471,6 +480,11 @@ describe.sequential('authenticated portfolio API with disposable MongoDB', () =>
 
     const pdfBuffer = postExport.rawPayload;
     const decompressed = await extractAllPdfText(pdfBuffer);
+    expect(decompressed).toContain(firstProgram);
+    expect(decompressed).not.toContain(secondProgram);
+    expectError(await app!.inject({ method: 'POST', url: '/api/v1/portfolios/export/pdf',
+      headers: bearer(firstUser.accessToken), payload: { ...portfolioInput, program: secondProgram },
+    }), 400, 'VALIDATION_ERROR');
 
     // Verify first owner's documents are present
     expect(decompressed).toContain('FirstUser_AllowedDoc_Title');
