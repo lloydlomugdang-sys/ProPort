@@ -5,9 +5,13 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:proport_app/screens/files/college_report_screen.dart';
+import 'package:proport_app/screens/files/files_screen.dart';
 import 'package:proport_app/screens/files/view_files_screen.dart';
+import 'package:proport_app/screens/home/home_screen.dart';
+import 'package:proport_app/screens/main_screen.dart';
 import 'package:proport_app/services/api_client.dart';
 import 'package:proport_app/services/auth_models.dart';
+import 'package:proport_app/services/auth_scope.dart';
 import 'package:proport_app/services/auth_service.dart';
 import 'package:proport_app/services/college_report_models.dart';
 import 'package:proport_app/services/college_report_scope.dart';
@@ -15,6 +19,7 @@ import 'package:proport_app/services/college_report_service.dart';
 import 'package:proport_app/services/college_report_draft_store.dart';
 import 'package:proport_app/services/document_scope.dart';
 import 'package:proport_app/services/document_models.dart';
+import 'package:proport_app/services/document_picker.dart';
 import 'package:proport_app/services/document_service.dart';
 import 'package:proport_app/widgets/file_list_item.dart';
 import 'package:proport_app/widgets/college_report_preview_status.dart';
@@ -106,6 +111,16 @@ class _Documents extends DocumentService {
   Future<void> load({bool force = false}) async {}
 }
 
+class _DashboardAuth extends _Auth {
+  @override
+  Future<AuthUser> fetchCurrentUser() async => user!;
+}
+
+class _NoopPicker extends DocumentPicker {
+  @override
+  Future<PickedDocument?> pickDocument() async => null;
+}
+
 class _Drafts implements CollegeReportDraftStore {
   final values = <String, String>{};
   @override
@@ -167,6 +182,141 @@ DocumentRecord _supportingFile() => DocumentRecord(
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
   GoogleFonts.config.allowRuntimeFetching = false;
+
+  for (final saveFirst in [true, false]) {
+    testWidgets(
+      'Back to Dashboard unwinds nested College Report routes without duplicating MainScreen (${saveFirst ? 'saved' : 'draft'})',
+      (tester) async {
+        tester.view.physicalSize = const Size(390, 844);
+        tester.view.devicePixelRatio = 1;
+        addTearDown(tester.view.resetPhysicalSize);
+        addTearDown(tester.view.resetDevicePixelRatio);
+        final auth = _DashboardAuth();
+        final store = _Drafts();
+        final service = CollegeReportService(
+          authService: auth,
+          draftStore: store,
+        );
+        final documents = _Documents(auth);
+        await service.load();
+        service.setEssay('Preserve my College Report responses');
+        final navigatorKey = GlobalKey<NavigatorState>();
+        await tester.pumpWidget(
+          AuthScope(
+            authService: auth,
+            child: DocumentScope(
+              documentService: documents,
+              child: CollegeReportScope(
+                service: service,
+                child: MaterialApp(
+                  navigatorKey: navigatorKey,
+                  home: const Scaffold(body: Text('Before main route')),
+                ),
+              ),
+            ),
+          ),
+        );
+        navigatorKey.currentState!.push<void>(
+          MaterialPageRoute<void>(
+            settings: const RouteSettings(name: MainScreen.routeName),
+            builder: (_) => MainScreen(filePicker: _NoopPicker()),
+          ),
+        );
+        await tester.pumpAndSettle();
+        final mainState = tester.state<MainScreenState>(
+          find.byType(MainScreen),
+        );
+        mainState.selectTab(1); // Return must select Home, not remain in Files.
+        await tester.pumpAndSettle();
+        expect(find.byType(HomeScreen), findsNothing);
+        navigatorKey.currentState!.push<void>(
+          MaterialPageRoute<void>(
+            builder: (_) =>
+                const FilesScreen(initialCategoryKey: 'college-report'),
+          ),
+        );
+        await tester.pumpAndSettle();
+        await tester.tap(find.text('Continue Editing'));
+        await tester.pumpAndSettle();
+        expect(find.byType(CollegeReportScreen), findsOneWidget);
+        final back = find.widgetWithText(OutlinedButton, 'Back to Dashboard');
+        expect(back.hitTestable(), findsOneWidget);
+        expect(
+          tester.getTopLeft(back).dy,
+          greaterThan(tester.getBottomLeft(find.byType(PrimaryButton)).dy),
+        );
+        if (saveFirst) {
+          await tester.tap(find.byType(PrimaryButton));
+          await tester.pumpAndSettle();
+          expect(find.text('College Report saved.'), findsOneWidget);
+          expect(service.saved!.essay, 'Preserve my College Report responses');
+          expect(back.hitTestable(), findsOneWidget);
+        }
+        expect(tester.takeException(), isNull);
+        await tester.tap(back);
+        await tester.pumpAndSettle();
+        expect(
+          find.byType(CollegeReportScreen, skipOffstage: false),
+          findsNothing,
+        );
+        expect(find.byType(ViewFilesScreen, skipOffstage: false), findsNothing);
+        expect(find.byType(MainScreen, skipOffstage: false), findsOneWidget);
+        expect(tester.state(find.byType(MainScreen)), same(mainState));
+        expect(find.byType(HomeScreen), findsOneWidget);
+        expect(find.text('Dashboard'), findsOneWidget);
+        final mainRoute = ModalRoute.of(
+          tester.element(find.byType(MainScreen)),
+        )!;
+        expect(mainRoute.settings.name, MainScreen.routeName);
+        expect(mainRoute.isCurrent, isTrue);
+        expect(auth.posts, saveFirst ? 1 : 0);
+        await service.pendingDraftWrites;
+        if (saveFirst) {
+          expect(service.dirty, isFalse);
+          expect(store.values, isEmpty);
+        } else {
+          expect(service.saved, isNull);
+          expect(service.dirty, isTrue);
+          expect(
+            store.values[auth.owner!],
+            contains('Preserve my College Report responses'),
+          );
+        }
+        await tester.pumpWidget(const SizedBox());
+        documents.dispose();
+        service.dispose();
+        auth.dispose();
+      },
+    );
+  }
+
+  testWidgets(
+    'questionnaire footer stays visible on a narrow screen after saving',
+    (tester) async {
+      tester.view.physicalSize = const Size(320, 568);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      final auth = _Auth();
+      final service = CollegeReportService(
+        authService: auth,
+        draftStore: _Drafts(),
+      );
+      await service.load();
+      service.setEssay('Saved from the narrow questionnaire');
+      await tester.pumpWidget(_app(service));
+      await tester.pumpAndSettle();
+      expect(find.text('Back to Dashboard').hitTestable(), findsOneWidget);
+      await tester.tap(find.byType(PrimaryButton));
+      await tester.pumpAndSettle();
+      expect(find.text('College Report saved.'), findsOneWidget);
+      expect(find.text('Back to Dashboard').hitTestable(), findsOneWidget);
+      expect(tester.takeException(), isNull);
+      await tester.pumpWidget(const SizedBox());
+      service.dispose();
+      auth.dispose();
+    },
+  );
 
   testWidgets(
     'folder loads saved responses separately from files and edits via the existing questionnaire',

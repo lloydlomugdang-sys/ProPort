@@ -6,6 +6,7 @@ import '../../services/college_report_scope.dart';
 import '../../services/college_report_service.dart';
 import '../../widgets/grad_app_bar.dart';
 import '../../widgets/primary_button.dart';
+import '../main_screen.dart';
 
 class CollegeReportScreen extends StatefulWidget {
   const CollegeReportScreen({super.key});
@@ -42,11 +43,25 @@ class _CollegeReportScreenState extends State<CollegeReportScreen> {
       bottomNavigationBar: service.loaded
           ? SafeArea(
               minimum: const EdgeInsets.fromLTRB(20, 8, 20, 12),
-              child: PrimaryButton(
-                label: 'Save Responses',
-                icon: Icons.save_outlined,
-                onPressed: () => _save(service),
-                isLoading: service.isSaving,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  PrimaryButton(
+                    label: 'Save Responses',
+                    icon: Icons.save_outlined,
+                    onPressed: () => _save(service),
+                    isLoading: service.isSaving,
+                  ),
+                  const SizedBox(height: 8),
+                  OutlinedButton.icon(
+                    onPressed: service.isSaving
+                        ? null
+                        : () => MainScreen.returnToDashboard(context),
+                    icon: const Icon(Icons.dashboard_rounded),
+                    label: const Text('Back to Dashboard'),
+                  ),
+                ],
               ),
             )
           : null,
