@@ -1,4 +1,5 @@
 import { Schema, type Types } from 'mongoose';
+import type { PortfolioTemplateOverride } from '../../modules/portfolios/portfolio-template.js';
 
 export interface Portfolio {
   ownerId: Types.ObjectId;
@@ -10,6 +11,7 @@ export interface Portfolio {
   courseCode: string;
   semesterAndYear: string;
   creativeTitles?: Record<string, string>;
+  templateOverrides?: PortfolioTemplateOverride | null;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -36,6 +38,27 @@ export const portfolioSchema = new Schema<Portfolio>(
     course: { type: String, trim: true, maxlength: 200, default: '' },
     courseCode: { type: String, trim: true, maxlength: 100, default: '' },
     creativeTitles: { type: Map, of: { type: String, trim: true, maxlength: 200 }, default: undefined },
+    templateOverrides: {
+      type: new Schema(
+        {
+          includeTableOfContents: { type: Boolean },
+          sections: [
+            new Schema(
+              {
+                key: { type: String, required: true },
+                label: { type: String, maxlength: 120 },
+                order: { type: Number, min: 0 },
+                enabled: { type: Boolean },
+                generateCreativeTitle: { type: Boolean },
+              },
+              { _id: false },
+            ),
+          ],
+        },
+        { _id: false },
+      ),
+      default: undefined,
+    },
     semesterAndYear: {
       type: String,
       trim: true,

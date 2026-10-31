@@ -100,8 +100,11 @@ class _PortfolioPreviewScreenState extends State<PortfolioPreviewScreen> {
     try {
       await docService.load(force: docService.errorMessage != null);
       if (!mounted) return null;
-      final template = await PortfolioScope.of(context).loadTemplate();
+      final baseTemplate = await PortfolioScope.of(context).loadTemplate();
       if (!mounted) return null;
+      final template = baseTemplate.withOverrides(
+        widget.portfolioInfo.templateOverrides,
+      );
       final content = PortfolioExportContent.fromDocuments(
         widget.portfolioInfo,
         docService,
@@ -475,6 +478,7 @@ class _PreviewSheet extends StatelessWidget {
           _buildStudentInfoSection(),
           const SizedBox(height: 24),
           PortfolioDocumentsBuilder(
+            overrides: portfolioInfo.templateOverrides,
             builder: (documents, template) {
               final summary = PortfolioSummary.fromDocumentSummary(
                 documents.summary,

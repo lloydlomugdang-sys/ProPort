@@ -12,6 +12,7 @@ import 'package:proport_app/screens/portfolio/models/portfolio_models.dart';
 import 'package:proport_app/screens/portfolio/models/portfolio_document_order.dart';
 import 'package:proport_app/screens/portfolio/portfolio_summary_screen.dart';
 import 'package:proport_app/screens/portfolio/portfolio_export_screen.dart';
+import 'package:proport_app/screens/portfolio/customize_portfolio_format_screen.dart';
 import 'support/portfolio_template_test_support.dart';
 
 Map<String, dynamic> _record() => {
@@ -254,6 +255,253 @@ void main() {
             .creativeTitles['certificates'],
         'My milestones',
       );
+      expect(tester.takeException(), isNull);
+    },
+  );
+
+  test(
+    'PortfolioTemplate.withOverrides applies reordering, renaming, disabling, and TOC',
+    () {
+      final base = PortfolioTemplate.fromJson(portfolioTemplateJson());
+      expect(base.includeTableOfContents, isTrue);
+
+      final overrides = PortfolioTemplateOverride(
+        includeTableOfContents: false,
+        sections: const [
+          PortfolioSectionOverride(
+            key: 'certificates',
+            order: 0,
+            label: 'Honors & Certificates',
+            enabled: true,
+            generateCreativeTitle: false,
+          ),
+          PortfolioSectionOverride(
+            key: 'curriculum-vitae',
+            order: 1,
+            enabled: false,
+          ),
+        ],
+      );
+
+      final effective = base.withOverrides(overrides);
+      expect(effective.includeTableOfContents, isFalse);
+      expect(effective.sections.first.key, 'certificates');
+      expect(effective.sections.first.label, 'Honors & Certificates');
+      expect(effective.sections.first.generateCreativeTitle, isFalse);
+      expect(effective.sections[1].key, 'curriculum-vitae');
+      expect(effective.sections[1].enabled, isFalse);
+      expect(
+        effective.enabledSections.map((s) => s.key),
+        isNot(contains('curriculum-vitae')),
+      );
+
+      // JSON roundtrip
+      final json = overrides.toJson();
+      final roundtrip = PortfolioTemplateOverride.fromJson(json);
+      expect(roundtrip.includeTableOfContents, isFalse);
+      expect(roundtrip.sections.length, 2);
+      expect(roundtrip.sections.first.label, 'Honors & Certificates');
+      expect(roundtrip.sections.first.generateCreativeTitle, isFalse);
+    },
+  );
+
+  test('PortfolioInfo roundtrip and copyWith preserves templateOverrides', () {
+    final overrides = PortfolioTemplateOverride(
+      includeTableOfContents: false,
+      sections: const [
+        PortfolioSectionOverride(
+          key: 'certificates',
+          order: 0,
+          label: 'Custom Certs',
+        ),
+      ],
+    );
+    final info = PortfolioInfo(
+      fullName: 'Student Name',
+      yearAndSection: '4A',
+      schedule: 'Monday 9:00 AM - 10:00 AM',
+      instructorName: 'Instructor Name',
+      templateOverrides: overrides,
+    );
+    final map = info.toMap();
+    expect(map['templateOverrides'], isNotNull);
+    final roundtrip = PortfolioInfo.fromJson(map);
+    expect(roundtrip.templateOverrides?.sections.first.label, 'Custom Certs');
+
+    final cleared = roundtrip.copyWith(clearTemplateOverrides: true);
+    expect(cleared.templateOverrides, isNull);
+  });
+
+  testWidgets(
+    'CustomizePortfolioFormatScreen allows reordering, renaming, toggling, and saving at 320px',
+    (tester) async {
+      tester.view.physicalSize = const Size(320, 800);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+
+      final auth = _Auth();
+      final service = PortfolioService(authService: auth);
+      addTearDown(auth.dispose);
+      addTearDown(service.dispose);
+
+      await tester.pumpWidget(
+        PortfolioScope(
+          portfolioService: service,
+          child: MaterialApp(
+            home: CustomizePortfolioFormatScreen(
+              portfolio: PortfolioRecord.fromJson(auth.record),
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      // Banner is displayed
+      expect(
+        find.textContaining('Customize section order, labels, and titles'),
+        findsOneWidget,
+      );
+
+      // Toggle TOC
+      final tocSwitch = find.byKey(const Key('toc-toggle'));
+      expect(tocSwitch, findsOneWidget);
+      await tester.tap(tocSwitch);
+      await tester.pumpAndSettle();
+
+      // Move first section down
+      final moveDownCv = find.byKey(const Key('move-down-section-curriculum-vitae'));
+      expect(moveDownCv, findsOneWidget);
+      await tester.tap(moveDownCv);
+      await tester.pumpAndSettle();
+
+      // Rename section label
+      final labelInput = find.byKey(const Key('label-input-section-certificates'));
+      await tester.ensureVisible(labelInput);
+      await tester.enterText(labelInput, 'Official Certs');
+      await tester.pumpAndSettle();
+
+      // Save customization
+      final saveBtn = find.byKey(const Key('save-customization-btn'));
+      await tester.ensureVisible(saveBtn);
+      await tester.tap(saveBtn);
+      await tester.pumpAndSettle();
+
+      expect(auth.patch, isNotNull);
+      final savedOverrides = auth.patch!['templateOverrides'] as Map<String, dynamic>;
+      expect(savedOverrides['includeTableOfContents'], isFalse);
+      final sections = savedOverrides['sections'] as List;
+      expect(sections, isNotEmpty);
+      expect(tester.takeException(), isNull);
+    },
+  );
+
+  testWidgets(
+    'CustomizePortfolioFormatScreen reset to default template shows confirmation and unsets overrides',
+    (tester) async {
+      tester.view.physicalSize = const Size(320, 800);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+
+      final auth = _Auth();
+      auth.record = {
+        ...auth.record,
+        'templateOverrides': {
+          'includeTableOfContents': false,
+          'sections': [
+            {'key': 'certificates', 'order': 0, 'label': 'Custom Certs'},
+          ],
+        },
+      };
+
+      final service = PortfolioService(authService: auth);
+      addTearDown(auth.dispose);
+      addTearDown(service.dispose);
+
+      await tester.pumpWidget(
+        PortfolioScope(
+          portfolioService: service,
+          child: MaterialApp(
+            home: CustomizePortfolioFormatScreen(
+              portfolio: PortfolioRecord.fromJson(auth.record),
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      // Tap Reset button
+      final resetBtn = find.byKey(const Key('reset-customization-btn'));
+      await tester.ensureVisible(resetBtn);
+      await tester.tap(resetBtn);
+      await tester.pumpAndSettle();
+
+      // Confirmation dialog is displayed
+      expect(find.byKey(const Key('confirm-reset-dialog')), findsOneWidget);
+      expect(
+        find.textContaining('Your uploaded documents and responses will NOT be deleted'),
+        findsOneWidget,
+      );
+
+      // Cancel button dismisses without calling API
+      await tester.tap(find.byKey(const Key('confirm-reset-cancel-btn')));
+      await tester.pumpAndSettle();
+      expect(auth.patch, isNull);
+
+      // Tap Reset again and confirm
+      await tester.tap(resetBtn);
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('confirm-reset-btn')));
+      await tester.pumpAndSettle();
+
+      // API was called with templateOverrides: null
+      expect(auth.patch, isNotNull);
+      expect(auth.patch!['templateOverrides'], isNull);
+      expect(tester.takeException(), isNull);
+    },
+  );
+
+  testWidgets(
+    'PortfolioSummaryScreen provides Customize Portfolio Format button and applies effective template',
+    (tester) async {
+      tester.view.physicalSize = const Size(320, 800);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+
+      final auth = _Auth();
+      final service = PortfolioService(authService: auth);
+      final documents = DocumentService(authService: auth);
+      addTearDown(auth.dispose);
+      addTearDown(service.dispose);
+      addTearDown(documents.dispose);
+
+      await tester.pumpWidget(
+        PortfolioScope(
+          portfolioService: service,
+          child: DocumentScope(
+            documentService: documents,
+            child: MaterialApp(
+              home: PortfolioSummaryScreen(
+                portfolio: PortfolioRecord.fromJson(auth.record),
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      // Customize Portfolio Format button is visible
+      final customizeBtn = find.byKey(const Key('customize-portfolio-format-button'));
+      await tester.ensureVisible(customizeBtn);
+      expect(customizeBtn, findsOneWidget);
+
+      await tester.tap(customizeBtn);
+      await tester.pumpAndSettle();
+
+      // Should be on CustomizePortfolioFormatScreen
+      expect(find.byType(CustomizePortfolioFormatScreen), findsOneWidget);
       expect(tester.takeException(), isNull);
     },
   );

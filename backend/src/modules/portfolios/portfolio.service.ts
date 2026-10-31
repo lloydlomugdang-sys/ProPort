@@ -4,7 +4,12 @@ import type { PortfolioRecord } from '../../database/repositories/portfolio.repo
 import { createRepositories } from '../../database/repositories/index.js';
 import type { DatabaseConnection } from '../../infrastructure/database/database-connection.js';
 import type { ObjectStorage } from '../../infrastructure/storage/object-storage.js';
-import { normalizeCreativeTitles, type CreativeTitles } from './portfolio-template.js';
+import {
+  normalizeCreativeTitles,
+  normalizeTemplateOverrides,
+  type CreativeTitles,
+  type PortfolioTemplateOverride,
+} from './portfolio-template.js';
 import {
   PortfolioGeneratorService,
   type PortfolioExportInfo,
@@ -19,6 +24,7 @@ export interface PortfolioInput {
   readonly courseCode: string;
   readonly semesterAndYear: string;
   readonly creativeTitles?: CreativeTitles;
+  readonly templateOverrides?: PortfolioTemplateOverride | null;
 }
 
 export type PortfolioPatch = Readonly<Partial<PortfolioInput>>;
@@ -80,14 +86,21 @@ export function normalizePortfolioInput(input: PortfolioInput): PortfolioInput {
     courseCode: normalizeField('courseCode', input.courseCode),
     semesterAndYear: normalizeField('semesterAndYear', input.semesterAndYear),
     ...(input.creativeTitles === undefined ? {} : { creativeTitles: normalizeCreativeTitles(input.creativeTitles) }),
+    ...(input.templateOverrides === undefined ? {} : { templateOverrides: normalizeTemplateOverrides(input.templateOverrides) }),
   };
 }
 
 function normalizePatch(input: PortfolioPatch): PortfolioPatch {
-  const normalized: Partial<Record<keyof typeof FIELD_LIMITS, string>> & { creativeTitles?: CreativeTitles } = {};
+  const normalized: Partial<Record<keyof typeof FIELD_LIMITS, string>> & {
+    creativeTitles?: CreativeTitles;
+    templateOverrides?: PortfolioTemplateOverride | null;
+  } = {};
   for (const [key, value] of Object.entries(input)) {
     if (key === 'creativeTitles') normalized.creativeTitles = normalizeCreativeTitles(value);
-    else if (Object.hasOwn(FIELD_LIMITS, key) && typeof value === 'string') normalized[key as keyof typeof FIELD_LIMITS] = normalizeField(key as keyof typeof FIELD_LIMITS, value);
+    else if (key === 'templateOverrides') normalized.templateOverrides = normalizeTemplateOverrides(value);
+    else if (Object.hasOwn(FIELD_LIMITS, key) && typeof value === 'string') {
+      normalized[key as keyof typeof FIELD_LIMITS] = normalizeField(key as keyof typeof FIELD_LIMITS, value);
+    }
     else throw new AppError(400, 'VALIDATION_ERROR', 'The request is invalid.');
   }
   return normalized as PortfolioPatch;
@@ -104,6 +117,7 @@ function publicPortfolio(portfolio: PortfolioRecord): PublicPortfolio {
     courseCode: portfolio.courseCode,
     semesterAndYear: portfolio.semesterAndYear,
     ...(portfolio.creativeTitles === undefined ? {} : { creativeTitles: portfolio.creativeTitles }),
+    ...(portfolio.templateOverrides === undefined ? {} : { templateOverrides: portfolio.templateOverrides }),
     createdAt: portfolio.createdAt.toISOString(),
     updatedAt: portfolio.updatedAt.toISOString(),
   };

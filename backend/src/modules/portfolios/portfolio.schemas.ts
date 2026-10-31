@@ -1,7 +1,10 @@
-import { creativeTitlesSchema } from './portfolio-template.js';
+import { creativeTitlesSchema, templateOverrideSchema } from './portfolio-template.js';
 
 const portfolioProperties = {
   creativeTitles: creativeTitlesSchema,
+  templateOverrides: {
+    anyOf: [templateOverrideSchema, { type: 'null' }],
+  },
   fullName: { type: 'string', minLength: 1, maxLength: 200 },
   yearAndSection: { type: 'string', minLength: 1, maxLength: 100 },
   schedule: { type: 'string', minLength: 1, maxLength: 200 },

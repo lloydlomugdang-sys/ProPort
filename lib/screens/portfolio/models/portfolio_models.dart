@@ -13,6 +13,7 @@ class PortfolioInfo {
     this.courseCode = '',
     this.semesterAndYear = '',
     this.creativeTitles = const {},
+    this.templateOverrides,
   });
 
   final String fullName;
@@ -23,6 +24,7 @@ class PortfolioInfo {
   final String courseCode;
   final String semesterAndYear;
   final Map<String, String> creativeTitles;
+  final PortfolioTemplateOverride? templateOverrides;
 
   static const fieldLabels = {
     'fullName': 'Full Name',
@@ -63,6 +65,7 @@ class PortfolioInfo {
       'creativeTitles': {
         for (final e in creativeTitles.entries) e.key: e.value.trim(),
       },
+    if (templateOverrides != null) 'templateOverrides': templateOverrides!.toJson(),
   };
 
   String get formattedSchedule => PortfolioSchedule.displayValue(schedule);
@@ -72,6 +75,16 @@ class PortfolioInfo {
       final value = json[key];
       if (value is! String) throw const FormatException();
       return value;
+    }
+
+    final rawOverrides = json['templateOverrides'];
+    PortfolioTemplateOverride? templateOverrides;
+    if (rawOverrides is Map<String, dynamic>) {
+      templateOverrides = PortfolioTemplateOverride.fromJson(rawOverrides);
+    } else if (rawOverrides is Map) {
+      templateOverrides = PortfolioTemplateOverride.fromJson(
+        Map<String, dynamic>.from(rawOverrides),
+      );
     }
 
     return PortfolioInfo(
@@ -85,6 +98,7 @@ class PortfolioInfo {
       creativeTitles: Map<String, String>.from(
         json['creativeTitles'] as Map? ?? const {},
       ),
+      templateOverrides: templateOverrides,
     );
   }
 
@@ -97,6 +111,7 @@ class PortfolioInfo {
     'courseCode': courseCode,
     'semesterAndYear': semesterAndYear,
     if (creativeTitles.isNotEmpty) 'creativeTitles': creativeTitles,
+    if (templateOverrides != null) 'templateOverrides': templateOverrides!.toJson(),
   };
 
   PortfolioInfo copyWith({
@@ -108,6 +123,8 @@ class PortfolioInfo {
     String? courseCode,
     String? semesterAndYear,
     Map<String, String>? creativeTitles,
+    PortfolioTemplateOverride? templateOverrides,
+    bool clearTemplateOverrides = false,
   }) => PortfolioInfo(
     fullName: fullName ?? this.fullName,
     yearAndSection: yearAndSection ?? this.yearAndSection,
@@ -117,6 +134,9 @@ class PortfolioInfo {
     courseCode: courseCode ?? this.courseCode,
     semesterAndYear: semesterAndYear ?? this.semesterAndYear,
     creativeTitles: creativeTitles ?? this.creativeTitles,
+    templateOverrides: clearTemplateOverrides
+        ? null
+        : (templateOverrides ?? this.templateOverrides),
   );
 }
 

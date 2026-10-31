@@ -11,6 +11,7 @@ import 'widgets/section_counter_row.dart';
 import 'widgets/step_indicator.dart';
 import 'widgets/portfolio_documents_builder.dart';
 import 'widgets/portfolio_creative_titles.dart';
+import 'customize_portfolio_format_screen.dart';
 
 /// Screen 2 of 3 — Portfolio Summary.
 /// Displays total items and a breakdown of sections included.
@@ -112,6 +113,7 @@ class _PortfolioSummaryScreenState extends State<PortfolioSummaryScreen>
                   physics: const BouncingScrollPhysics(),
                   padding: const EdgeInsets.fromLTRB(20, 20, 20, 24),
                   child: PortfolioDocumentsBuilder(
+                    overrides: _portfolio.info.templateOverrides,
                     builder: (documents, template) {
                       final summary = PortfolioSummary.fromDocumentSummary(
                         documents.summary,
@@ -126,6 +128,28 @@ class _PortfolioSummaryScreenState extends State<PortfolioSummaryScreen>
 
                           // ── Sections Included card ─────────────────────
                           _buildSectionsCard(summary),
+                          const SizedBox(height: 8),
+                          TextButton.icon(
+                            key: const Key('customize-portfolio-format-button'),
+                            icon: const Icon(Icons.tune),
+                            label: const Text('Customize Portfolio Format'),
+                            onPressed: () async {
+                              final saved =
+                                  await Navigator.push<PortfolioRecord>(
+                                    context,
+                                    MaterialPageRoute(
+                                      builder: (_) =>
+                                          CustomizePortfolioFormatScreen(
+                                            portfolio: _portfolio,
+                                            baseTemplate: template,
+                                          ),
+                                    ),
+                                  );
+                              if (mounted && saved != null) {
+                                setState(() => _portfolio = saved);
+                              }
+                            },
+                          ),
                           if (template.enabledSections.any(
                             (s) => s.generateCreativeTitle,
                           ))

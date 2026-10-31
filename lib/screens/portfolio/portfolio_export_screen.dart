@@ -92,8 +92,11 @@ class _PortfolioExportScreenState extends State<PortfolioExportScreen>
       // snapshot instead of making two redundant reads before that request.
       await documents.load(force: documents.errorMessage != null);
       if (!mounted) return;
-      final template = await PortfolioScope.of(context).loadTemplate();
+      final baseTemplate = await PortfolioScope.of(context).loadTemplate();
       if (!mounted) return;
+      final template = baseTemplate.withOverrides(
+        widget.portfolioInfo.templateOverrides,
+      );
       final content = PortfolioExportContent.fromDocuments(
         widget.portfolioInfo,
         documents,

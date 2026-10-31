@@ -84,3 +84,167 @@ export const creativeTitlesSchema = {
   type: 'object', additionalProperties: false,
   properties: Object.fromEntries([...keys].map(key => [key, { type: 'string', maxLength: 200 }])),
 } as const;
+
+export interface PortfolioSectionOverride {
+  readonly key: string;
+  readonly label?: string;
+  readonly order?: number;
+  readonly enabled?: boolean;
+  readonly generateCreativeTitle?: boolean;
+}
+
+export interface PortfolioTemplateOverride {
+  readonly includeTableOfContents?: boolean;
+  readonly sections?: readonly PortfolioSectionOverride[];
+}
+
+function failTemplateValidation(msg = 'Template overrides must be an object with valid supported properties.'): never {
+  throw new AppError(400, 'VALIDATION_ERROR', msg);
+}
+
+export function normalizeTemplateOverrides(value: unknown): PortfolioTemplateOverride | null {
+  if (value === undefined || value === null) return null;
+  if (typeof value !== 'object' || Array.isArray(value)) failTemplateValidation();
+  const obj = value as Record<string, unknown>;
+  const allowedTopKeys = new Set(['includeTableOfContents', 'sections']);
+  if (Object.keys(obj).some(k => !allowedTopKeys.has(k))) failTemplateValidation('Unknown properties in template overrides.');
+
+  let includeTableOfContents: boolean | undefined;
+  if ('includeTableOfContents' in obj) {
+    if (typeof obj.includeTableOfContents === 'boolean') {
+      includeTableOfContents = obj.includeTableOfContents;
+    } else if (obj.includeTableOfContents !== undefined) {
+      failTemplateValidation('includeTableOfContents must be a boolean.');
+    }
+  }
+
+  let sections: PortfolioSectionOverride[] | undefined;
+  if ('sections' in obj) {
+    if (Array.isArray(obj.sections)) {
+      const allowedSectionKeys = new Set(['key', 'label', 'order', 'enabled', 'generateCreativeTitle']);
+      const seenKeys = new Set<string>();
+      const seenOrders = new Set<number>();
+      sections = obj.sections.map((entry: unknown): PortfolioSectionOverride => {
+        if (!entry || typeof entry !== 'object' || Array.isArray(entry)) failTemplateValidation('Invalid section override.');
+        const s = entry as Record<string, unknown>;
+        if (Object.keys(s).some(k => !allowedSectionKeys.has(k))) failTemplateValidation('Unknown properties in section override.');
+        const key = s.key;
+        if (typeof key !== 'string') {
+          failTemplateValidation('Each section override must specify a supported section key.');
+        }
+        if (!keys.has(key) || seenKeys.has(key)) {
+          failTemplateValidation('Each section override must specify a unique supported section key.');
+        }
+        seenKeys.add(key);
+
+        let label: string | undefined;
+        if ('label' in s) {
+          if (typeof s.label === 'string' && s.label.trim() && s.label.trim().length <= 120 && !unsafeText(s.label)) {
+            label = s.label.trim();
+          } else if (s.label !== undefined) {
+            failTemplateValidation('Section label must be plain text between 1 and 120 characters.');
+          }
+        }
+
+        let order: number | undefined;
+        if ('order' in s) {
+          if (typeof s.order === 'number' && Number.isSafeInteger(s.order) && s.order >= 0 && s.order <= 1_000_000) {
+            if (seenOrders.has(s.order)) {
+              failTemplateValidation('Section orders in overrides must not be duplicates.');
+            }
+            seenOrders.add(s.order);
+            order = s.order;
+          } else if (s.order !== undefined) {
+            failTemplateValidation('Section order must be a non-negative integer.');
+          }
+        }
+
+        let enabled: boolean | undefined;
+        if ('enabled' in s) {
+          if (typeof s.enabled === 'boolean') {
+            enabled = s.enabled;
+          } else if (s.enabled !== undefined) {
+            failTemplateValidation('Section enabled must be a boolean.');
+          }
+        }
+
+        let generateCreativeTitle: boolean | undefined;
+        if ('generateCreativeTitle' in s) {
+          if (typeof s.generateCreativeTitle === 'boolean') {
+            generateCreativeTitle = s.generateCreativeTitle;
+          } else if (s.generateCreativeTitle !== undefined) {
+            failTemplateValidation('generateCreativeTitle must be a boolean.');
+          }
+        }
+
+        const override: PortfolioSectionOverride = Object.freeze({
+          key,
+          ...(label !== undefined ? { label } : {}),
+          ...(order !== undefined ? { order } : {}),
+          ...(enabled !== undefined ? { enabled } : {}),
+          ...(generateCreativeTitle !== undefined ? { generateCreativeTitle } : {}),
+        });
+        return override;
+      });
+    } else if (obj.sections !== undefined) {
+      failTemplateValidation('sections must be an array of section overrides.');
+    }
+  }
+
+  return Object.freeze({
+    ...(includeTableOfContents !== undefined ? { includeTableOfContents } : {}),
+    ...(sections !== undefined ? { sections: Object.freeze(sections) } : {}),
+  });
+}
+
+export function resolveEffectiveTemplate(
+  base: PortfolioTemplate = EFFECTIVE_PORTFOLIO_TEMPLATE,
+  overrides?: PortfolioTemplateOverride | null,
+): PortfolioTemplate {
+  if (!overrides) return base;
+  const overrideMap = new Map((overrides.sections ?? []).map(s => [s.key, s]));
+  const mergedSections = base.sections.map((rule): PortfolioSectionRule => {
+    const o = overrideMap.get(rule.key);
+    if (!o) return rule;
+    return Object.freeze({
+      key: rule.key,
+      label: o.label ?? rule.label,
+      order: o.order ?? rule.order,
+      enabled: o.enabled ?? rule.enabled,
+      required: rule.required,
+      generateCreativeTitle: o.generateCreativeTitle ?? rule.generateCreativeTitle,
+    });
+  }).sort((a, b) => a.order - b.order);
+
+  return Object.freeze({
+    id: base.id,
+    name: base.name,
+    version: base.version,
+    status: base.status,
+    includeTableOfContents: overrides.includeTableOfContents ?? base.includeTableOfContents,
+    sections: Object.freeze(mergedSections),
+  });
+}
+
+export const templateOverrideSchema = {
+  type: 'object',
+  additionalProperties: false,
+  properties: {
+    includeTableOfContents: { type: 'boolean' },
+    sections: {
+      type: 'array',
+      items: {
+        type: 'object',
+        additionalProperties: false,
+        required: ['key'],
+        properties: {
+          key: { type: 'string', enum: [...keys] },
+          label: { type: 'string', minLength: 1, maxLength: 120 },
+          order: { type: 'integer', minimum: 0 },
+          enabled: { type: 'boolean' },
+          generateCreativeTitle: { type: 'boolean' },
+        },
+      },
+    },
+  },
+} as const;

@@ -102,6 +102,26 @@ class PortfolioService extends ChangeNotifier {
     return _upsert(_parsePortfolio(_dataOf(response)['portfolio']));
   }
 
+  Future<PortfolioRecord> saveCustomization(
+    String portfolioId, {
+    PortfolioTemplateOverride? templateOverrides,
+    Map<String, String>? creativeTitles,
+    bool resetTemplateOverrides = false,
+  }) async {
+    final body = <String, dynamic>{
+      if (resetTemplateOverrides)
+        'templateOverrides': null
+      else if (templateOverrides != null)
+        'templateOverrides': templateOverrides.toJson(),
+      'creativeTitles': ?creativeTitles,
+    };
+    final response = await _authService.authenticatedPatchJson(
+      '$_portfoliosPath/$portfolioId',
+      body: body,
+    );
+    return _upsert(_parsePortfolio(_dataOf(response)['portfolio']));
+  }
+
   Future<PortfolioRecord> createPortfolio(PortfolioInfo info) async {
     _validate(info);
     final response = await _authService.authenticatedPostJson(

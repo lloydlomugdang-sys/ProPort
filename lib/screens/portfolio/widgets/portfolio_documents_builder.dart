@@ -10,10 +10,15 @@ import '../../../widgets/app_skeleton.dart';
 
 /// Reuses authenticated document state; a failed load is never a zero count.
 class PortfolioDocumentsBuilder extends StatefulWidget {
-  const PortfolioDocumentsBuilder({super.key, required this.builder});
+  const PortfolioDocumentsBuilder({
+    super.key,
+    required this.builder,
+    this.overrides,
+  });
 
   final Widget Function(DocumentService documents, PortfolioTemplate template)
   builder;
+  final PortfolioTemplateOverride? overrides;
 
   @override
   State<PortfolioDocumentsBuilder> createState() =>
@@ -88,6 +93,7 @@ class _PortfolioDocumentsBuilderState extends State<PortfolioDocumentsBuilder> {
         ],
       );
     }
-    return widget.builder(service, _template!);
+    final effectiveTemplate = _template!.withOverrides(widget.overrides);
+    return widget.builder(service, effectiveTemplate);
   }
 }

@@ -46,10 +46,22 @@ export class PortfolioRepository {
     id: Types.ObjectId,
     patch: UpdatePortfolioInput,
   ): Promise<PortfolioRecord | null> {
+    const set: Record<string, unknown> = {};
+    const unset: Record<string, unknown> = {};
+    for (const [key, value] of Object.entries(patch)) {
+      if (value === null || value === undefined) {
+        unset[key] = '';
+      } else {
+        set[key] = value;
+      }
+    }
+    const updateOps: Record<string, unknown> = {};
+    if (Object.keys(set).length) updateOps.$set = set;
+    if (Object.keys(unset).length) updateOps.$unset = unset;
     const updated = await this.model
       .findOneAndUpdate(
         { _id: id, ownerId },
-        { $set: patch },
+        updateOps,
         { returnDocument: 'after', runValidators: true, strict: 'throw' },
       )
       .lean()

@@ -627,6 +627,95 @@ describe.sequential('authenticated portfolio API with disposable MongoDB', () =>
     expect((await app!.inject({method:'GET',url,headers:bearer(firstUser.accessToken)})).json().data.portfolio.creativeTitles ?? {}).toEqual({});
   });
 
+  it('persists, validates, and resets owner template overrides per portfolio, reflected in GET and export', async () => {
+    const create = await app!.inject({
+      method: 'POST',
+      url: '/api/v1/portfolios',
+      headers: bearer(firstUser.accessToken),
+      payload: { ...portfolioInput, fullName: 'Override Student' },
+    });
+    expect(create.statusCode).toBe(201);
+    const pId = create.json().data.portfolio.id;
+    const url = `/api/v1/portfolios/${pId}`;
+
+    const templateOverrides = {
+      includeTableOfContents: false,
+      sections: [
+        { key: 'certificates', order: 0, label: 'Verified Certifications' },
+        { key: 'curriculum-vitae', order: 1 },
+      ],
+    };
+
+    // Owner saves templateOverrides
+    const patch = await app!.inject({
+      method: 'PATCH',
+      url,
+      headers: bearer(firstUser.accessToken),
+      payload: { templateOverrides },
+    });
+    expect(patch.statusCode).toBe(200);
+    expect(patch.json().data.portfolio.templateOverrides).toEqual(templateOverrides);
+
+    // GET returns saved templateOverrides
+    const getRes = await app!.inject({ method: 'GET', url, headers: bearer(firstUser.accessToken) });
+    expect(getRes.statusCode).toBe(200);
+    expect(getRes.json().data.portfolio.templateOverrides).toEqual(templateOverrides);
+
+    // Owner scoping: secondUser cannot PATCH firstUser's portfolio overrides
+    const unauthorizedPatch = await app!.inject({
+      method: 'PATCH',
+      url,
+      headers: bearer(secondUser.accessToken),
+      payload: { templateOverrides: null },
+    });
+    expectError(unauthorizedPatch, 404, 'PORTFOLIO_NOT_FOUND');
+
+    // Validation: invalid overrides return 400 VALIDATION_ERROR
+    const invalidPatch = await app!.inject({
+      method: 'PATCH',
+      url,
+      headers: bearer(firstUser.accessToken),
+      payload: { templateOverrides: { unknownField: 123 } },
+    });
+    expectError(invalidPatch, 400, 'VALIDATION_ERROR');
+
+    // Export PDF respects templateOverrides (TOC omitted when false)
+    const exportPdf = await app!.inject({
+      method: 'GET',
+      url: `${url}/export/pdf`,
+      headers: bearer(firstUser.accessToken),
+    });
+    expect(exportPdf.statusCode).toBe(200);
+    const pdfText = await extractAllPdfText(exportPdf.rawPayload);
+    expect(pdfText).not.toContain('TABLE OF CONTENTS');
+
+    // Reset overrides to null restores default institutional template
+    const reset = await app!.inject({
+      method: 'PATCH',
+      url,
+      headers: bearer(firstUser.accessToken),
+      payload: { templateOverrides: null },
+    });
+    expect(reset.statusCode).toBe(200);
+    expect(reset.json().data.portfolio.templateOverrides).toBeUndefined();
+
+    // Verify DB record has templateOverrides unset
+    const raw = await disposable!.connection.db!.collection(COLLECTION_NAMES.portfolios).findOne({
+      _id: new Types.ObjectId(pId),
+    });
+    expect(raw?.templateOverrides).toBeUndefined();
+
+    // Export PDF now has TABLE OF CONTENTS again
+    const resetPdf = await app!.inject({
+      method: 'GET',
+      url: `${url}/export/pdf`,
+      headers: bearer(firstUser.accessToken),
+    });
+    expect(resetPdf.statusCode).toBe(200);
+    const resetPdfText = await extractAllPdfText(resetPdf.rawPayload);
+    expect(resetPdfText).toContain('TABLE OF CONTENTS');
+  });
+
   it('deletes only the authenticated owner portfolio', async () => {
     const deleted = await app!.inject({
       method: 'DELETE',

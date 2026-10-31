@@ -11,7 +11,15 @@ import { CollegeReportService, type OfficialReportView } from '../college-report
 import { collegeReportPages, drawCollegeReportPage, type QuestionnairePage } from '../college-report/college-report.pdf.js';
 import { generatePortfolioDocx } from './portfolio-docx.js';
 import { exportDescription } from '../documents/description-source.js';
-import { EFFECTIVE_PORTFOLIO_TEMPLATE, normalizeCreativeTitles, type CreativeTitles, type PortfolioSectionRule, type PortfolioTemplate } from './portfolio-template.js';
+import {
+  EFFECTIVE_PORTFOLIO_TEMPLATE,
+  normalizeCreativeTitles,
+  resolveEffectiveTemplate,
+  type CreativeTitles,
+  type PortfolioSectionRule,
+  type PortfolioTemplate,
+  type PortfolioTemplateOverride,
+} from './portfolio-template.js';
 import { measureExport, type ExportObserver } from './export-metrics.js';
 import { flattenExportForm } from './flatten-export-form.js';
 import { drawStandardTitlePage, planStandardTitlePages, type StandardTitlePagePlan } from './portfolio-title-page.js';
@@ -36,6 +44,7 @@ export interface PortfolioExportInfo {
   readonly courseCode?: string;
   readonly semesterAndYear?: string;
   readonly creativeTitles?: CreativeTitles;
+  readonly templateOverrides?: PortfolioTemplateOverride | null;
 }
 
 type Attachment = Pick<DocumentRecord, 'objectKey' | 'fileKind' | 'sizeBytes'>;
@@ -140,19 +149,21 @@ export class PortfolioGeneratorService {
       if (batch.length < 100) break;
       afterId = batch[batch.length - 1]!._id;
     }
-    const reportEnabled = this.template.sections.some(s => s.key === 'college-report' && s.enabled);
+    const effectiveTemplate = resolveEffectiveTemplate(this.template, info.templateOverrides);
+    const reportEnabled = effectiveTemplate.sections.some(s => s.key === 'college-report' && s.enabled);
     const report = reportEnabled ? (await new CollegeReportService(this.database!).current(ownerId)).report : null;
     this.observe?.('records', performance.now() - recordStart);
     if (format === 'docx') return generatePortfolioDocx(documents, info, report, user?.program ?? '',
-      (key) => this.fetchArtifactBytes(key), this.observe, this.template);
-    return this.generateFromDocuments(documents, info, report, user?.program ?? '');
+      (key) => this.fetchArtifactBytes(key), this.observe, effectiveTemplate);
+    return this.generateFromDocuments(documents, info, report, user?.program ?? '', effectiveTemplate);
   }
 
-  async generateFromDocuments(documents: readonly DocumentRecord[], info: PortfolioExportInfo, collegeReport: OfficialReportView | null = null, program = ''): Promise<Buffer> {
+  async generateFromDocuments(documents: readonly DocumentRecord[], info: PortfolioExportInfo, collegeReport: OfficialReportView | null = null, program = '', template?: PortfolioTemplate): Promise<Buffer> {
     if (documents.length > MAX_PORTFOLIO_DOCUMENTS) {
       throw tooLarge(`At most ${MAX_PORTFOLIO_DOCUMENTS} documents can be exported at once.`);
     }
-    const sections = planPortfolioSections(documents, this.template, info.creativeTitles, collegeReport !== null);
+    const effectiveTemplate = template ?? resolveEffectiveTemplate(this.template, info.templateOverrides);
+    const sections = planPortfolioSections(documents, effectiveTemplate, info.creativeTitles, collegeReport !== null);
     const sourceBytes = sections.flatMap((s) => s.subsections.flatMap((sub) =>
       sub.items.flatMap((item) => item.attachments))).reduce((sum, att) => sum + att.sizeBytes, 0);
     if (sourceBytes > MAX_PORTFOLIO_TOTAL_SOURCE_BYTES) {
@@ -285,8 +296,8 @@ export class PortfolioGeneratorService {
 
     // Wrapped TOC rows reserve a fixed page-number column. Page-number digits do
     // not affect wrapping, so the resulting page count is stable in two passes.
-    const tocPages: TocLine[][] = this.template.includeTableOfContents ? [[]] : [];
-    for (const entry of this.template.includeTableOfContents ? entries : []) {
+    const tocPages: TocLine[][] = effectiveTemplate.includeTableOfContents ? [[]] : [];
+    for (const entry of effectiveTemplate.includeTableOfContents ? entries : []) {
       const indent = entry.level * 12;
       const wrapped = wrapPortfolioText(entry.title, entry.level < 2 ? fonts.bold : fonts.regular,
         CONTENT_WIDTH - indent - 36);

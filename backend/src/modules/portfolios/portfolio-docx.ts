@@ -7,7 +7,7 @@ import type { OfficialReportView } from '../college-report/college-report.servic
 import { OFFICIAL_COLLEGE_REPORT } from '../college-report/college-report.template.js';
 import { DocxPackage, paragraph as p, pageBreak, xml, questionnaireTable } from './docx-package.js';
 import { exportDescription } from '../documents/description-source.js';
-import { EFFECTIVE_PORTFOLIO_TEMPLATE, type PortfolioTemplate } from './portfolio-template.js';
+import { EFFECTIVE_PORTFOLIO_TEMPLATE, resolveEffectiveTemplate, type PortfolioTemplate } from './portfolio-template.js';
 import { portfolioFontBytes } from './portfolio-font-assets.js';
 import { loadPortfolioFallbackFonts, wrapPortfolioText } from './portfolio-layout.js';
 import { measureExport, type ExportObserver } from './export-metrics.js';
@@ -31,10 +31,11 @@ export async function generatePortfolioDocx(
   report: OfficialReportView | null, program: string,
   fetchBytes: (key: string) => Promise<Buffer>,
   observe?: ExportObserver,
-  template: PortfolioTemplate = EFFECTIVE_PORTFOLIO_TEMPLATE,
+  template?: PortfolioTemplate,
 ): Promise<Buffer> {
+  const effectiveTemplate = template ?? resolveEffectiveTemplate(EFFECTIVE_PORTFOLIO_TEMPLATE, info.templateOverrides);
   if (documents.length > MAX_PORTFOLIO_DOCUMENTS) throw tooLarge();
-  const sections = planPortfolioSections(documents, template, info.creativeTitles, report !== null);
+  const sections = planPortfolioSections(documents, effectiveTemplate, info.creativeTitles, report !== null);
   const declaredSize = sections.flatMap((s) => s.subsections.flatMap((sub) => sub.items.flatMap((item) => item.attachments)))
     .reduce((sum, a) => sum + a.sizeBytes, 0);
   if (declaredSize > MAX_PORTFOLIO_TOTAL_SOURCE_BYTES) throw tooLarge();
@@ -139,7 +140,7 @@ export async function generatePortfolioDocx(
     if (section.key === 'college-report' && report) { nextPage(); body.push(await measureExport('questionnaire', observe, () => collegeReportDocx(report))); }
     body.push(`<w:bookmarkEnd w:id="${index}"/>`);
   };
-  if (template.includeTableOfContents) {
+  if (effectiveTemplate.includeTableOfContents) {
     body.push(pageBreak, p('TABLE OF CONTENTS', 'Heading1'),
     p('Select a section below. Headings and text can be edited in Word. Uploaded evidence is embedded as images; use PDF export for original PDF-page fidelity.'));
     sections.forEach((s, i) => body.push(`<w:p><w:hyperlink w:anchor="section${i}"><w:r><w:t>${xml(s.name)}</w:t></w:r></w:hyperlink></w:p>`));
