@@ -1,5 +1,6 @@
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { Types } from 'mongoose';
+import { EFFECTIVE_PORTFOLIO_TEMPLATE } from './portfolio-template.js';
 import { AppError } from '../../common/errors/app-error.js';
 import { successResponse } from '../../common/http/api-response.js';
 import type { AppServices } from '../../infrastructure/create-services.js';
@@ -44,6 +45,11 @@ export async function registerPortfolioRoutes(
   const currentUsers = new CurrentUserService(services.database);
   const portfolios = new PortfolioService(services.database, services.storage);
   const identities = new WeakMap<FastifyRequest, CurrentUserIdentity>();
+
+  app.get('/api/v1/portfolios/template', {
+    onRequest: requireCurrentUser,
+    schema: { querystring: portfolioQuerySchema },
+  }, request => successResponse({ template: EFFECTIVE_PORTFOLIO_TEMPLATE }, request.id));
 
   async function requireCurrentUser(request: FastifyRequest): Promise<void> {
     let claims: AccessTokenClaims;

@@ -20,6 +20,7 @@ import 'package:proport_app/services/portfolio_scope.dart';
 import 'package:proport_app/services/portfolio_service.dart';
 import 'package:proport_app/services/secure_token_store.dart';
 import 'support/portfolio_export_test_support.dart';
+import 'support/portfolio_template_test_support.dart';
 
 void main() {
   testWidgets(
@@ -372,7 +373,7 @@ void main() {
     expect(counts, {
       'Creative Title': 1,
       'Curriculum Vitae': 1,
-      'Scholastic Record': 1,
+      "Unofficial TOR - Bachelor's Degree with Reflection": 1,
       'Certificates': 2,
       'Accomplishments': 1,
       'Other Achievements': 1,
@@ -563,6 +564,7 @@ class _FakePortfolioAuthService extends AuthService {
 
   @override
   Future<Map<String, dynamic>> authenticatedGetJson(String path) async {
+    if (path.endsWith('/template')) return portfolioTemplateEnvelope();
     if (path == '/api/v1/documents/categories') {
       return _envelope({
         'categories': [

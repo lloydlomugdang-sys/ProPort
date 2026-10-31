@@ -10,6 +10,7 @@ import { COLLECTION_NAMES } from '../../src/database/collection-names.js';
 import { createRepositories } from '../../src/database/repositories/index.js';
 import { PortfolioGeneratorService } from '../../src/modules/portfolios/portfolio-generator.service.js';
 import { PROFILE_OPTIONS } from '../../src/modules/users/profile-options.js';
+import { EFFECTIVE_PORTFOLIO_TEMPLATE } from '../../src/modules/portfolios/portfolio-template.js';
 import { portfolioDocument, PORTFOLIO_TEST_INFO } from '../helpers/portfolio-fixtures.js';
 import { docxParts } from '../helpers/docx-parts.js';
 import { runMigrations } from '../../src/database/migrations/migration-runner.js';
@@ -592,6 +593,38 @@ describe.sequential('authenticated portfolio API with disposable MongoDB', () =>
     const missing = await app!.inject({ method: 'POST', url: '/api/v1/portfolios/export/pdf', headers: bearer(firstUser.accessToken), payload: PORTFOLIO_TEST_INFO });
     expect(missing.statusCode).toBeGreaterThanOrEqual(400);
     await services!.storage.put(pdfKey, Readable.from([sourceBytes]));
+  });
+
+  it('exposes the effective template only to authenticated users and never permits student activation', async () => {
+    const url='/api/v1/portfolios/template';
+    expectError(await app!.inject({method:'GET',url}),401,'UNAUTHORIZED');
+    const result=await app!.inject({method:'GET',url,headers:bearer(firstUser.accessToken)});
+    expect(result.statusCode).toBe(200);
+    expect(result.json().data.template).toEqual(EFFECTIVE_PORTFOLIO_TEMPLATE);
+    expect((await app!.inject({method:'POST',url,headers:bearer(firstUser.accessToken),payload:{status:'active'}})).statusCode).toBe(404);
+    expectError(await app!.inject({method:'POST',url:'/api/v1/portfolios/export/pdf',headers:bearer(firstUser.accessToken),
+      payload:{...portfolioInput,templateId:'student-choice'}}),400,'VALIDATION_ERROR');
+  });
+
+  it('persists owner section-title text without an uploaded cover, reopens and exports it; legacy records remain valid', async () => {
+    const create=await app!.inject({method:'POST',url:'/api/v1/portfolios',headers:bearer(firstUser.accessToken),
+      payload:{...portfolioInput,creativeTitles:{certificates:' My saved section title '}}});
+    expect(create.statusCode).toBe(201);
+    const saved=create.json().data.portfolio;
+    expect(saved.creativeTitles).toEqual({certificates:'My saved section title'});
+    const url=`/api/v1/portfolios/${saved.id}`;
+    const raw=await disposable!.connection.db!.collection(COLLECTION_NAMES.portfolios).findOne({_id:new Types.ObjectId(saved.id)});
+    expect(raw?.creativeTitles).toEqual(saved.creativeTitles);
+    expect((await app!.inject({method:'GET',url,headers:bearer(firstUser.accessToken)})).json().data.portfolio.creativeTitles).toEqual(saved.creativeTitles);
+    const pdf=await app!.inject({method:'GET',url:`${url}/export/pdf`,headers:bearer(firstUser.accessToken)});
+    expect(pdf.statusCode).toBe(200);expect(await extractAllPdfText(pdf.rawPayload)).toContain('My saved section title');
+    const word=await app!.inject({method:'POST',url:'/api/v1/portfolios/export/docx',headers:bearer(firstUser.accessToken),
+      payload:{...portfolioInput,creativeTitles:saved.creativeTitles}});
+    expect(word.statusCode).toBe(200);expect(docxParts(word.rawPayload).get('word/document.xml')!.toString()).toContain('My saved section title');
+    expectError(await app!.inject({method:'PATCH',url,headers:bearer(secondUser.accessToken),payload:{creativeTitles:{}}}),404,'PORTFOLIO_NOT_FOUND');
+    expectError(await app!.inject({method:'PATCH',url,headers:bearer(firstUser.accessToken),payload:{creativeTitles:{unknown:'Bad'}}}),400,'VALIDATION_ERROR');
+    expect((await app!.inject({method:'PATCH',url,headers:bearer(firstUser.accessToken),payload:{creativeTitles:{}}})).statusCode).toBe(200);
+    expect((await app!.inject({method:'GET',url,headers:bearer(firstUser.accessToken)})).json().data.portfolio.creativeTitles ?? {}).toEqual({});
   });
 
   it('deletes only the authenticated owner portfolio', async () => {

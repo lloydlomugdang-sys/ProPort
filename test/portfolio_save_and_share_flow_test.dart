@@ -14,6 +14,7 @@ import 'package:proport_app/services/portfolio_scope.dart';
 import 'package:proport_app/services/portfolio_service.dart';
 import 'package:proport_app/services/secure_token_store.dart';
 import 'support/portfolio_export_test_support.dart';
+import 'support/portfolio_template_test_support.dart';
 
 class _EmptyTokenStore implements SecureTokenStore {
   @override
@@ -29,6 +30,7 @@ class _MockPortfolioAuthService extends AuthService {
 
   @override
   Future<Map<String, dynamic>> authenticatedGetJson(String path) async {
+    if (path.endsWith('/template')) return portfolioTemplateEnvelope();
     if (path == '/api/v1/documents/categories') {
       return {
         'data': {
@@ -137,34 +139,43 @@ void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
   group('Portfolio Save to Device & Share Flow', () {
-    testWidgets('export shows progress, blocks duplicate taps and restores retry after failure', (tester) async {
-      final pending = Completer<void>();
-      final exporter = MemoryPortfolioExporter()..pending = pending..fail = true;
-      await tester.pumpWidget(_wrapExport(info: _sampleInfo(), exporter: exporter));
-      await tester.pumpAndSettle();
-      final button = find.text('Export Portfolio').last;
-      await tester.ensureVisible(button);
-      await tester.tap(button);
-      await tester.pump();
-      await tester.pump(const Duration(milliseconds: 100));
-      expect(find.text('Generating portfolio...'), findsOneWidget);
-      expect(exporter.generationCount, 1);
-      await tester.tap(button);
-      await tester.pump();
-      expect(exporter.generationCount, 1);
-      pending.complete();
-      await tester.pumpAndSettle();
-      expect(find.text('Generating portfolio...'), findsNothing);
-      expect(find.textContaining('private filesystem'), findsNothing);
-      expect(find.text('Portfolio file created'), findsNothing);
-      exporter..pending = null..fail = false;
-      await tester.ensureVisible(button);
-      await tester.tap(button);
-      await tester.pumpAndSettle();
-      expect(exporter.generationCount, 2);
-      expect(find.text('Portfolio file created'), findsOneWidget);
-      expect(tester.takeException(), isNull);
-    });
+    testWidgets(
+      'export shows progress, blocks duplicate taps and restores retry after failure',
+      (tester) async {
+        final pending = Completer<void>();
+        final exporter = MemoryPortfolioExporter()
+          ..pending = pending
+          ..fail = true;
+        await tester.pumpWidget(
+          _wrapExport(info: _sampleInfo(), exporter: exporter),
+        );
+        await tester.pumpAndSettle();
+        final button = find.text('Export Portfolio').last;
+        await tester.ensureVisible(button);
+        await tester.tap(button);
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 100));
+        expect(find.text('Generating portfolio...'), findsOneWidget);
+        expect(exporter.generationCount, 1);
+        await tester.tap(button);
+        await tester.pump();
+        expect(exporter.generationCount, 1);
+        pending.complete();
+        await tester.pumpAndSettle();
+        expect(find.text('Generating portfolio...'), findsNothing);
+        expect(find.textContaining('private filesystem'), findsNothing);
+        expect(find.text('Portfolio file created'), findsNothing);
+        exporter
+          ..pending = null
+          ..fail = false;
+        await tester.ensureVisible(button);
+        await tester.tap(button);
+        await tester.pumpAndSettle();
+        expect(exporter.generationCount, 2);
+        expect(find.text('Portfolio file created'), findsOneWidget);
+        expect(tester.takeException(), isNull);
+      },
+    );
 
     testWidgets(
       '1 & 2: Save to Device action and Share action are both visible in PortfolioPreviewScreen',

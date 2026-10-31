@@ -3,6 +3,7 @@ import 'package:flutter/foundation.dart';
 import '../screens/portfolio/models/portfolio_models.dart';
 import 'api_client.dart';
 import 'auth_service.dart';
+import 'portfolio_template.dart';
 
 class PortfolioService extends ChangeNotifier {
   PortfolioService({required AuthService authService})
@@ -21,6 +22,35 @@ class PortfolioService extends ChangeNotifier {
   int _generation = 0;
   bool _disposed = false;
   Future<List<PortfolioRecord>>? _pendingLoad;
+  PortfolioTemplate? _template;
+  Future<PortfolioTemplate>? _pendingTemplate;
+  PortfolioTemplate? get template => _template;
+
+  Future<PortfolioTemplate> loadTemplate({bool force = false}) {
+    if (_template != null && !force) return Future.value(_template!);
+    return _pendingTemplate ??= _loadTemplate();
+  }
+
+  Future<PortfolioTemplate> _loadTemplate() async {
+    final generation = _generation;
+    try {
+      final response = await _authService.authenticatedGetJson(
+        '$_portfoliosPath/template',
+      );
+      if (_disposed || generation != _generation) throw _invalidResponse();
+      final value = _dataOf(response)['template'];
+      try {
+        if (value is! Map<String, dynamic>) throw const FormatException();
+        _template = PortfolioTemplate.fromJson(value);
+      } catch (_) {
+        throw _invalidResponse();
+      }
+      notifyListeners();
+      return _template!;
+    } finally {
+      if (generation == _generation) _pendingTemplate = null;
+    }
+  }
 
   List<PortfolioRecord> get portfolios => List.unmodifiable(_portfolios);
   bool get hasLoaded => _hasLoaded;
@@ -57,6 +87,17 @@ class PortfolioService extends ChangeNotifier {
   Future<PortfolioRecord> getPortfolio(String portfolioId) async {
     final response = await _authService.authenticatedGetJson(
       '$_portfoliosPath/$portfolioId',
+    );
+    return _upsert(_parsePortfolio(_dataOf(response)['portfolio']));
+  }
+
+  Future<PortfolioRecord> saveCreativeTitles(
+    String portfolioId,
+    Map<String, String> titles,
+  ) async {
+    final response = await _authService.authenticatedPatchJson(
+      '$_portfoliosPath/$portfolioId',
+      body: {'creativeTitles': titles},
     );
     return _upsert(_parsePortfolio(_dataOf(response)['portfolio']));
   }
@@ -126,6 +167,8 @@ class PortfolioService extends ChangeNotifier {
     if (userId == _authenticatedUserId) return;
     _authenticatedUserId = userId;
     _generation++;
+    _template = null;
+    _pendingTemplate = null;
     _pendingLoad = null;
     _portfolios = const [];
     _hasLoaded = false;

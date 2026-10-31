@@ -1,5 +1,6 @@
 import 'portfolio_schedule.dart';
 import '../../../services/document_models.dart';
+import '../../../services/portfolio_template.dart';
 
 /// Holds the user-entered portfolio title-page information.
 class PortfolioInfo {
@@ -11,6 +12,7 @@ class PortfolioInfo {
     this.course = '',
     this.courseCode = '',
     this.semesterAndYear = '',
+    this.creativeTitles = const {},
   });
 
   final String fullName;
@@ -20,6 +22,7 @@ class PortfolioInfo {
   final String course;
   final String courseCode;
   final String semesterAndYear;
+  final Map<String, String> creativeTitles;
 
   static const fieldLabels = {
     'fullName': 'Full Name',
@@ -41,7 +44,9 @@ class PortfolioInfo {
   };
 
   Map<String, String> get validationErrors => {
-    for (final entry in toMap().entries)
+    for (final entry in toMap().entries.where(
+      (e) => fieldLabels.containsKey(e.key),
+    ))
       if ((entry.value as String).trim().isEmpty)
         entry.key: '${fieldLabels[entry.key]} is required.'
       else if ((entry.value as String).trim().length > fieldLimits[entry.key]!)
@@ -50,8 +55,14 @@ class PortfolioInfo {
   };
 
   Map<String, dynamic> get normalizedMap => {
-    for (final entry in toMap().entries)
+    for (final entry in toMap().entries.where(
+      (e) => fieldLabels.containsKey(e.key),
+    ))
       entry.key: (entry.value as String).trim(),
+    if (creativeTitles.isNotEmpty)
+      'creativeTitles': {
+        for (final e in creativeTitles.entries) e.key: e.value.trim(),
+      },
   };
 
   String get formattedSchedule => PortfolioSchedule.displayValue(schedule);
@@ -71,6 +82,9 @@ class PortfolioInfo {
       course: stringValue('course'),
       courseCode: stringValue('courseCode'),
       semesterAndYear: stringValue('semesterAndYear'),
+      creativeTitles: Map<String, String>.from(
+        json['creativeTitles'] as Map? ?? const {},
+      ),
     );
   }
 
@@ -82,6 +96,7 @@ class PortfolioInfo {
     'course': course,
     'courseCode': courseCode,
     'semesterAndYear': semesterAndYear,
+    if (creativeTitles.isNotEmpty) 'creativeTitles': creativeTitles,
   };
 
   PortfolioInfo copyWith({
@@ -92,6 +107,7 @@ class PortfolioInfo {
     String? course,
     String? courseCode,
     String? semesterAndYear,
+    Map<String, String>? creativeTitles,
   }) => PortfolioInfo(
     fullName: fullName ?? this.fullName,
     yearAndSection: yearAndSection ?? this.yearAndSection,
@@ -100,6 +116,7 @@ class PortfolioInfo {
     course: course ?? this.course,
     courseCode: courseCode ?? this.courseCode,
     semesterAndYear: semesterAndYear ?? this.semesterAndYear,
+    creativeTitles: creativeTitles ?? this.creativeTitles,
   );
 }
 
@@ -152,54 +169,33 @@ class PortfolioSummary {
   int get totalItems =>
       _totalItems ?? sections.fold(0, (sum, section) => sum + section.count);
 
-  static const categorySections = {
-    'curriculum-vitae': 'Curriculum Vitae',
-    'scholastic-record': 'Scholastic Record',
-    'certificates': 'Certificates',
-    'accomplishments': 'Accomplishments',
-    'other-achievements': 'Other Achievements',
-    'college-report': 'College Report',
-  };
-
   /// Use server-wide counts, not the document list (which can be limited).
-  /// Creative titles have their own section and are counted only once.
-  factory PortfolioSummary.fromDocumentSummary(DocumentSummary documents) {
+  /// Creative Title is a counter, not a separate generated section.
+  factory PortfolioSummary.fromDocumentSummary(
+    DocumentSummary documents,
+    PortfolioTemplate template,
+  ) {
+    final enabled = template.enabledSections.toList();
+    final creativeCount = enabled
+        .where((s) => s.generateCreativeTitle)
+        .fold<int>(
+          0,
+          (sum, s) => sum + documents.folderCount(s.key, 'creative-title'),
+        );
     return PortfolioSummary(
-      totalItems: documents.totalCount,
       sections: [
-        PortfolioSection(
-          name: 'Creative Title',
-          count: documents.creativeTitleCount,
-        ),
-        for (final entry in categorySections.entries)
+        PortfolioSection(name: 'Creative Title', count: creativeCount),
+        for (final section in enabled)
           PortfolioSection(
-            name: entry.value,
+            name: section.label,
             count:
-                (documents.categoryCount(entry.key) -
-                        documents.folderCount(entry.key, 'creative-title'))
+                (documents.categoryCount(section.key) -
+                        documents.folderCount(section.key, 'creative-title'))
                     .clamp(0, documents.totalCount),
           ),
       ],
     );
   }
-
-  static String sectionFor(DocumentRecord document) =>
-      document.folderKey == 'creative-title'
-      ? 'Creative Title'
-      : categorySections[document.categoryKey] ?? document.categoryKey;
-
-  /// Only for a known-empty collection, never as a loading/error placeholder.
-  static PortfolioSummary get empty => const PortfolioSummary(
-    sections: [
-      PortfolioSection(name: 'Creative Title', count: 0),
-      PortfolioSection(name: 'Curriculum Vitae', count: 0),
-      PortfolioSection(name: 'Scholastic Record', count: 0),
-      PortfolioSection(name: 'Certificates', count: 0),
-      PortfolioSection(name: 'Accomplishments', count: 0),
-      PortfolioSection(name: 'Other Achievements', count: 0),
-      PortfolioSection(name: 'College Report', count: 0),
-    ],
-  );
 }
 
 enum ExportFormat { pdf, docx }

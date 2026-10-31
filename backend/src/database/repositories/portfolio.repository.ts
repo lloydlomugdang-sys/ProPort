@@ -17,7 +17,7 @@ export class PortfolioRepository {
 
   async create(input: CreatePortfolioInput): Promise<PortfolioRecord> {
     const created = await this.model.create(input);
-    return asPersistedRecord<Portfolio>(created.toObject());
+    return asPersistedRecord<Portfolio>(created.toObject({ flattenMaps: true }));
   }
 
   async listForOwner(

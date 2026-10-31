@@ -1,32 +1,29 @@
 import '../../../services/document_models.dart';
-import 'portfolio_models.dart';
+import '../../../services/portfolio_template.dart';
 
 /// Presentation ordering only; the server exports the complete owner collection.
 /// Category/folder identities and documents are never changed here.
 abstract final class PortfolioDocumentOrder {
-  static String sectionFor(DocumentRecord document) {
+  static String sectionFor(
+    DocumentRecord document,
+    PortfolioTemplate template,
+  ) {
     final category = document.categoryKey == 'cv'
         ? 'curriculum-vitae'
         : document.categoryKey;
-    if (!PortfolioSummary.categorySections.containsKey(category)) {
-      return category;
-    }
-    return PortfolioSummary.categorySections[category]!;
+    return template.section(category)?.label ?? category;
   }
 
-  static String label(String section) => section == 'Scholastic Record'
-      ? "Unofficial TOR - Bachelor's Degree with Reflection"
-      : section;
+  static String label(String section) => section;
 
   static List<DocumentRecord> sorted(
     List<DocumentRecord> documents,
     List<DocumentCategory> categories,
+    PortfolioTemplate template,
   ) {
-    final sections = [
-      ...PortfolioSummary.categorySections.values,
-    ];
+    final sections = [...template.enabledSections.map((s) => s.key)];
     int sectionRank(DocumentRecord document) {
-      final index = sections.indexOf(sectionFor(document));
+      final index = sections.indexOf(PortfolioTemplate.keyFor(document));
       return index < 0 ? sections.length : index;
     }
 
@@ -45,7 +42,7 @@ abstract final class PortfolioDocumentOrder {
       return index < 0 ? 1000000 : index;
     }
 
-    return [...documents]..sort((a, b) {
+    return documents.where(template.includes).toList()..sort((a, b) {
       var result = sectionRank(a).compareTo(sectionRank(b));
       if (result != 0) return result;
       result = folderRank(a).compareTo(folderRank(b));

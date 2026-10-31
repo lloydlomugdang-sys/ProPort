@@ -10,6 +10,7 @@ import 'package:xml/xml.dart';
 import 'support/legacy_outline_pdf_fixture.dart';
 import 'support/legacy_outline_docx_fixture.dart';
 import 'package:proport_app/services/auth_service.dart';
+import 'support/portfolio_template_test_support.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -106,7 +107,9 @@ void main() {
           .join('\n');
       for (final expected in _expectedText.where(
         (text) =>
-            !PortfolioSummary.categorySections.values.contains(text) &&
+            !testPortfolioTemplate().sections
+                .map((s) => s.label)
+                .contains(text) &&
             text != 'Creative Title',
       )) {
         expect(text, contains(expected));
@@ -390,7 +393,7 @@ const _expectedText = [
   'First Semester 2026-2027',
   'Creative Title',
   'Curriculum Vitae',
-  'Scholastic Record',
+  "Unofficial TOR - Bachelor's Degree with Reflection",
   'Certificates',
   'Accomplishments',
   'Other Achievements',
@@ -417,7 +420,7 @@ PortfolioExportContent _content({int total = 1, String? reflection}) =>
       sections: [
         for (final name in [
           'Creative Title',
-          ...PortfolioSummary.categorySections.values,
+          ...testPortfolioTemplate().sections.map((s) => s.label),
         ])
           PortfolioExportSection(
             name,

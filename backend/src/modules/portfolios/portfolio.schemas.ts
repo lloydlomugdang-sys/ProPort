@@ -1,4 +1,7 @@
+import { creativeTitlesSchema } from './portfolio-template.js';
+
 const portfolioProperties = {
+  creativeTitles: creativeTitlesSchema,
   fullName: { type: 'string', minLength: 1, maxLength: 200 },
   yearAndSection: { type: 'string', minLength: 1, maxLength: 100 },
   schedule: { type: 'string', minLength: 1, maxLength: 200 },

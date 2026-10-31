@@ -1,0 +1,19 @@
+{
+  "templates": [
+    {
+      "id": "gradport-academic",
+      "name": "GradPort Academic Portfolio",
+      "version": 1,
+      "status": "active",
+      "includeTableOfContents": true,
+      "sections": [
+        { "key": "curriculum-vitae", "label": "Curriculum Vitae", "order": 10, "enabled": true, "required": false, "generateCreativeTitle": true },
+        { "key": "scholastic-record", "label": "Unofficial TOR - Bachelor's Degree with Reflection", "order": 20, "enabled": true, "required": false, "generateCreativeTitle": true },
+        { "key": "certificates", "label": "Certificates", "order": 30, "enabled": true, "required": false, "generateCreativeTitle": true },
+        { "key": "accomplishments", "label": "Accomplishments", "order": 40, "enabled": true, "required": false, "generateCreativeTitle": true },
+        { "key": "other-achievements", "label": "Other Achievements", "order": 50, "enabled": true, "required": false, "generateCreativeTitle": true },
+        { "key": "college-report", "label": "College Report", "order": 60, "enabled": true, "required": false, "generateCreativeTitle": true }
+      ]
+    }
+  ]
+}

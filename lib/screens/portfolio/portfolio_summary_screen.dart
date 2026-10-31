@@ -10,6 +10,7 @@ import 'portfolio_export_screen.dart';
 import 'widgets/section_counter_row.dart';
 import 'widgets/step_indicator.dart';
 import 'widgets/portfolio_documents_builder.dart';
+import 'widgets/portfolio_creative_titles.dart';
 
 /// Screen 2 of 3 — Portfolio Summary.
 /// Displays total items and a breakdown of sections included.
@@ -28,10 +29,12 @@ class _PortfolioSummaryScreenState extends State<PortfolioSummaryScreen>
   late final AnimationController _entranceCtrl;
   late final Animation<double> _fadeAnim;
   late final Animation<Offset> _slideAnim;
+  late PortfolioRecord _portfolio;
 
   @override
   void initState() {
     super.initState();
+    _portfolio = widget.portfolio;
     _entranceCtrl = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 420),
@@ -69,7 +72,7 @@ class _PortfolioSummaryScreenState extends State<PortfolioSummaryScreen>
         PageRouteBuilder(
           transitionDuration: const Duration(milliseconds: 350),
           pageBuilder: (_, _, _) =>
-              PortfolioExportScreen(portfolioInfo: widget.portfolio.info),
+              PortfolioExportScreen(portfolioInfo: _portfolio.info),
           transitionsBuilder: (_, anim, _, child) => FadeTransition(
             opacity: CurvedAnimation(parent: anim, curve: Curves.easeOut),
             child: SlideTransition(
@@ -109,9 +112,10 @@ class _PortfolioSummaryScreenState extends State<PortfolioSummaryScreen>
                   physics: const BouncingScrollPhysics(),
                   padding: const EdgeInsets.fromLTRB(20, 20, 20, 24),
                   child: PortfolioDocumentsBuilder(
-                    builder: (documents) {
+                    builder: (documents, template) {
                       final summary = PortfolioSummary.fromDocumentSummary(
                         documents.summary,
+                        template,
                       );
                       return Column(
                         children: [
@@ -122,6 +126,25 @@ class _PortfolioSummaryScreenState extends State<PortfolioSummaryScreen>
 
                           // ── Sections Included card ─────────────────────
                           _buildSectionsCard(summary),
+                          if (template.enabledSections.any(
+                            (s) => s.generateCreativeTitle,
+                          ))
+                            TextButton.icon(
+                              icon: const Icon(Icons.title),
+                              label: const Text('Edit Section Creative Titles'),
+                              onPressed: () async {
+                                final saved = await showDialog<PortfolioRecord>(
+                                  context: context,
+                                  builder: (_) => PortfolioCreativeTitlesDialog(
+                                    portfolio: _portfolio,
+                                    template: template,
+                                  ),
+                                );
+                                if (mounted && saved != null) {
+                                  setState(() => _portfolio = saved);
+                                }
+                              },
+                            ),
 
                           const SizedBox(height: 28),
 

@@ -1,6 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:proport_app/screens/portfolio/models/portfolio_models.dart';
 import 'package:proport_app/services/document_models.dart';
+import 'support/portfolio_template_test_support.dart';
 
 void main() {
   test(
@@ -20,6 +21,7 @@ void main() {
             'curriculum-vitae/creative-title': 2,
           },
         ),
+        testPortfolioTemplate(),
       );
       expect(summary.totalItems, 145);
       expect(summary.sections.map((section) => section.count), [
@@ -39,7 +41,10 @@ void main() {
   );
 
   test('a known empty collection shows all seven sections with zero items', () {
-    final summary = PortfolioSummary.fromDocumentSummary(DocumentSummary.empty);
+    final summary = PortfolioSummary.fromDocumentSummary(
+      DocumentSummary.empty,
+      testPortfolioTemplate(),
+    );
     expect(summary.totalItems, 0);
     expect(summary.sections, hasLength(7));
     expect(summary.sections.every((section) => section.count == 0), isTrue);

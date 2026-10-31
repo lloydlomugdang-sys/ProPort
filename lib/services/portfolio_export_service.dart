@@ -10,6 +10,7 @@ import '../screens/portfolio/models/portfolio_document_order.dart';
 import 'api_client.dart';
 import 'auth_service.dart';
 import 'document_service.dart';
+import 'portfolio_template.dart';
 
 typedef FileSaveFunction =
     Future<String?> Function({
@@ -28,11 +29,13 @@ class PortfolioExportContent {
     required this.titleFields,
     required this.sections,
     required this.totalDocuments,
+    this.creativeTitles = const {},
   });
 
   final Map<String, String> titleFields;
   final List<PortfolioExportSection> sections;
   final int totalDocuments;
+  final Map<String, String> creativeTitles;
   int get includedDocuments =>
       sections.fold(0, (sum, section) => sum + section.documents.length);
 
@@ -44,6 +47,7 @@ class PortfolioExportContent {
   factory PortfolioExportContent.fromDocuments(
     PortfolioInfo info,
     DocumentService service,
+    PortfolioTemplate template,
   ) {
     if (info.validationErrors.isNotEmpty) {
       throw PortfolioExportException(
@@ -58,14 +62,13 @@ class PortfolioExportContent {
         'Documents are not ready. Please try exporting again.',
       );
     }
-    final summary = PortfolioSummary.fromDocumentSummary(service.summary);
     final groups = <String, List<Map<String, String>>>{
-      for (final section in summary.sections)
-        if (section.name != 'Creative Title') section.name: [],
+      for (final section in template.enabledSections) section.key: [],
     };
     for (final document in PortfolioDocumentOrder.sorted(
       service.documents,
       service.categories,
+      template,
     )) {
       final category = service.categories
           .where((value) => value.key == document.categoryKey)
@@ -73,14 +76,15 @@ class PortfolioExportContent {
       final folder = category?.folders
           .where((value) => value.key == document.folderKey)
           .firstOrNull;
-      final section = PortfolioDocumentOrder.sectionFor(document);
+      final section = PortfolioTemplate.keyFor(document);
       groups.putIfAbsent(section, () => []).add({
         'Title': document.title,
         'Date': document.documentDate.toIso8601String().substring(0, 10),
         'Category': category?.name ?? section,
         'Folder': folder?.name ?? document.folderKey,
         'File': document.originalFileName,
-        if ((document.descriptionSource == 'user' || document.descriptionSource == 'confirmed') &&
+        if ((document.descriptionSource == 'user' ||
+                document.descriptionSource == 'confirmed') &&
             (document.description?.trim().isNotEmpty ?? false))
           'Description': document.description!,
         if (document.reflection?.trim().isNotEmpty ?? false)
@@ -99,9 +103,13 @@ class PortfolioExportContent {
       },
       sections: [
         for (final entry in groups.entries)
-          PortfolioExportSection(entry.key, entry.value),
+          PortfolioExportSection(
+            template.section(entry.key)!.label,
+            entry.value,
+          ),
       ],
       totalDocuments: service.summary.totalCount,
+      creativeTitles: info.creativeTitles,
     );
   }
 }
@@ -172,6 +180,7 @@ class DevicePortfolioExporter implements PortfolioExporter {
       course: content.titleFields['Course'] ?? '',
       courseCode: content.titleFields['Course Code'] ?? '',
       semesterAndYear: content.titleFields['Semester & Academic Year'] ?? '',
+      creativeTitles: content.creativeTitles,
     );
     if (titleInfo.validationErrors.isNotEmpty) {
       throw PortfolioExportException(
@@ -190,7 +199,8 @@ class DevicePortfolioExporter implements PortfolioExporter {
         requestTimeout: const Duration(seconds: 90),
       );
     } on ApiException catch (error) {
-      if (error.code == 'NETWORK_TIMEOUT' || error.code == 'COLD_START_TIMEOUT') {
+      if (error.code == 'NETWORK_TIMEOUT' ||
+          error.code == 'COLD_START_TIMEOUT') {
         throw const PortfolioExportException(
           'Portfolio generation took too long. Keep the app connected and retry. If it happens again, export fewer or smaller source files.',
         );

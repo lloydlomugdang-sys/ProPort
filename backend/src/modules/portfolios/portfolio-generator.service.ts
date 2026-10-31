@@ -11,6 +11,7 @@ import { CollegeReportService, type OfficialReportView } from '../college-report
 import { collegeReportPages, drawCollegeReportPage, type QuestionnairePage } from '../college-report/college-report.pdf.js';
 import { generatePortfolioDocx } from './portfolio-docx.js';
 import { exportDescription } from '../documents/description-source.js';
+import { EFFECTIVE_PORTFOLIO_TEMPLATE, normalizeCreativeTitles, type CreativeTitles, type PortfolioSectionRule, type PortfolioTemplate } from './portfolio-template.js';
 import { measureExport, type ExportObserver } from './export-metrics.js';
 import { flattenExportForm } from './flatten-export-form.js';
 import { drawStandardTitlePage, planStandardTitlePages, type StandardTitlePagePlan } from './portfolio-title-page.js';
@@ -34,12 +35,13 @@ export interface PortfolioExportInfo {
   readonly course?: string;
   readonly courseCode?: string;
   readonly semesterAndYear?: string;
+  readonly creativeTitles?: CreativeTitles;
 }
 
 type Attachment = Pick<DocumentRecord, 'objectKey' | 'fileKind' | 'sizeBytes'>;
 interface Item { readonly document: DocumentRecord; readonly attachments: readonly Attachment[] }
 interface Subsection { readonly key: string; readonly name: string; readonly items: Item[] }
-interface Section { readonly key: string; readonly name: string; readonly subsections: Subsection[] }
+interface Section { readonly key: string; readonly name: string; readonly rule: PortfolioSectionRule; readonly creativeTitle: string; readonly subsections: Subsection[] }
 type PlannedPage =
   | StandardTitlePagePlan
   | { readonly kind: 'questionnaire'; readonly plan: QuestionnairePage }
@@ -55,15 +57,13 @@ function tooLarge(detail: string): AppError {
 }
 
 /** Uses the existing taxonomy; legacy folders stay under their known category. */
-export function planPortfolioSections(documents: readonly DocumentRecord[]): Section[] {
-  const sections: Section[] = [
-    ...[...CATEGORY_SEEDS].sort((a, b) => a.sortOrder - b.sortOrder).map((category) => ({
-      key: category.key,
-      name: category.key === 'scholastic-record'
-        ? "Unofficial TOR - Bachelor's Degree with Reflection" : category.name,
-      subsections: [] as Subsection[],
-    })),
-  ];
+export function planPortfolioSections(documents: readonly DocumentRecord[], template: PortfolioTemplate = EFFECTIVE_PORTFOLIO_TEMPLATE,
+  creativeTitles: CreativeTitles = {}, hasReport = false): Section[] {
+  const titles = normalizeCreativeTitles(creativeTitles);
+  const sections: Section[] = template.sections.filter(s => s.enabled).map(rule => ({
+    key: rule.key, name: rule.label, rule,
+    creativeTitle: rule.generateCreativeTitle ? titles[rule.key] ?? '' : '', subsections: [],
+  }));
   for (const document of documents) {
     const categoryKey = document.categoryKey === 'cv' ? 'curriculum-vitae' : document.categoryKey;
     const category = CATEGORY_SEEDS.find((value) => value.key === categoryKey);
@@ -73,7 +73,8 @@ export function planPortfolioSections(documents: readonly DocumentRecord[]): Sec
         'A document has an unsupported category. Review its category before exporting; no source files have been changed.');
     }
     const sectionKey = categoryKey;
-    const section = sections.find((value) => value.key === sectionKey)!;
+    const section = sections.find((value) => value.key === sectionKey);
+    if (!section || (document.folderKey === 'creative-title' && !section.rule.generateCreativeTitle)) continue;
     let subsection = section.subsections.find((value) => value.key === document.folderKey);
     if (!subsection) {
       const folder = category.folders.find((value) => value.key === document.folderKey);
@@ -95,12 +96,12 @@ export function planPortfolioSections(documents: readonly DocumentRecord[]): Sec
   }
   for (const section of sections) {
     const creative = section.subsections.find(s => s.key === 'creative-title');
-    if (creative && (creative.items.length !== 1 || creative.items[0]!.attachments.length !== 1)) {
+    if (creative && (section.creativeTitle || creative.items.length !== 1 || creative.items[0]!.attachments.length !== 1)) {
       throw new AppError(422, 'PORTFOLIO_CREATIVE_TITLE_AMBIGUOUS',
-        `Keep one single-page Creative Title for ${section.name} before exporting. No uploaded evidence has been omitted or changed.`);
+        `Use one saved title or one single-page legacy Creative Title for ${section.name}, not both. No uploaded evidence has been omitted or changed.`);
     }
     const folders = CATEGORY_SEEDS.find((value) => value.key === section.key)?.folders ?? [];
-    const rank = (key: string) => folders.find((value) => value.key === key)?.sortOrder ?? Number.MAX_SAFE_INTEGER;
+    const rank = (key: string) => key === 'creative-title' ? -1 : folders.find((value) => value.key === key)?.sortOrder ?? Number.MAX_SAFE_INTEGER;
     section.subsections.sort((a, b) => rank(a.key) - rank(b.key) || a.key.localeCompare(b.key));
     for (const subsection of section.subsections) {
       subsection.items.sort((a, b) =>
@@ -109,7 +110,7 @@ export function planPortfolioSections(documents: readonly DocumentRecord[]): Sec
         a.document._id.toString().localeCompare(b.document._id.toString()));
     }
   }
-  return sections.filter((section) => section.subsections.length > 0);
+  return sections.filter(s => s.subsections.length > 0 || s.creativeTitle || (s.key === 'college-report' && hasReport));
 }
 
 export class PortfolioGeneratorService {
@@ -118,6 +119,7 @@ export class PortfolioGeneratorService {
     private readonly storage: ObjectStorage,
     private readonly loadFonts: PortfolioFontLoader = loadPortfolioFallbackFonts,
     private readonly observe?: ExportObserver,
+    private readonly template: PortfolioTemplate = EFFECTIVE_PORTFOLIO_TEMPLATE,
   ) {}
 
   async generate(ownerId: Types.ObjectId, info: PortfolioExportInfo, format: 'pdf' | 'docx' = 'pdf'): Promise<Buffer> {
@@ -138,10 +140,11 @@ export class PortfolioGeneratorService {
       if (batch.length < 100) break;
       afterId = batch[batch.length - 1]!._id;
     }
-    const { report } = await new CollegeReportService(this.database!).current(ownerId);
+    const reportEnabled = this.template.sections.some(s => s.key === 'college-report' && s.enabled);
+    const report = reportEnabled ? (await new CollegeReportService(this.database!).current(ownerId)).report : null;
     this.observe?.('records', performance.now() - recordStart);
     if (format === 'docx') return generatePortfolioDocx(documents, info, report, user?.program ?? '',
-      (key) => this.fetchArtifactBytes(key), this.observe);
+      (key) => this.fetchArtifactBytes(key), this.observe, this.template);
     return this.generateFromDocuments(documents, info, report, user?.program ?? '');
   }
 
@@ -149,10 +152,7 @@ export class PortfolioGeneratorService {
     if (documents.length > MAX_PORTFOLIO_DOCUMENTS) {
       throw tooLarge(`At most ${MAX_PORTFOLIO_DOCUMENTS} documents can be exported at once.`);
     }
-    const sections = planPortfolioSections(documents);
-    if (collegeReport && !sections.some((section) => section.key === 'college-report')) {
-      sections.push({ key: 'college-report', name: 'College Report', subsections: [] });
-    }
+    const sections = planPortfolioSections(documents, this.template, info.creativeTitles, collegeReport !== null);
     const sourceBytes = sections.flatMap((s) => s.subsections.flatMap((sub) =>
       sub.items.flatMap((item) => item.attachments))).reduce((sum, att) => sum + att.sizeBytes, 0);
     if (sourceBytes > MAX_PORTFOLIO_TOTAL_SOURCE_BYTES) {
@@ -192,6 +192,7 @@ export class PortfolioGeneratorService {
 
     const planSection = async (section: Section) => {
       entries.push({ title: section.name, pageIndex: pages.length, level: 0 });
+      if (section.creativeTitle) addTextPages(lines(section.creativeTitle, true), true);
       // Creative Title is the supplied document itself, not an invented cover.
       // The saved creative-title artifact (if present) is the section's cover.
       // No invented heading-only page and no generated metadata before evidence.
@@ -284,8 +285,8 @@ export class PortfolioGeneratorService {
 
     // Wrapped TOC rows reserve a fixed page-number column. Page-number digits do
     // not affect wrapping, so the resulting page count is stable in two passes.
-    const tocPages: TocLine[][] = [[]];
-    for (const entry of entries) {
+    const tocPages: TocLine[][] = this.template.includeTableOfContents ? [[]] : [];
+    for (const entry of this.template.includeTableOfContents ? entries : []) {
       const indent = entry.level * 12;
       const wrapped = wrapPortfolioText(entry.title, entry.level < 2 ? fonts.bold : fonts.regular,
         CONTENT_WIDTH - indent - 36);

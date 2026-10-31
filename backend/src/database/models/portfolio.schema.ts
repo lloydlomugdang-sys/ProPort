@@ -9,6 +9,7 @@ export interface Portfolio {
   course: string;
   courseCode: string;
   semesterAndYear: string;
+  creativeTitles?: Record<string, string>;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -34,6 +35,7 @@ export const portfolioSchema = new Schema<Portfolio>(
     },
     course: { type: String, trim: true, maxlength: 200, default: '' },
     courseCode: { type: String, trim: true, maxlength: 100, default: '' },
+    creativeTitles: { type: Map, of: { type: String, trim: true, maxlength: 200 }, default: undefined },
     semesterAndYear: {
       type: String,
       trim: true,

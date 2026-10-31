@@ -92,9 +92,12 @@ class _PortfolioExportScreenState extends State<PortfolioExportScreen>
       // snapshot instead of making two redundant reads before that request.
       await documents.load(force: documents.errorMessage != null);
       if (!mounted) return;
+      final template = await PortfolioScope.of(context).loadTemplate();
+      if (!mounted) return;
       final content = PortfolioExportContent.fromDocuments(
         widget.portfolioInfo,
         documents,
+        template,
       );
       final file = await exporter.generate(content, _selectedFormat);
       if (!mounted) return;
@@ -105,7 +108,8 @@ class _PortfolioExportScreenState extends State<PortfolioExportScreen>
       }
       setState(() {
         _exportedFile = file;
-        _coverageNote = 'Saved image and PDF pages are included, with saved College Report responses when available.';
+        _coverageNote =
+            'Saved image and PDF pages are included, with saved College Report responses when available.';
       });
     } catch (error) {
       if (mounted) setState(() => _error = portfolioExportError(error));

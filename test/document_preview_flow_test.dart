@@ -17,11 +17,14 @@ import 'package:proport_app/services/auth_service.dart';
 import 'package:proport_app/services/document_models.dart';
 import 'package:proport_app/services/document_scope.dart';
 import 'package:proport_app/services/document_service.dart';
+import 'package:proport_app/services/portfolio_scope.dart';
+import 'package:proport_app/services/portfolio_service.dart';
 import 'package:proport_app/services/secure_token_store.dart';
 import 'package:proport_app/services/pdf_thumbnail_renderer.dart';
 import 'package:proport_app/widgets/document_image_preview.dart';
 import 'package:proport_app/widgets/document_pdf_preview.dart';
 import 'package:proport_app/widgets/document_unsupported_preview.dart';
+import 'support/portfolio_template_test_support.dart';
 
 final samplePngBytes = Uint8List.fromList([
   0x89,
@@ -167,17 +170,23 @@ class _MockAuthService extends AuthService {
     }
     return contentBytes ?? samplePngBytes;
   }
+
+  @override
+  Future<Map<String, dynamic>> authenticatedGetJson(String path) async =>
+      portfolioTemplateEnvelope();
 }
 
 class _TestDocumentService extends DocumentService {
   _TestDocumentService({
-    required _MockAuthService authService,
+    required this.authService,
     List<DocumentRecord> documents = const [],
     this.ocrResult = const DocumentOcrResult(
       status: DocumentOcrStatus.notProcessed,
     ),
   }) : _docs = documents,
        super(authService: authService);
+
+  final _MockAuthService authService;
 
   final List<DocumentRecord> _docs;
   DocumentOcrResult ocrResult;
@@ -319,11 +328,19 @@ DocumentRecord _makeUnsupportedDoc({
 
 Widget _wrapWithScope({
   required DocumentService documentService,
+  AuthService? authService,
   required Widget child,
 }) {
+  final auth = authService ??
+      (documentService is _TestDocumentService
+          ? documentService.authService
+          : _MockAuthService());
   return DocumentScope(
     documentService: documentService,
-    child: MaterialApp(home: child),
+    child: PortfolioScope(
+      portfolioService: PortfolioService(authService: auth),
+      child: MaterialApp(home: child),
+    ),
   );
 }
 

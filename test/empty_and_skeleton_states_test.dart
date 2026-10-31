@@ -16,6 +16,9 @@ import 'package:proport_app/services/document_service.dart';
 import 'package:proport_app/services/secure_token_store.dart';
 import 'package:proport_app/widgets/app_empty_state.dart';
 import 'package:proport_app/widgets/app_skeleton.dart';
+import 'package:proport_app/services/portfolio_scope.dart';
+import 'package:proport_app/services/portfolio_service.dart';
+import 'support/portfolio_template_test_support.dart';
 
 class _FakeTokenStore implements SecureTokenStore {
   @override
@@ -27,11 +30,14 @@ class _FakeTokenStore implements SecureTokenStore {
 }
 
 class _FakeAuthService extends AuthService {
+  @override
+  Future<Map<String, dynamic>> authenticatedGetJson(String path) async =>
+      portfolioTemplateEnvelope();
   _FakeAuthService()
-      : super(
-          apiClient: ApiClient(baseUrl: 'http://localhost:3000'),
-          tokenStore: _FakeTokenStore(),
-        );
+    : super(
+        apiClient: ApiClient(baseUrl: 'http://localhost:3000'),
+        tokenStore: _FakeTokenStore(),
+      );
 }
 
 class _TestDocService extends DocumentService {
@@ -44,13 +50,13 @@ class _TestDocService extends DocumentService {
     DocumentOcrResult? ocrResult,
     Completer<DocumentOcrResult>? loadCompleter,
     Completer<DocumentOcrResult>? extractCompleter,
-  })  : _testCategories = testCategories,
-        _testDocuments = testDocuments,
-        _isLoading = isLoading,
-        _errorMessage = errorMessage,
-        _ocrResult = ocrResult,
-        _loadCompleter = loadCompleter,
-        _extractCompleter = extractCompleter;
+  }) : _testCategories = testCategories,
+       _testDocuments = testDocuments,
+       _isLoading = isLoading,
+       _errorMessage = errorMessage,
+       _ocrResult = ocrResult,
+       _loadCompleter = loadCompleter,
+       _extractCompleter = extractCompleter;
 
   final List<DocumentCategory> _testCategories;
   final List<DocumentRecord> _testDocuments;
@@ -150,80 +156,81 @@ void main() {
       expect(find.byType(AppShimmer), findsWidgets);
     });
 
-    testWidgets('shows full AppEmptyState when loaded with no files/categories', (
+    testWidgets(
+      'shows full AppEmptyState when loaded with no files/categories',
+      (tester) async {
+        final auth = _FakeAuthService();
+        final service = _TestDocService(
+          authService: auth,
+          isLoading: false,
+          testCategories: const [],
+        );
+
+        await tester.pumpWidget(
+          MaterialApp(
+            home: DocumentScope(
+              documentService: service,
+              child: const FilesScreen(),
+            ),
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        expect(find.text('No files yet'), findsOneWidget);
+        expect(find.text('Add File'), findsOneWidget);
+        expect(find.text('Supports PDF, JPG, and PNG files.'), findsOneWidget);
+        expect(find.byType(AppEmptyIllustration), findsOneWidget);
+      },
+    );
+
+    testWidgets(
+      'shows search empty state and clears query with Clear Search button',
+      (tester) async {
+        final auth = _FakeAuthService();
+        final categories = [
+          const DocumentCategory(
+            key: 'cv',
+            name: 'Curriculum Vitae',
+            folders: [DocumentFolder(key: 'resume', name: 'Resume')],
+          ),
+        ];
+        final service = _TestDocService(
+          authService: auth,
+          testCategories: categories,
+        );
+
+        await tester.pumpWidget(
+          MaterialApp(
+            home: DocumentScope(
+              documentService: service,
+              child: const FilesScreen(),
+            ),
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        expect(find.text('Resume'), findsOneWidget);
+
+        // Enter search text that does not match
+        await tester.enterText(find.byType(TextField), 'nonexistent_query');
+        await tester.pumpAndSettle();
+
+        expect(find.text('No matching folders'), findsOneWidget);
+        expect(find.text('Clear Search'), findsOneWidget);
+        expect(find.text('Resume'), findsNothing);
+
+        // Tap Clear Search CTA
+        await tester.tap(find.text('Clear Search'));
+        await tester.pumpAndSettle();
+
+        expect(find.text('Resume'), findsOneWidget);
+        expect(find.text('No matching folders'), findsNothing);
+      },
+    );
+
+    testWidgets('empty category renders compact inline empty state', (
       tester,
     ) async {
-      final auth = _FakeAuthService();
-      final service = _TestDocService(
-        authService: auth,
-        isLoading: false,
-        testCategories: const [],
-      );
-
-      await tester.pumpWidget(
-        MaterialApp(
-          home: DocumentScope(
-            documentService: service,
-            child: const FilesScreen(),
-          ),
-        ),
-      );
-      await tester.pumpAndSettle();
-
-      expect(find.text('No files yet'), findsOneWidget);
-      expect(find.text('Add File'), findsOneWidget);
-      expect(
-        find.text('Supports PDF, JPG, and PNG files.'),
-        findsOneWidget,
-      );
-      expect(find.byType(AppEmptyIllustration), findsOneWidget);
-    });
-
-    testWidgets('shows search empty state and clears query with Clear Search button', (
-      tester,
-    ) async {
-      final auth = _FakeAuthService();
-      final categories = [
-        const DocumentCategory(
-          key: 'cv',
-          name: 'Curriculum Vitae',
-          folders: [DocumentFolder(key: 'resume', name: 'Resume')],
-        ),
-      ];
-      final service = _TestDocService(
-        authService: auth,
-        testCategories: categories,
-      );
-
-      await tester.pumpWidget(
-        MaterialApp(
-          home: DocumentScope(
-            documentService: service,
-            child: const FilesScreen(),
-          ),
-        ),
-      );
-      await tester.pumpAndSettle();
-
-      expect(find.text('Resume'), findsOneWidget);
-
-      // Enter search text that does not match
-      await tester.enterText(find.byType(TextField), 'nonexistent_query');
-      await tester.pumpAndSettle();
-
-      expect(find.text('No matching folders'), findsOneWidget);
-      expect(find.text('Clear Search'), findsOneWidget);
-      expect(find.text('Resume'), findsNothing);
-
-      // Tap Clear Search CTA
-      await tester.tap(find.text('Clear Search'));
-      await tester.pumpAndSettle();
-
-      expect(find.text('Resume'), findsOneWidget);
-      expect(find.text('No matching folders'), findsNothing);
-    });
-
-    testWidgets('empty category renders compact inline empty state', (tester) async {
       final auth = _FakeAuthService();
       final categories = [
         const DocumentCategory(
@@ -253,33 +260,34 @@ void main() {
   });
 
   group('Portfolio Preview Loading & Empty States', () {
-    testWidgets('PortfolioDocumentsBuilder renders PortfolioPreviewSkeleton while loading', (
-      tester,
-    ) async {
-      final auth = _FakeAuthService();
-      final service = _TestDocService(
-        authService: auth,
-        isLoading: true,
-      );
+    testWidgets(
+      'PortfolioDocumentsBuilder renders PortfolioPreviewSkeleton while loading',
+      (tester) async {
+        final auth = _FakeAuthService();
+        final service = _TestDocService(authService: auth, isLoading: true);
 
-      await tester.pumpWidget(
-        MaterialApp(
-          home: DocumentScope(
-            documentService: service,
-            child: PortfolioDocumentsBuilder(
-              builder: (docs) => const Text('Loaded'),
+        await tester.pumpWidget(
+          MaterialApp(
+            home: DocumentScope(
+              documentService: service,
+              child: PortfolioScope(
+                portfolioService: PortfolioService(authService: auth),
+                child: PortfolioDocumentsBuilder(
+                  builder: (docs, template) => const Text('Loaded'),
+                ),
+              ),
             ),
           ),
-        ),
-      );
-      await tester.pump();
+        );
+        await tester.pump();
 
-      expect(
-        find.byKey(const Key('portfolio-documents-loading')),
-        findsOneWidget,
-      );
-      expect(find.byType(PortfolioPreviewSkeleton), findsOneWidget);
-    });
+        expect(
+          find.byKey(const Key('portfolio-documents-loading')),
+          findsOneWidget,
+        );
+        expect(find.byType(PortfolioPreviewSkeleton), findsOneWidget);
+      },
+    );
 
     testWidgets('PortfolioPreviewScreen renders empty documents state', (
       tester,
@@ -303,7 +311,10 @@ void main() {
         MaterialApp(
           home: DocumentScope(
             documentService: service,
-            child: PortfolioPreviewScreen(portfolioInfo: info),
+            child: PortfolioScope(
+              portfolioService: PortfolioService(authService: auth),
+              child: PortfolioPreviewScreen(portfolioInfo: info),
+            ),
           ),
         ),
       );
@@ -314,106 +325,114 @@ void main() {
   });
 
   group('DocumentOcrScreen Skeleton & Text Retention', () {
-    testWidgets('shows OcrTextSkeleton while loading OCR with no existing text', (
-      tester,
-    ) async {
-      final auth = _FakeAuthService();
-      final completer = Completer<DocumentOcrResult>();
-      final doc = _makeDocument();
-      final service = _TestDocService(
-        authService: auth,
-        testDocuments: [doc],
-        loadCompleter: completer,
-      );
+    testWidgets(
+      'shows OcrTextSkeleton while loading OCR with no existing text',
+      (tester) async {
+        final auth = _FakeAuthService();
+        final completer = Completer<DocumentOcrResult>();
+        final doc = _makeDocument();
+        final service = _TestDocService(
+          authService: auth,
+          testDocuments: [doc],
+          loadCompleter: completer,
+        );
 
-      await tester.pumpWidget(
-        MaterialApp(
-          home: DocumentScope(
-            documentService: service,
-            child: DocumentOcrScreen(document: doc),
+        await tester.pumpWidget(
+          MaterialApp(
+            home: DocumentScope(
+              documentService: service,
+              child: DocumentOcrScreen(document: doc),
+            ),
           ),
-        ),
-      );
-      await tester.pump();
+        );
+        await tester.pump();
 
-      expect(find.byType(OcrTextSkeleton), findsOneWidget);
+        expect(find.byType(OcrTextSkeleton), findsOneWidget);
 
-      completer.complete(
-        const DocumentOcrResult(
-          status: DocumentOcrStatus.notProcessed,
-        ),
-      );
-      await tester.pump();
-      await tester.pump(const Duration(milliseconds: 100));
+        completer.complete(
+          const DocumentOcrResult(status: DocumentOcrStatus.notProcessed),
+        );
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 100));
 
-      expect(find.byType(OcrTextSkeleton), findsNothing);
-      expect(find.text('No extracted text yet.'), findsOneWidget);
-      expect(find.text('Extract Text'), findsOneWidget);
-    });
+        expect(find.byType(OcrTextSkeleton), findsNothing);
+        expect(find.text('No extracted text yet.'), findsOneWidget);
+        expect(find.text('Extract Text'), findsOneWidget);
+      },
+    );
 
-    testWidgets('Extract Again preserves existing text in read-only mode and does NOT show skeleton', (
-      tester,
-    ) async {
-      final auth = _FakeAuthService();
-      final completer = Completer<DocumentOcrResult>();
-      final doc = _makeDocument();
-      final service = _TestDocService(
-        authService: auth,
-        testDocuments: [doc],
-        ocrResult: const DocumentOcrResult(
-          status: DocumentOcrStatus.ready,
-          reviewedText: 'Existing certificate transcript text',
-        ),
-        extractCompleter: completer,
-      );
-
-      await tester.pumpWidget(
-        MaterialApp(
-          home: DocumentScope(
-            documentService: service,
-            child: DocumentOcrScreen(document: doc),
+    testWidgets(
+      'Extract Again preserves existing text in read-only mode and does NOT show skeleton',
+      (tester) async {
+        final auth = _FakeAuthService();
+        final completer = Completer<DocumentOcrResult>();
+        final doc = _makeDocument();
+        final service = _TestDocService(
+          authService: auth,
+          testDocuments: [doc],
+          ocrResult: const DocumentOcrResult(
+            status: DocumentOcrStatus.ready,
+            reviewedText: 'Existing certificate transcript text',
           ),
-        ),
-      );
-      await tester.pump();
-      await tester.pump(const Duration(milliseconds: 100));
+          extractCompleter: completer,
+        );
 
-      // Existing text is displayed
-      expect(find.text('Existing certificate transcript text'), findsOneWidget);
+        await tester.pumpWidget(
+          MaterialApp(
+            home: DocumentScope(
+              documentService: service,
+              child: DocumentOcrScreen(document: doc),
+            ),
+          ),
+        );
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 100));
 
-      // Tap Extract Again
-      await tester.ensureVisible(find.byKey(const Key('extract-again-button')));
-      await tester.tap(find.byKey(const Key('extract-again-button')));
-      await tester.pumpAndSettle();
+        // Existing text is displayed
+        expect(
+          find.text('Existing certificate transcript text'),
+          findsOneWidget,
+        );
 
-      // Confirm dialog
-      expect(find.text('Extract text again?'), findsOneWidget);
-      await tester.tap(find.text('Extract Again').last);
-      await tester.pump();
-      await tester.pump(const Duration(milliseconds: 100));
+        // Tap Extract Again
+        await tester.ensureVisible(
+          find.byKey(const Key('extract-again-button')),
+        );
+        await tester.tap(find.byKey(const Key('extract-again-button')));
+        await tester.pumpAndSettle();
 
-      // In flight: skeleton must NOT replace the existing text!
-      expect(find.byType(OcrTextSkeleton), findsNothing);
-      expect(find.text('Existing certificate transcript text'), findsOneWidget);
+        // Confirm dialog
+        expect(find.text('Extract text again?'), findsOneWidget);
+        await tester.tap(find.text('Extract Again').last);
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 100));
 
-      // TextField must be read-only while extracting
-      final textField = tester.widget<TextField>(
-        find.byKey(const Key('ocr-reviewed-text')),
-      );
-      expect(textField.readOnly, isTrue);
+        // In flight: skeleton must NOT replace the existing text!
+        expect(find.byType(OcrTextSkeleton), findsNothing);
+        expect(
+          find.text('Existing certificate transcript text'),
+          findsOneWidget,
+        );
 
-      // Complete extraction
-      completer.complete(
-        const DocumentOcrResult(
-          status: DocumentOcrStatus.ready,
-          reviewedText: 'Updated transcript text',
-        ),
-      );
-      await tester.pump();
-      await tester.pump(const Duration(milliseconds: 100));
+        // TextField must be read-only while extracting
+        final textField = tester.widget<TextField>(
+          find.byKey(const Key('ocr-reviewed-text')),
+        );
+        expect(textField.readOnly, isTrue);
 
-      expect(find.text('Updated transcript text'), findsOneWidget);
-    });
+        // Complete extraction
+        completer.complete(
+          const DocumentOcrResult(
+            status: DocumentOcrStatus.ready,
+            reviewedText: 'Updated transcript text',
+          ),
+        );
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 100));
+
+        expect(find.text('Updated transcript text'), findsOneWidget);
+      },
+    );
   });
 
   group('BatchReviewScreen Empty State', () {
@@ -451,9 +470,7 @@ void main() {
           data: MediaQueryData(disableAnimations: true),
           child: Directionality(
             textDirection: TextDirection.ltr,
-            child: AppShimmer(
-              child: AppSkeletonBox(width: 100, height: 20),
-            ),
+            child: AppShimmer(child: AppSkeletonBox(width: 100, height: 20)),
           ),
         ),
       );

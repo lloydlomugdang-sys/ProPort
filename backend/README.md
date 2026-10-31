@@ -2,6 +2,10 @@
 
 This directory contains GradPort's Fastify and MongoDB backend. It includes the persistence foundation and the versioned authentication, current-user, portfolio, and document APIs used by the Flutter Android and iOS clients.
 
+Portfolio export structure is operator-configurable through the validated
+`src/config/portfolio-templates.json` catalog. See [SO3 portfolio templates](docs/portfolio-templates.md)
+for supported rules, safe version activation, read-only client access and pending physical QA.
+
 Authenticated PDF/JPEG/PNG uploads use private local object storage in development and private Cloudflare R2 storage in production. Local OCR and embedded PDF text extraction read through the same storage abstraction.
 
 ## Requirements

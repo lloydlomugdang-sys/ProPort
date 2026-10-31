@@ -10,6 +10,10 @@ import 'package:proport_app/services/document_service.dart';
 import 'package:proport_app/services/portfolio_export_service.dart';
 import 'package:proport_app/services/secure_token_store.dart';
 import 'support/portfolio_export_test_support.dart';
+import 'support/portfolio_template_test_support.dart';
+import 'package:proport_app/services/portfolio_scope.dart';
+import 'package:proport_app/services/portfolio_service.dart';
+import 'package:proport_app/services/portfolio_template.dart';
 
 const _info = PortfolioInfo(
   fullName: 'Portfolio Student',
@@ -94,34 +98,68 @@ class _Tokens implements SecureTokenStore {
 class _Auth extends AuthService {
   _Auth() : super(tokenStore: _Tokens());
   @override
-  Future<Map<String, dynamic>> authenticatedGetJson(String path) async => {
-    'data': path.endsWith('/categories')
-        ? {'categories': _categories}
-        : {
-            'documents': _documents,
-            'summary': {
-              'totalCount': 12,
-              'categoryCounts': {
-                'curriculum-vitae': 1,
-                'scholastic-record': 1,
-                'certificates': 4,
-                'accomplishments': 4,
-                'other-achievements': 1,
-                'college-report': 1,
-              },
-              'folderCounts': {'certificates/creative-title': 1},
-            },
-          },
-  };
+  Future<Map<String, dynamic>> authenticatedGetJson(String path) async =>
+      path.endsWith('/template')
+      ? portfolioTemplateEnvelope()
+      : {
+          'data': path.endsWith('/categories')
+              ? {'categories': _categories}
+              : {
+                  'documents': _documents,
+                  'summary': {
+                    'totalCount': 12,
+                    'categoryCounts': {
+                      'curriculum-vitae': 1,
+                      'scholastic-record': 1,
+                      'certificates': 4,
+                      'accomplishments': 4,
+                      'other-achievements': 1,
+                      'college-report': 1,
+                    },
+                    'folderCounts': {'certificates/creative-title': 1},
+                  },
+                },
+        };
 }
 
 void main() {
+  test(
+    'display-label changes cannot merge stable sections or turn them into a global Creative Title group',
+    () async {
+      final json = portfolioTemplateJson();
+      for (final section in json['sections'] as List) {
+        section['label'] = 'Creative Title';
+      }
+      final auth = _Auth();
+      final documents = DocumentService(authService: auth);
+      addTearDown(auth.dispose);
+      addTearDown(documents.dispose);
+      await documents.load();
+      final content = PortfolioExportContent.fromDocuments(
+        _info,
+        documents,
+        PortfolioTemplate.fromJson(json),
+      );
+      expect(content.sections, hasLength(6));
+      expect(content.sections.map((s) => s.documents.length), [
+        1,
+        1,
+        4,
+        4,
+        1,
+        1,
+      ]);
+      expect(content.includedDocuments, 12);
+    },
+  );
+
   test(
     'portfolio presentation respects seeded subgroup order independent of upload order',
     () {
       final ordered = PortfolioDocumentOrder.sorted(
         _documents.map(DocumentRecord.fromJson).toList(),
         _categories.map(DocumentCategory.fromJson).toList(),
+        testPortfolioTemplate(),
       );
       expect(ordered.map((d) => d.folderKey), [
         'curriculum-vitae',
@@ -142,7 +180,10 @@ void main() {
         'categoryKey': 'unknown',
         'folderKey': 'creative-title',
       });
-      expect(PortfolioDocumentOrder.sectionFor(unknown), 'unknown');
+      expect(
+        PortfolioDocumentOrder.sectionFor(unknown, testPortfolioTemplate()),
+        'unknown',
+      );
     },
   );
 
@@ -154,7 +195,11 @@ void main() {
       addTearDown(service.dispose);
       addTearDown(auth.dispose);
       await service.load();
-      final content = PortfolioExportContent.fromDocuments(_info, service);
+      final content = PortfolioExportContent.fromDocuments(
+        _info,
+        service,
+        testPortfolioTemplate(),
+      );
       expect(content.sections.first.name, 'Curriculum Vitae');
       expect(content.sections.last.name, 'College Report');
       expect(content.sections.first.documents, hasLength(1));
@@ -178,10 +223,13 @@ void main() {
       await tester.pumpWidget(
         DocumentScope(
           documentService: service,
-          child: MaterialApp(
-            home: PortfolioPreviewScreen(
-              portfolioInfo: _info,
-              exporter: MemoryPortfolioExporter(),
+          child: PortfolioScope(
+            portfolioService: PortfolioService(authService: auth),
+            child: MaterialApp(
+              home: PortfolioPreviewScreen(
+                portfolioInfo: _info,
+                exporter: MemoryPortfolioExporter(),
+              ),
             ),
           ),
         ),
@@ -190,6 +238,7 @@ void main() {
       final ordered = PortfolioDocumentOrder.sorted(
         service.documents,
         service.categories,
+        testPortfolioTemplate(),
       );
       double previousY = tester.getTopLeft(find.text('Standard Title')).dy;
       for (final document in ordered) {

@@ -11,6 +11,7 @@ import '../../services/document_scope.dart';
 import '../../services/document_service.dart';
 import '../../services/portfolio_export_service.dart';
 import '../../services/portfolio_scope.dart';
+import '../../services/portfolio_template.dart';
 import '../../widgets/grad_app_bar.dart';
 import '../../widgets/primary_button.dart';
 import '../../widgets/document_image_preview.dart';
@@ -99,9 +100,12 @@ class _PortfolioPreviewScreenState extends State<PortfolioPreviewScreen> {
     try {
       await docService.load(force: docService.errorMessage != null);
       if (!mounted) return null;
+      final template = await PortfolioScope.of(context).loadTemplate();
+      if (!mounted) return null;
       final content = PortfolioExportContent.fromDocuments(
         widget.portfolioInfo,
         docService,
+        template,
       );
       final file = await _exporter.generate(content, format);
       if (!mounted) return null;
@@ -471,23 +475,25 @@ class _PreviewSheet extends StatelessWidget {
           _buildStudentInfoSection(),
           const SizedBox(height: 24),
           PortfolioDocumentsBuilder(
-            builder: (documents) {
+            builder: (documents, template) {
               final summary = PortfolioSummary.fromDocumentSummary(
                 documents.summary,
+                template,
               );
               return Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
                   _buildSectionsIncluded(summary.sections),
                   const SizedBox(height: 24),
-                  _buildDocuments(context, documents, summary),
+                  _buildDocuments(context, documents, summary, template),
+                  if (template.section('college-report')?.enabled == true)
+                    const CollegeReportPreviewStatus(),
                 ],
               );
             },
           ),
           const SizedBox(height: 24),
           _buildFooterNote(),
-          const CollegeReportPreviewStatus(),
         ],
       ),
     );
@@ -609,23 +615,21 @@ class _PreviewSheet extends StatelessWidget {
     BuildContext context,
     DocumentService service,
     PortfolioSummary summary,
+    PortfolioTemplate template,
   ) {
-    final documents =
-        PortfolioDocumentOrder.sorted(service.documents, service.categories)
-            .toList();
-    final groups = <String>{
-      ...summary.sections.map((section) => section.name),
-      ...documents.map(PortfolioDocumentOrder.sectionFor),
-    };
+    final documents = PortfolioDocumentOrder.sorted(
+      service.documents,
+      service.categories,
+      template,
+    ).toList();
+    final groups = template.enabledSections;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-          Text(
-            'Document Details',
-            style: AppTextStyles.sectionHeader.copyWith(
-              color: AppColors.primary,
-            ),
-          ),
+        Text(
+          'Document Details',
+          style: AppTextStyles.sectionHeader.copyWith(color: AppColors.primary),
+        ),
         const SizedBox(height: 12),
         if (service.documents.isEmpty)
           const AppEmptyState(
@@ -641,16 +645,28 @@ class _PreviewSheet extends StatelessWidget {
           ),
         for (final group in groups)
           if (documents.any(
-            (document) => PortfolioDocumentOrder.sectionFor(document) == group,
-          )) ...[
+                (document) => PortfolioTemplate.keyFor(document) == group.key,
+              ) ||
+              (group.generateCreativeTitle &&
+                  (portfolioInfo.creativeTitles[group.key]?.isNotEmpty ??
+                      false))) ...[
             Text(
-              PortfolioDocumentOrder.label(group),
+              group.label,
               style: AppTextStyles.h4.copyWith(color: AppColors.primary),
             ),
             const SizedBox(height: 8),
+            if (group.generateCreativeTitle &&
+                (portfolioInfo.creativeTitles[group.key]?.isNotEmpty ?? false))
+              Padding(
+                padding: const EdgeInsets.symmetric(vertical: 24),
+                child: Text(
+                  portfolioInfo.creativeTitles[group.key]!,
+                  textAlign: TextAlign.center,
+                  style: AppTextStyles.h4,
+                ),
+              ),
             for (final document in documents.where(
-              (document) =>
-                  PortfolioDocumentOrder.sectionFor(document) == group,
+              (document) => PortfolioTemplate.keyFor(document) == group.key,
             ))
               _buildDocumentDetails(context, document, service.categories),
           ],

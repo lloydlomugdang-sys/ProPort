@@ -20,6 +20,7 @@ import 'package:proport_app/services/portfolio_scope.dart';
 import 'package:proport_app/services/portfolio_service.dart';
 import 'package:proport_app/services/secure_token_store.dart';
 import 'helpers/compiled_analysis_fixture.dart';
+import 'support/portfolio_template_test_support.dart';
 
 class _NoopTokenStore implements SecureTokenStore {
   @override
@@ -38,6 +39,10 @@ class _TestAuthService extends AuthService {
         apiClient: ApiClient(baseUrl: 'http://localhost:3000'),
         tokenStore: _NoopTokenStore(),
       );
+
+  @override
+  Future<Map<String, dynamic>> authenticatedGetJson(String path) async =>
+      portfolioTemplateEnvelope();
 
   @override
   AuthUser? get user => AuthUser(

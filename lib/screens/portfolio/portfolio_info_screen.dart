@@ -54,6 +54,7 @@ class _PortfolioInfoScreenState extends State<PortfolioInfoScreen>
   String? _legacyTerm;
   bool _prefillStarted = false;
   final _edited = <String>{};
+  Map<String, String> _creativeTitles = const {};
 
   @override
   void didChangeDependencies() {
@@ -79,6 +80,7 @@ class _PortfolioInfoScreenState extends State<PortfolioInfoScreen>
   }
 
   void _prefill(PortfolioInfo info) {
+    _creativeTitles = info.creativeTitles;
     final values = info.normalizedMap;
     final controllers = {
       'fullName': _fullNameCtrl,
@@ -117,6 +119,7 @@ class _PortfolioInfoScreenState extends State<PortfolioInfoScreen>
     super.initState();
     final info = widget.portfolio?.info;
     if (info != null) {
+      _creativeTitles = info.creativeTitles;
       _fullNameCtrl.text = info.fullName;
       _yearSectionCtrl.text = info.yearAndSection;
       final parsedSchedule = PortfolioSchedule.tryParse(info.schedule);
@@ -175,6 +178,13 @@ class _PortfolioInfoScreenState extends State<PortfolioInfoScreen>
   // ─── Validation & navigation ──────────────────────────────────────────────────
   Future<void> _onNext() async {
     if (_isSaving) return;
+    // Summary may have saved section titles since this form was first opened.
+    // Preserve that shared saved state when navigating back and then Next again.
+    final savedId = widget.portfolio?.id ?? _createdPortfolio?.id;
+    final saved = PortfolioScope.of(
+      context,
+    ).portfolios.where((p) => p.id == savedId).firstOrNull;
+    if (saved != null) _creativeTitles = saved.info.creativeTitles;
     final schedule =
         _scheduleDay == null ||
             _scheduleStartTime == null ||
@@ -187,6 +197,7 @@ class _PortfolioInfoScreenState extends State<PortfolioInfoScreen>
           );
     final info = PortfolioInfo(
       fullName: _fullNameCtrl.text.trim(),
+      creativeTitles: _creativeTitles,
       yearAndSection: _yearSectionCtrl.text.trim(),
       schedule: schedule?.formatted ?? '',
       instructorName: _instructorCtrl.text.trim(),

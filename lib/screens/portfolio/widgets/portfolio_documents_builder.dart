@@ -4,13 +4,16 @@ import '../../../constants/app_text_styles.dart';
 import '../../../services/api_client.dart';
 import '../../../services/document_scope.dart';
 import '../../../services/document_service.dart';
+import '../../../services/portfolio_scope.dart';
+import '../../../services/portfolio_template.dart';
 import '../../../widgets/app_skeleton.dart';
 
 /// Reuses authenticated document state; a failed load is never a zero count.
 class PortfolioDocumentsBuilder extends StatefulWidget {
   const PortfolioDocumentsBuilder({super.key, required this.builder});
 
-  final Widget Function(DocumentService documents) builder;
+  final Widget Function(DocumentService documents, PortfolioTemplate template)
+  builder;
 
   @override
   State<PortfolioDocumentsBuilder> createState() =>
@@ -21,6 +24,7 @@ class _PortfolioDocumentsBuilderState extends State<PortfolioDocumentsBuilder> {
   bool _requested = false;
   bool _waiting = true;
   String? _error;
+  PortfolioTemplate? _template;
 
   @override
   void didChangeDependencies() {
@@ -38,14 +42,18 @@ class _PortfolioDocumentsBuilderState extends State<PortfolioDocumentsBuilder> {
       _error = null;
     });
     try {
+      final portfolios = PortfolioScope.maybeOf(context);
+      if (portfolios == null) throw const FormatException();
+      _template = await portfolios.loadTemplate(force: true);
+      if (!mounted) return;
       await DocumentScope.of(context).load(force: true);
     } catch (error) {
       if (mounted) {
         setState(() {
           _error = error is ApiException
               ? (error.message.isNotEmpty
-                  ? error.message
-                  : 'Unable to load portfolio documents. Please try again.')
+                    ? error.message
+                    : 'Unable to load portfolio documents. Please try again.')
               : 'Unable to load portfolio documents. Please try again.';
         });
       }
@@ -66,6 +74,7 @@ class _PortfolioDocumentsBuilderState extends State<PortfolioDocumentsBuilder> {
     }
     final error = _error ?? service.errorMessage;
     if (error != null ||
+        _template == null ||
         !service.hasLoadedDocuments ||
         !service.hasLoadedCategories) {
       return Column(
@@ -79,6 +88,6 @@ class _PortfolioDocumentsBuilderState extends State<PortfolioDocumentsBuilder> {
         ],
       );
     }
-    return widget.builder(service);
+    return widget.builder(service, _template!);
   }
 }
